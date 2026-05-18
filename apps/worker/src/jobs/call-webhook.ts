@@ -1,12 +1,20 @@
 import type { Job } from 'bullmq';
 import type { CallStatus } from '@excess/db';
 import { prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import axios from 'axios';
+import { env } from '@excess/config';
 import { queues } from '../queues.js';
 import { scheduleRetryDial } from './retry-dial.js';
 
+const s3 = new S3Client({ region: env.AWS_REGION });
+
 export interface CallWebhookPayload {
   eventType: string;
-  vapiCallId: string;
+  vapiCallId?: string;
+  callId?: string;
+  tenantId?: string;
+  recordingUrl?: string;
   raw: Record<string, unknown>;
 }
 
@@ -32,14 +40,17 @@ interface VapiCallEnded {
 }
 
 export async function processCallWebhook(job: Job<CallWebhookPayload>): Promise<void> {
-  const { eventType, vapiCallId, raw } = job.data;
+  const { eventType, vapiCallId, callId, tenantId, recordingUrl, raw } = job.data;
 
   switch (eventType) {
     case 'call-started':
-      await handleCallStarted(vapiCallId);
+      await handleCallStarted(vapiCallId!);
       break;
     case 'call-ended':
-      await handleCallEnded(vapiCallId, raw as unknown as VapiCallEnded);
+      await handleCallEnded(vapiCallId!, raw as unknown as VapiCallEnded);
+      break;
+    case 'download-recording':
+      await handleDownloadRecording(callId!, tenantId!, recordingUrl!);
       break;
     default:
       await job.log(`Unhandled event type: ${eventType}`);
@@ -128,9 +139,11 @@ async function handleCallEnded(vapiCallId: string, payload: VapiCallEnded): Prom
   // Enqueue recording download if URL present
   if (callData.artifact?.recordingUrl) {
     await queues.callWebhook.add('download-recording', {
+      eventType: 'download-recording',
       callId: call.id,
       tenantId: call.tenantId,
       recordingUrl: callData.artifact.recordingUrl,
+      raw: {},
     });
   }
 
@@ -160,6 +173,32 @@ function mapEndReason(reason: string): CallStatus {
   if (noAnswerReasons.some((r) => reason.includes(r))) return 'NO_ANSWER';
   if (failedReasons.some((r) => reason.includes(r))) return 'FAILED';
   return 'COMPLETED';
+}
+
+async function handleDownloadRecording(
+  callId: string,
+  tenantId: string,
+  recordingUrl: string,
+): Promise<void> {
+  const response = await axios.get<ArrayBuffer>(recordingUrl, { responseType: 'arraybuffer' });
+  const buffer = Buffer.from(response.data);
+
+  const s3Key = `recordings/${tenantId}/${callId}.mp3`;
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: env.S3_BUCKET_RECORDINGS,
+      Key: s3Key,
+      Body: buffer,
+      ContentType: 'audio/mpeg',
+    }),
+  );
+
+  await withSystemContext(prisma, tenantId, (tx) =>
+    tx.call.update({
+      where: { id: callId },
+      data: { recordingS3Key: s3Key, recordingUrl: null },
+    }),
+  );
 }
 
 function deriveStageFromCallOutcome(

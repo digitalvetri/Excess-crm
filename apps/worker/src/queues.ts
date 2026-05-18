@@ -26,6 +26,7 @@ export const queues = {
   commissionCalc: mkQueue('commission-calc'),
   dndScrub: mkQueue('dnd-scrub'),
   humanHandoff: mkQueue('human-handoff'),
+  pdfRender: mkQueue('pdf-render'),
 } as const;
 
 export type QueueName = keyof typeof queues;

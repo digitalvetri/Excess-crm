@@ -1,5 +1,12 @@
+import { createHash, timingSafeEqual } from 'crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import { prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
+
+function safeEqual(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
 
 interface JustDialLead {
   requestid?: string;
@@ -26,11 +33,14 @@ export const justdialWebhookRoutes: FastifyPluginAsync = async (app) => {
 
     const source = sources.find((s) => {
       const cfg = s.config as Record<string, unknown>;
-      return cfg['secret'] === incomingKey || cfg['apiKey'] === incomingKey;
+      return (
+        (typeof cfg['secret'] === 'string' && safeEqual(cfg['secret'], incomingKey)) ||
+        (typeof cfg['apiKey'] === 'string' && safeEqual(cfg['apiKey'], incomingKey))
+      );
     });
 
     if (!source) {
-      req.log.warn({ key: incomingKey }, 'Unknown JustDial source key');
+      req.log.warn({ keyPrefix: incomingKey.slice(0, 4) }, 'justdial.unknown_source_key');
       return reply.code(200).send('ok');
     }
 

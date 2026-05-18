@@ -255,6 +255,15 @@ export const quotationsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(404).send({ error: { code: 'quotation.not_found', message: 'Quotation not found' } });
     }
 
+    // Enqueue PDF generation if not already rendered
+    if (!quotation.pdfS3Key) {
+      await app.queues.pdfRender.add(
+        'pdf-render',
+        { quotationId: id, tenantId: req.auth.tenantId },
+        { priority: 1 },
+      );
+    }
+
     if (via === 'whatsapp') {
       await app.queues.whatsappSend.add('whatsapp-send', {
         tenantId: req.auth.tenantId,

@@ -28,6 +28,7 @@ export const appQueues = {
   emailSend: mkQueue('email-send'),
   humanHandoff: mkQueue('human-handoff'),
   commissionCalc: mkQueue('commission-calc'),
+  pdfRender: mkQueue('pdf-render'),
 };
 
 declare module 'fastify' {

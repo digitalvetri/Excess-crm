@@ -366,6 +366,7 @@ model Call {
   status        CallStatus    @default(QUEUED)
   endReason     String?       @map("end_reason")
   recordingUrl  String?       @map("recording_url")
+  recordingS3Key String?      @map("recording_s3_key")
   transcript    Json?
   llmAnalysis   Json?         @map("llm_analysis")
   costInr       Decimal?      @db.Decimal(10, 4) @map("cost_inr")

@@ -10,6 +10,7 @@ import { processHumanHandoff } from './jobs/human-handoff.js';
 import { processCommissionCalc } from './jobs/commission-calc.js';
 import { processWhatsappSend } from './jobs/whatsapp-send.js';
 import { processEmailSend } from './jobs/email-send.js';
+import { processPdfRender } from './jobs/pdf-render.js';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
@@ -35,11 +36,12 @@ mkWorker('human-handoff', processHumanHandoff);
 mkWorker('commission-calc', processCommissionCalc);
 mkWorker('whatsapp-send', processWhatsappSend);
 mkWorker('email-send', processEmailSend);
+mkWorker('pdf-render', processPdfRender);
 
 startFollowUpScheduler();
 startDailyScheduler();
 
-log.info('Worker started — listening on: lead-ingest, voice-dial, call-webhook, human-handoff, commission-calc, whatsapp-send, email-send + follow-up scheduler + daily-compliance-scheduler');
+log.info('Worker started — listening on: lead-ingest, voice-dial, call-webhook, human-handoff, commission-calc, whatsapp-send, email-send, pdf-render + follow-up scheduler + daily-compliance-scheduler');
 
 async function shutdown() {
   log.info('Shutting down workers...');

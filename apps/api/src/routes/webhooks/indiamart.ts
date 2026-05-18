@@ -1,5 +1,12 @@
+import { createHash, timingSafeEqual } from 'crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import { prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
+
+function safeEqual(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
 
 interface IndiamartLead {
   UNIQUE_QUERY_ID?: string;
@@ -24,11 +31,11 @@ export const indiamartWebhookRoutes: FastifyPluginAsync = async (app) => {
 
     const source = sources.find((s) => {
       const cfg = s.config as Record<string, unknown>;
-      return cfg['apiKey'] === incomingKey;
+      return typeof cfg['apiKey'] === 'string' && safeEqual(cfg['apiKey'], incomingKey);
     });
 
     if (!source) {
-      req.log.warn({ key: incomingKey }, 'Unknown IndiaMART API key');
+      req.log.warn({ keyPrefix: incomingKey.slice(0, 4) }, 'indiamart.unknown_api_key');
       return reply.code(200).send('ok');
     }
 

@@ -1,0 +1,113 @@
+export type UserRole =
+  | 'ADMIN'
+  | 'EMPLOYEE'
+  | 'FRANCHISE_OWNER'
+  | 'FRANCHISE_USER'
+  | 'ENGINEER';
+
+const PERMS = {
+  'leads.read.all': ['ADMIN'] as UserRole[],
+  'leads.read.team': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+  'leads.read.own': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] as UserRole[],
+  'leads.write': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] as UserRole[],
+  'leads.assign': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+  'leads.bulk': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+  'leads.export': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER'] as UserRole[],
+  'leads.dial.force': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+  'voice_agent.read': ['ADMIN'] as UserRole[],
+  'voice_agent.configure': ['ADMIN'] as UserRole[],
+  'voice_agent.prompts.write': ['ADMIN'] as UserRole[],
+  'voice_agent.qa': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+  'calls.read': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+  'appointments.read': [
+    'ADMIN',
+    'EMPLOYEE',
+    'FRANCHISE_OWNER',
+    'FRANCHISE_USER',
+    'ENGINEER',
+  ] as UserRole[],
+  'appointments.write': [
+    'ADMIN',
+    'EMPLOYEE',
+    'FRANCHISE_OWNER',
+    'FRANCHISE_USER',
+  ] as UserRole[],
+  'appointments.assign': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+  'teams.read': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+  'teams.write': ['ADMIN'] as UserRole[],
+  'teams.members.write': ['ADMIN'] as UserRole[],
+  'routing_rules.read': ['ADMIN'] as UserRole[],
+  'routing_rules.write': ['ADMIN'] as UserRole[],
+  'franchise.read': ['ADMIN'] as UserRole[],
+  'franchise.write': ['ADMIN'] as UserRole[],
+  'franchise.suspend': ['ADMIN'] as UserRole[],
+  'franchise.terminate': ['ADMIN'] as UserRole[],
+  'franchise.broadcast': ['ADMIN'] as UserRole[],
+  'commissions.read': ['ADMIN', 'FRANCHISE_OWNER'] as UserRole[],
+  'commissions.approve': ['ADMIN'] as UserRole[],
+  'payouts.read': ['ADMIN', 'FRANCHISE_OWNER'] as UserRole[],
+  'payouts.write': ['ADMIN'] as UserRole[],
+  'quotations.read': [
+    'ADMIN',
+    'EMPLOYEE',
+    'FRANCHISE_OWNER',
+    'FRANCHISE_USER',
+  ] as UserRole[],
+  'quotations.write': [
+    'ADMIN',
+    'EMPLOYEE',
+    'FRANCHISE_OWNER',
+    'FRANCHISE_USER',
+  ] as UserRole[],
+  'quotations.send': [
+    'ADMIN',
+    'EMPLOYEE',
+    'FRANCHISE_OWNER',
+    'FRANCHISE_USER',
+  ] as UserRole[],
+  'tickets.read': [
+    'ADMIN',
+    'EMPLOYEE',
+    'FRANCHISE_OWNER',
+    'FRANCHISE_USER',
+  ] as UserRole[],
+  'tickets.write': [
+    'ADMIN',
+    'EMPLOYEE',
+    'FRANCHISE_OWNER',
+    'FRANCHISE_USER',
+  ] as UserRole[],
+  'kb.read': [
+    'ADMIN',
+    'EMPLOYEE',
+    'FRANCHISE_OWNER',
+    'FRANCHISE_USER',
+    'ENGINEER',
+  ] as UserRole[],
+  'kb.write': ['ADMIN'] as UserRole[],
+  'referrals.read': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] as UserRole[],
+  'referrals.write': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] as UserRole[],
+  'referrals.reward': ['ADMIN'] as UserRole[],
+  'leaderboard.read': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] as UserRole[],
+  'reviews.read': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER'] as UserRole[],
+  'reviews.write': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] as UserRole[],
+  'wallet.read': ['ADMIN', 'FRANCHISE_OWNER'] as UserRole[],
+  'wallet.write': ['ADMIN'] as UserRole[],
+  'admin.queues': ['ADMIN'] as UserRole[],
+  'admin.users': ['ADMIN'] as UserRole[],
+  'lead_sources.read': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER'] as UserRole[],
+  'lead_sources.write': ['ADMIN', 'FRANCHISE_OWNER'] as UserRole[],
+  'metrics.network': ['ADMIN'] as UserRole[],
+  'metrics.own': [
+    'ADMIN',
+    'EMPLOYEE',
+    'FRANCHISE_OWNER',
+    'FRANCHISE_USER',
+  ] as UserRole[],
+} as const;
+
+export type Permission = keyof typeof PERMS;
+
+export function can(role: UserRole, action: Permission): boolean {
+  return (PERMS[action] as readonly string[]).includes(role);
+}

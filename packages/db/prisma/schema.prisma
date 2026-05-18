@@ -1,0 +1,687 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum TenantType {
+  HQ
+  FRANCHISE
+}
+
+enum TenantStatus {
+  ONBOARDING
+  ACTIVE
+  PROBATION
+  SUSPENDED
+  TERMINATED
+}
+
+enum FranchiseTier {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+enum UserRole {
+  ADMIN
+  EMPLOYEE
+  FRANCHISE_OWNER
+  FRANCHISE_USER
+  ENGINEER
+}
+
+enum LeadSourceType {
+  META
+  INDIAMART
+  JUSTDIAL
+  WEBSITE
+  WHATSAPP
+  MANUAL
+}
+
+enum LeadStage {
+  NEW
+  QUALIFIED
+  FOLLOW_UP
+  CONVERTED
+  NOT_ANSWERED
+  INVALID
+  WRONG_ENQUIRY
+}
+
+enum ActivityType {
+  CALL
+  SMS
+  WHATSAPP
+  NOTE
+  STAGE_CHANGE
+  ASSIGNMENT
+  QUOTATION_SENT
+  APPOINTMENT_BOOKED
+  EMAIL
+  DUPLICATE_SUBMISSION
+}
+
+enum VoicePersona {
+  RESHMA_VERIFY
+  KARTHIK_SALES
+  RESHMA_FOLLOWUP
+  HUMAN
+}
+
+enum CallDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum CallStatus {
+  QUEUED
+  RINGING
+  IN_PROGRESS
+  COMPLETED
+  NO_ANSWER
+  BUSY
+  FAILED
+  DND_BLOCKED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  NO_SHOW
+  RESCHEDULED
+  CANCELLED
+}
+
+enum SurveyType {
+  ROOFTOP_RESIDENTIAL
+  COMMERCIAL
+  INDUSTRIAL
+  OFFGRID
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+}
+
+enum QuotationBrandTier {
+  ECONOMY
+  MID
+  PREMIUM
+}
+
+enum CommissionStatus {
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+  ON_HOLD
+  DISPUTED
+}
+
+enum TicketCategory {
+  TECHNICAL
+  OPERATIONAL
+  COMMERCIAL
+  PRODUCT
+  TRAINING
+}
+
+enum TicketPriority {
+  P1
+  P2
+  P3
+  P4
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+// ─── Core Tenancy ─────────────────────────────────────────────────────────────
+
+model Tenant {
+  id              String         @id @default(uuid()) @db.Uuid
+  name            String
+  type            TenantType
+  status          TenantStatus   @default(ONBOARDING)
+  tier            FranchiseTier?
+  territory       Json?
+  commissionSlabs Json?          @map("commission_slabs")
+  contactName     String?        @map("contact_name")
+  contactEmail    String?        @map("contact_email")
+  contactPhone    String?        @map("contact_phone")
+  gstNumber       String?        @map("gst_number")
+  bankAccount     Json?          @map("bank_account")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  deletedAt       DateTime?      @map("deleted_at")
+
+  users          User[]
+  teams          Team[]
+  leads          Lead[]
+  leadSources    LeadSource[]
+  calls          Call[]
+  appointments   Appointment[]
+  quotations     Quotation[]
+  commissions    Commission[]
+  payouts        Payout[]
+  tickets        Ticket[]
+  routingRules   RoutingRule[]
+  voiceConfigs   VoiceAgentConfig[]
+  voiceSettings  VoiceAgentSettings?
+  waSessions     WaSession[]
+  referrals      Referral[]
+  reviews        Review[]
+  wallet         Wallet?
+  coachCache     CoachCache?
+
+  @@map("tenants")
+}
+
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @db.Uuid @map("tenant_id")
+  email           String    @unique
+  phone           String?
+  passwordHash    String    @map("password_hash")
+  twoFactorSecret String?   @map("two_factor_secret")
+  name            String
+  role            UserRole
+  teamId          String?   @db.Uuid @map("team_id")
+  isActive        Boolean   @default(true) @map("is_active")
+  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  team     Team?     @relation(fields: [teamId], references: [id])
+  sessions Session[]
+
+  @@index([tenantId])
+  @@index([email])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid @map("user_id")
+  tenantId  String   @db.Uuid @map("tenant_id")
+  role      UserRole
+  teamId    String?  @db.Uuid @map("team_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Team {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid @map("tenant_id")
+  name         String
+  scope        Json     @default("{}")
+  leaderUserId String?  @db.Uuid @map("leader_user_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  members      User[]
+  leads        Lead[]
+  routingRules RoutingRule[]
+
+  @@index([tenantId])
+  @@map("teams")
+}
+
+model RoutingRule {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid @map("tenant_id")
+  priority     Int
+  condition    Json
+  targetTeamId String   @db.Uuid @map("target_team_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id])
+  targetTeam Team   @relation(fields: [targetTeamId], references: [id])
+
+  @@index([tenantId, priority])
+  @@map("routing_rules")
+}
+
+// ─── Leads ────────────────────────────────────────────────────────────────────
+
+model LeadSource {
+  id         String         @id @default(uuid()) @db.Uuid
+  tenantId   String         @db.Uuid @map("tenant_id")
+  type       LeadSourceType
+  label      String
+  config     Json           @default("{}")
+  isActive   Boolean        @default(true) @map("is_active")
+  lastSyncAt DateTime?      @map("last_sync_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  leads  Lead[]
+
+  @@index([tenantId])
+  @@map("lead_sources")
+}
+
+model Lead {
+  id               String         @id @default(uuid()) @db.Uuid
+  tenantId         String         @db.Uuid @map("tenant_id")
+  externalId       String?        @map("external_id")
+  sourceId         String?        @db.Uuid @map("source_id")
+  sourceType       LeadSourceType @map("source_type")
+  campaignName     String?        @map("campaign_name")
+  adName           String?        @map("ad_name")
+  name             String
+  phone            String
+  phoneRaw         String         @map("phone_raw")
+  email            String?
+  pincode          String?
+  city             String?
+  state            String?
+  rawPayload       Json           @default("{}") @map("raw_payload")
+  language         String?
+  aiScore          Int?           @map("ai_score")
+  stage            LeadStage      @default(NEW)
+  stageChangedAt   DateTime       @default(now()) @map("stage_changed_at")
+  ownerUserId      String?        @db.Uuid @map("owner_user_id")
+  teamId           String?        @db.Uuid @map("team_id")
+  factSheet        Json?          @map("fact_sheet")
+  isDuplicate      Boolean        @default(false) @map("is_duplicate")
+  duplicateOfId    String?        @db.Uuid @map("duplicate_of_id")
+  receivedAt       DateTime       @default(now()) @map("received_at")
+  firstContactedAt DateTime?      @map("first_contacted_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  source       LeadSource?   @relation(fields: [sourceId], references: [id])
+  team         Team?         @relation(fields: [teamId], references: [id])
+  activities   LeadActivity[]
+  calls        Call[]
+  appointments Appointment[]
+  quotations   Quotation[]
+  referrals    Referral[]
+  reviews      Review[]
+
+  @@index([tenantId, stage, receivedAt])
+  @@index([tenantId, phone])
+  @@index([phone])
+  @@map("leads")
+}
+
+model LeadActivity {
+  id          String       @id @default(uuid()) @db.Uuid
+  tenantId    String       @db.Uuid @map("tenant_id")
+  leadId      String       @db.Uuid @map("lead_id")
+  type        ActivityType
+  actorUserId String?      @db.Uuid @map("actor_user_id")
+  actorIsAi   Boolean      @default(false) @map("actor_is_ai")
+  payload     Json         @default("{}")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("lead_activities")
+}
+
+// ─── Voice Agent ──────────────────────────────────────────────────────────────
+
+model Call {
+  id            String        @id @default(uuid()) @db.Uuid
+  tenantId      String        @db.Uuid @map("tenant_id")
+  leadId        String        @db.Uuid @map("lead_id")
+  persona       VoicePersona
+  direction     CallDirection
+  vapiCallId    String?       @unique @map("vapi_call_id")
+  exotelCallSid String?       @map("exotel_call_sid")
+  fromNumber    String        @map("from_number")
+  toNumber      String        @map("to_number")
+  initiatedAt   DateTime      @map("initiated_at")
+  connectedAt   DateTime?     @map("connected_at")
+  endedAt       DateTime?     @map("ended_at")
+  durationSec   Int?          @map("duration_sec")
+  status        CallStatus    @default(QUEUED)
+  endReason     String?       @map("end_reason")
+  recordingUrl  String?       @map("recording_url")
+  transcript    Json?
+  llmAnalysis   Json?         @map("llm_analysis")
+  costInr       Decimal?      @db.Decimal(10, 4) @map("cost_inr")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  @@index([leadId])
+  @@index([tenantId, initiatedAt])
+  @@map("calls")
+}
+
+model VoiceAgentConfig {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @db.Uuid @map("tenant_id")
+  personaId       String    @map("persona_id")
+  systemPrompt    String    @db.Text @map("system_prompt")
+  version         Int       @default(1)
+  isActive        Boolean   @default(false) @map("is_active")
+  abTestPercent   Int?      @map("ab_test_percent")
+  activatedAt     DateTime? @map("activated_at")
+  createdByUserId String?   @db.Uuid @map("created_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, personaId, version])
+  @@map("voice_agent_configs")
+}
+
+model VoiceAgentSettings {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @unique @db.Uuid @map("tenant_id")
+  businessHoursStart String   @default("09:00") @map("business_hours_start")
+  businessHoursEnd   String   @default("21:00") @map("business_hours_end")
+  timezone           String   @default("Asia/Kolkata")
+  dailyCallCap       Int      @default(2000) @map("daily_call_cap")
+  dndPolicy          Json     @default("{}") @map("dnd_policy")
+  retryConfig        Json     @default("{}") @map("retry_config")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("voice_agent_settings")
+}
+
+model DndList {
+  id      String   @id @default(uuid()) @db.Uuid
+  phone   String   @unique
+  reason  String?
+  addedAt DateTime @default(now()) @map("added_at")
+
+  @@index([phone])
+  @@map("dnd_list")
+}
+
+// ─── Appointments ─────────────────────────────────────────────────────────────
+
+model Appointment {
+  id                 String            @id @default(uuid()) @db.Uuid
+  tenantId           String            @db.Uuid @map("tenant_id")
+  leadId             String            @db.Uuid @map("lead_id")
+  scheduledAt        DateTime          @map("scheduled_at")
+  durationMin        Int               @default(60) @map("duration_min")
+  surveyType         SurveyType        @map("survey_type")
+  siteAddress        String            @map("site_address")
+  siteLat            Decimal?          @db.Decimal(10, 7) @map("site_lat")
+  siteLng            Decimal?          @db.Decimal(10, 7) @map("site_lng")
+  assignedEngineerId String?           @db.Uuid @map("assigned_engineer_id")
+  status             AppointmentStatus @default(SCHEDULED)
+  preChecklist       Json?             @map("pre_checklist")
+  postNotes          String?           @map("post_notes")
+  createdByCallId    String?           @db.Uuid @map("created_by_call_id")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  @@index([tenantId, scheduledAt])
+  @@index([assignedEngineerId, scheduledAt])
+  @@map("appointments")
+}
+
+// ─── Quotations ───────────────────────────────────────────────────────────────
+
+model Quotation {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @db.Uuid @map("tenant_id")
+  leadId          String             @db.Uuid @map("lead_id")
+  number          String             @unique
+  systemKw        Decimal            @map("system_kw")
+  brandTier       QuotationBrandTier @map("brand_tier")
+  totalInr        Decimal            @map("total_inr")
+  subsidyInr      Decimal            @map("subsidy_inr")
+  netPayable      Decimal            @map("net_payable")
+  emiMonthly      Decimal?           @map("emi_monthly")
+  paybackYears    Decimal?           @map("payback_years")
+  lineItems       Json               @default("[]") @map("line_items")
+  pdfS3Key        String?            @map("pdf_s3_key")
+  sentAt          DateTime?          @map("sent_at")
+  sentVia         String?            @map("sent_via")
+  status          QuotationStatus    @default(DRAFT)
+  createdByUserId String             @db.Uuid @map("created_by_user_id")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([leadId])
+  @@map("quotations")
+}
+
+// ─── Franchise Financials ─────────────────────────────────────────────────────
+
+model Commission {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @db.Uuid @map("tenant_id")
+  leadId           String           @db.Uuid @map("lead_id")
+  dealValueInr     Decimal          @map("deal_value_inr")
+  ratePercent      Decimal          @map("rate_percent")
+  commissionInr    Decimal          @map("commission_inr")
+  gstInr           Decimal?         @map("gst_inr")
+  deductionsInr    Decimal?         @map("deductions_inr")
+  netPayableInr    Decimal          @map("net_payable_inr")
+  status           CommissionStatus @default(PENDING_APPROVAL)
+  approvedByUserId String?          @db.Uuid @map("approved_by_user_id")
+  paidAt           DateTime?        @map("paid_at")
+  payoutId         String?          @db.Uuid @map("payout_id")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  payout Payout? @relation(fields: [payoutId], references: [id])
+
+  @@index([tenantId, status])
+  @@map("commissions")
+}
+
+model Payout {
+  id            String      @id @default(uuid()) @db.Uuid
+  tenantId      String      @db.Uuid @map("tenant_id")
+  amountInr     Decimal     @map("amount_inr")
+  bankUtr       String?     @map("bank_utr")
+  paidAt        DateTime    @map("paid_at")
+  commissionIds String[]    @map("commission_ids")
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  commissions Commission[]
+
+  @@index([tenantId])
+  @@map("payouts")
+}
+
+// ─── Support ──────────────────────────────────────────────────────────────────
+
+model Ticket {
+  id                 String         @id @default(uuid()) @db.Uuid
+  tenantId           String         @db.Uuid @map("tenant_id")
+  raisedByUserId     String         @db.Uuid @map("raised_by_user_id")
+  category           TicketCategory
+  priority           TicketPriority
+  subject            String
+  description        String         @db.Text
+  attachments        Json?          @default("[]")
+  status             TicketStatus   @default(OPEN)
+  assignedToUserId   String?        @db.Uuid @map("assigned_to_user_id")
+  slaDueAt           DateTime       @map("sla_due_at")
+  resolvedAt         DateTime?      @map("resolved_at")
+  satisfactionRating Int?           @map("satisfaction_rating")
+  createdAt          DateTime       @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([slaDueAt])
+  @@map("tickets")
+}
+
+model KbArticle {
+  id          String    @id @default(uuid()) @db.Uuid
+  slug        String    @unique
+  title       String
+  body        String    @db.Text
+  category    String
+  language    String    @default("en")
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("kb_articles")
+}
+
+// ─── WhatsApp Sessions ────────────────────────────────────────────────────────
+
+model WaSession {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @db.Uuid @map("tenant_id")
+  leadId           String   @db.Uuid @map("lead_id")
+  phone            String
+  sessionExpiresAt DateTime @map("session_expires_at")
+  lastMessageAt    DateTime @map("last_message_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, phone])
+  @@map("wa_sessions")
+}
+
+// ─── Network Effects ──────────────────────────────────────────────────────────
+
+enum ReferralStatus {
+  PENDING
+  CONVERTED
+  REWARDED
+}
+
+enum WalletTxType {
+  CREDIT
+  DEBIT
+}
+
+model Referral {
+  id              String         @id @default(uuid()) @db.Uuid
+  tenantId        String         @db.Uuid @map("tenant_id")
+  referrerId      String         @db.Uuid @map("referrer_id")
+  referredLeadId  String         @db.Uuid @map("referred_lead_id")
+  status          ReferralStatus @default(PENDING)
+  rewardInr       Decimal?       @db.Decimal(12, 2) @map("reward_inr")
+  rewardedAt      DateTime?      @map("rewarded_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  tenant       Tenant @relation(fields: [tenantId], references: [id])
+  referredLead Lead   @relation(fields: [referredLeadId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([referrerId])
+  @@map("referrals")
+}
+
+model Review {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid @map("tenant_id")
+  leadId    String   @db.Uuid @map("lead_id")
+  rating    Int
+  comment   String?  @db.Text
+  source    String   @default("INTERNAL")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([leadId])
+  @@map("reviews")
+}
+
+model Wallet {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @unique @db.Uuid @map("tenant_id")
+  balanceInr Decimal  @default(0) @db.Decimal(14, 2) @map("balance_inr")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id])
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id          String       @id @default(uuid()) @db.Uuid
+  walletId    String       @db.Uuid @map("wallet_id")
+  tenantId    String       @db.Uuid @map("tenant_id")
+  type        WalletTxType
+  amountInr   Decimal      @db.Decimal(12, 2) @map("amount_inr")
+  description String
+  referenceId String?      @map("reference_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  @@index([walletId, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("wallet_transactions")
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  tenantId    String?  @db.Uuid @map("tenant_id")
+  actorUserId String?  @db.Uuid @map("actor_user_id")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String   @db.Uuid @map("entity_id")
+  diff        Json     @default("{}")
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_log")
+}
+
+// ─── Coach Cache ──────────────────────────────────────────────────────────────
+
+model CoachCache {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @unique @db.Uuid @map("tenant_id")
+  tips       Json     @default("[]")
+  computedAt DateTime @map("computed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("coach_cache")
+}

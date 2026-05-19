@@ -27,6 +27,16 @@ export interface RevenuePipeline {
   quotationsThisMonth: number;
 }
 
+export interface CallAnalytics {
+  totalCalls: number;
+  connectRate: number;
+  avgDurationSec: number;
+  byStatus: { status: string; count: number }[];
+  byPersona: { persona: string; total: number; connected: number; connectRate: number; avgDurationSec: number }[];
+  daily: { day: string; count: number }[];
+  byHour: { hour: number; count: number }[];
+}
+
 interface ReportState<T> {
   data: T | null;
   loading: boolean;
@@ -164,6 +174,33 @@ export function useAgentPerformance(): ReportState<AgentPerformance> {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  return state;
+}
+
+export function useCallAnalytics(): ReportState<CallAnalytics> {
+  const [state, setState] = useState<ReportState<CallAnalytics>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true, error: null }));
+    api
+      .get<{ data: CallAnalytics }>('/reports/calls')
+      .then((res) => {
+        if (!cancelled) setState({ data: res.data.data, loading: false, error: null });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : 'Failed to load call analytics';
+          setState({ data: null, loading: false, error: message });
+        }
+      });
+    return () => { cancelled = true; };
   }, []);
 
   return state;

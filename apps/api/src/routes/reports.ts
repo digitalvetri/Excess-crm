@@ -31,7 +31,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({ data: { monthStart: monthStart.toISOString(), stages } });
   });
 
-  // GET /reports/calls — call analytics for current month
+  // GET /reports/calls — call analytics (KPIs + daily trend + persona breakdown)
   app.get('/calls', async (req, reply) => {
     if (!can(req.auth.role, 'leads.read.all')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
@@ -43,26 +43,76 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
     const where = { tenantId: req.auth.tenantId, initiatedAt: { gte: monthStart } };
 
-    const [totalCalls, byStatusRows, aggResult] = await req.withTenant(async (tx) => {
-      return Promise.all([
-        tx.call.count({ where }),
-        tx.call.groupBy({
-          by: ['status'],
-          where,
-          _count: { _all: true },
-        }),
-        tx.call.aggregate({
-          where,
-          _avg: { durationSec: true },
-        }),
-      ]);
-    });
+    const [totalCalls, byStatusRows, aggResult, byPersonaRows, dailyRows, byHourRows] =
+      await req.withTenant(async (tx) => {
+        return Promise.all([
+          tx.call.count({ where }),
+          tx.call.groupBy({ by: ['status'], where, _count: { _all: true } }),
+          tx.call.aggregate({ where, _avg: { durationSec: true } }),
+          tx.call.groupBy({
+            by: ['persona', 'status'],
+            where,
+            _count: { _all: true },
+            _avg: { durationSec: true },
+          }),
+          tx.$queryRaw<{ day: Date; count: bigint }[]>`
+            SELECT date_trunc('day', initiated_at AT TIME ZONE 'Asia/Kolkata') AS day,
+                   COUNT(*)::bigint AS count
+            FROM calls
+            WHERE tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid
+              AND initiated_at >= NOW() - INTERVAL '14 days'
+            GROUP BY 1 ORDER BY 1 ASC
+          `,
+          tx.$queryRaw<{ hour: number; count: bigint }[]>`
+            SELECT EXTRACT(HOUR FROM initiated_at AT TIME ZONE 'Asia/Kolkata')::int AS hour,
+                   COUNT(*)::bigint AS count
+            FROM calls
+            WHERE tenant_id = (SELECT current_setting('app.tenant_id', true))::uuid
+              AND initiated_at >= NOW() - INTERVAL '30 days'
+            GROUP BY 1 ORDER BY 1 ASC
+          `,
+        ]);
+      });
 
     const byStatus = byStatusRows.map((r) => ({ status: r.status, count: r._count._all }));
-    const avgDurationSec = aggResult._avg.durationSec ?? 0;
+    const connectedCount = byStatus.find((s) => s.status === 'COMPLETED')?.count ?? 0;
+    const connectRate = totalCalls > 0 ? Math.round((connectedCount / totalCalls) * 100) : 0;
+    const avgDurationSec = Math.round(aggResult._avg.durationSec ?? 0);
+
+    // Aggregate by persona
+    const personaMap = new Map<string, { total: number; connected: number; totalDuration: number }>();
+    for (const row of byPersonaRows) {
+      const p = personaMap.get(row.persona) ?? { total: 0, connected: 0, totalDuration: 0 };
+      p.total += row._count._all;
+      if (row.status === 'COMPLETED') {
+        p.connected += row._count._all;
+        p.totalDuration += Math.round((row._avg.durationSec ?? 0) * row._count._all);
+      }
+      personaMap.set(row.persona, p);
+    }
+    const byPersona = Array.from(personaMap.entries()).map(([persona, stats]) => ({
+      persona,
+      total: stats.total,
+      connected: stats.connected,
+      connectRate: stats.total > 0 ? Math.round((stats.connected / stats.total) * 100) : 0,
+      avgDurationSec: stats.connected > 0 ? Math.round(stats.totalDuration / stats.connected) : 0,
+    }));
+
+    const daily = dailyRows.map((r) => ({ day: r.day.toISOString().slice(0, 10), count: Number(r.count) }));
+    const byHour = byHourRows.map((r) => ({ hour: r.hour, count: Number(r.count) }));
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId }, 'reports.calls');
-    return reply.send({ data: { totalCalls, byStatus, avgDurationSec } });
+    return reply.send({
+      data: {
+        totalCalls,
+        connectRate,
+        avgDurationSec,
+        byStatus,
+        byPersona,
+        daily,
+        byHour,
+      },
+    });
   });
 
   // GET /reports/sources — lead source breakdown for current month
@@ -112,7 +162,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId }, 'reports.daily');
-    return reply.send({ data: { data } });
+    return reply.send({ data });
   });
 
   // GET /reports/agents — agent performance for current month

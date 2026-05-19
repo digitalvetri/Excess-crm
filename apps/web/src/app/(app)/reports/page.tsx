@@ -12,6 +12,8 @@ import {
   Pie,
   Cell,
   Legend,
+  LineChart,
+  Line,
 } from 'recharts';
 import {
   useFunnel,
@@ -19,6 +21,7 @@ import {
   useSourceBreakdown,
   useAgentPerformance,
   useRevenuePipeline,
+  useCallAnalytics,
 } from '@/hooks/use-reports';
 
 const STAGE_COLORS: Record<string, string> = {
@@ -48,6 +51,7 @@ export default function ReportsPage() {
   const dailyTrend = useDailyTrend();
   const sources = useSourceBreakdown();
   const agents = useAgentPerformance();
+  const callAnalytics = useCallAnalytics();
 
   const totalLeads =
     funnel.data?.stages.reduce((sum, s) => sum + s.count, 0) ?? 0;
@@ -62,6 +66,107 @@ export default function ReportsPage() {
         <h1 className="text-2xl font-bold text-slate-900">Reports & Analytics</h1>
         <p className="text-sm text-slate-500 mt-1">Pipeline overview and performance metrics</p>
       </div>
+
+      {/* Section 0: Call Analytics */}
+      <section>
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">Call Analytics</h2>
+        {callAnalytics.loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white rounded-xl border border-border p-5 animate-pulse h-24" />
+            ))}
+          </div>
+        ) : callAnalytics.error ? (
+          <p className="text-sm text-red-500">{callAnalytics.error}</p>
+        ) : !callAnalytics.data ? null : (
+          <div className="space-y-4">
+            {/* KPI cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Total Calls (Month)</p>
+                <p className="text-3xl font-bold text-slate-900">{callAnalytics.data.totalCalls.toLocaleString()}</p>
+              </div>
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Connect Rate</p>
+                <p className="text-3xl font-bold text-primary">{callAnalytics.data.connectRate}%</p>
+              </div>
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Avg Duration</p>
+                <p className="text-3xl font-bold text-slate-900">
+                  {Math.floor(callAnalytics.data.avgDurationSec / 60)}m {callAnalytics.data.avgDurationSec % 60}s
+                </p>
+              </div>
+            </div>
+
+            {/* Daily call volume + by hour */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-sm font-semibold text-slate-700 mb-4">Daily Call Volume (14 days)</p>
+                {callAnalytics.data.daily.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-8">No call data yet</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={callAnalytics.data.daily} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v: string) => v.slice(-5)} />
+                      <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
+                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                      <Line type="monotone" dataKey="count" stroke="#0F4C81" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-sm font-semibold text-slate-700 mb-4">Calls by Hour (IST, 30 days)</p>
+                {callAnalytics.data.byHour.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-8">No call data yet</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={callAnalytics.data.byHour} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v: number) => `${v}h`} />
+                      <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
+                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} formatter={(v) => [v, 'calls']} />
+                      <Bar dataKey="count" fill="#F39C12" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* By persona */}
+            {callAnalytics.data.byPersona.length > 0 && (
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-slate-50">
+                      <th className="text-left px-4 py-3 font-semibold text-slate-600">AI Persona</th>
+                      <th className="text-right px-4 py-3 font-semibold text-slate-600">Total Calls</th>
+                      <th className="text-right px-4 py-3 font-semibold text-slate-600">Connected</th>
+                      <th className="text-right px-4 py-3 font-semibold text-slate-600">Connect Rate</th>
+                      <th className="text-right px-4 py-3 font-semibold text-slate-600">Avg Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {callAnalytics.data.byPersona.map((p) => (
+                      <tr key={p.persona} className="border-b border-border last:border-0">
+                        <td className="px-4 py-3 font-medium text-slate-800">{p.persona.replace(/_/g, ' ')}</td>
+                        <td className="px-4 py-3 text-right text-slate-600">{p.total.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right text-green-700 font-medium">{p.connected.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right text-slate-600">{p.connectRate}%</td>
+                        <td className="px-4 py-3 text-right text-slate-600">
+                          {Math.floor(p.avgDurationSec / 60)}m {p.avgDurationSec % 60}s
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Section 1: Revenue Pipeline */}
       <section>

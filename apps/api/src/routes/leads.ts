@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { FastifyPluginAsync } from 'fastify';
-import type { LeadSourceType, LeadStage } from '@excess/db';
+import type { LeadSourceType, LeadStage, ActivityType } from '@excess/db';
 import { can } from '@excess/shared';
 import {
   updateLeadSchema,
@@ -222,6 +222,53 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { stage, factSheet, notes, dealValueInr } = parsed.data;
+
+    // Stage gate validation — check before updating
+    if (stage) {
+      const gateError = await req.withTenant(async (tx) => {
+        const gate = await tx.stageGate.findFirst({
+          where: { tenantId: req.auth.tenantId, stage: stage as LeadStage, isActive: true },
+        });
+        if (!gate) return null;
+
+        const requiredFields = (gate.requiredFields as string[]) ?? [];
+        const requiredActivityTypes = gate.requiredActivityTypes ?? [];
+
+        if (requiredFields.length > 0 || requiredActivityTypes.length > 0) {
+          const lead = await tx.lead.findUnique({
+            where: { id },
+            select: { email: true, city: true, pincode: true, factSheet: true },
+          });
+          if (!lead) return null;
+
+          // Check required fields
+          for (const field of requiredFields) {
+            const value = lead[field as keyof typeof lead];
+            if (value === null || value === undefined || value === '') {
+              return `Field "${field}" is required before moving to ${stage.replace(/_/g, ' ')}`;
+            }
+          }
+
+          // Check required activities
+          for (const actType of requiredActivityTypes) {
+            const exists = await tx.leadActivity.findFirst({
+              where: { leadId: id, tenantId: req.auth.tenantId, type: actType as ActivityType },
+              select: { id: true },
+            });
+            if (!exists) {
+              return `A "${actType.replace(/_/g, ' ')}" activity is required before moving to ${stage.replace(/_/g, ' ')}`;
+            }
+          }
+        }
+        return null;
+      });
+
+      if (gateError) {
+        return reply.code(422).send({
+          error: { code: 'stage_gate.blocked', message: gateError },
+        });
+      }
+    }
 
     const lead = await req.withTenant(async (tx) => {
       const updated = await tx.lead.update({

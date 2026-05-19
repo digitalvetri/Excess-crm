@@ -42,7 +42,14 @@ export function StageChangeMenu({ leadId, currentStage, onClose }: Props) {
           toast.success(`Stage changed to ${stage.replace('_', ' ')}`);
           onClose();
         },
-        onError: () => toast.error('Failed to update stage'),
+        onError: (err: unknown) => {
+          const axiosErr = err as { response?: { data?: { error?: { code?: string; message?: string } } } };
+          if (axiosErr.response?.data?.error?.code === 'stage_gate.blocked') {
+            toast.error(axiosErr.response.data.error.message ?? 'Stage gate blocked this transition');
+          } else {
+            toast.error('Failed to update stage');
+          }
+        },
       },
     );
   }

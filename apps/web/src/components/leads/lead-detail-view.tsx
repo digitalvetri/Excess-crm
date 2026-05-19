@@ -413,10 +413,17 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
       { id, data: { stage } },
       {
         onSuccess: () => {
-          toast.success(`Stage → ${stage.replace('_', ' ')}`);
+          toast.success(`Stage → ${stage.replace(/_/g, ' ')}`);
           setEditingStage(false);
         },
-        onError: () => toast.error('Failed to update stage'),
+        onError: (err: unknown) => {
+          const axiosErr = err as { response?: { data?: { error?: { code?: string; message?: string } } } };
+          if (axiosErr.response?.data?.error?.code === 'stage_gate.blocked') {
+            toast.error(axiosErr.response.data.error.message ?? 'Stage gate blocked this transition');
+          } else {
+            toast.error('Failed to update stage');
+          }
+        },
       },
     );
   }

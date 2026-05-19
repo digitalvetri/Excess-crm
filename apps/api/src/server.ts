@@ -38,6 +38,7 @@ import { usersRoutes } from './routes/users.js';
 import { integrationsRoutes } from './routes/integrations.js';
 import { csvImportRoutes } from './routes/csv-import.js';
 import { slaRulesRoutes } from './routes/sla-rules.js';
+import { stageGatesRoutes } from './routes/stage-gates.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -89,6 +90,7 @@ export async function buildServer() {
   await app.register(integrationsRoutes, { prefix: '/integrations' });
   await app.register(csvImportRoutes, { prefix: '/leads/import' });
   await app.register(slaRulesRoutes, { prefix: '/sla-rules' });
+  await app.register(stageGatesRoutes, { prefix: '/stage-gates' });
 
   app.setErrorHandler((error, _req, reply) => {
     app.log.error(error);

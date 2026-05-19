@@ -97,3 +97,29 @@ export function useRoutingRules() {
       api.get<{ data: RoutingRule[] }>('/routing-rules').then((r) => r.data.data),
   });
 }
+
+export function useCreateRoutingRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { priority: number; condition: Record<string, unknown>; targetTeamId: string }) =>
+      api.post<{ data: RoutingRule }>('/routing-rules', data).then((r) => r.data.data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['routing-rules'] }),
+  });
+}
+
+export function useUpdateRoutingRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: Partial<RoutingRule> & { id: string }) =>
+      api.patch(`/routing-rules/${id}`, data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['routing-rules'] }),
+  });
+}
+
+export function useDeleteRoutingRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/routing-rules/${id}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['routing-rules'] }),
+  });
+}

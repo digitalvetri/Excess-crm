@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import { prisma, withSystemContext } from '@excess/db';
 import type { LeadSourceType } from '@excess/db';
 import { queues } from '../queues.js';
+import { assignLead } from '../lib/assignment-engine.js';
 
 export interface LeadIngestPayload {
   sourceType: LeadSourceType;
@@ -12,6 +13,7 @@ export interface LeadIngestPayload {
   phone: string;
   email?: string;
   city?: string;
+  pincode?: string;
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
@@ -30,7 +32,7 @@ function isBusinessHours(): boolean {
 }
 
 export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<void> {
-  const { tenantId, sourceType, sourceId, externalId, name, phone, email, city,
+  const { tenantId, sourceType, sourceId, externalId, name, phone, email, city, pincode,
     utmSource, utmMedium, utmCampaign, utmContent, utmTerm, rawData } = job.data;
 
   // dnd_list has no RLS — safe to query directly
@@ -63,6 +65,7 @@ export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<vo
         sourceId: sourceId ?? null,
         externalId: externalId ?? null,
         rawPayload: rawData as object,
+        pincode: pincode ?? null,
         utmSource: utmSource ?? null,
         utmMedium: utmMedium ?? null,
         utmCampaign: utmCampaign ?? null,
@@ -79,6 +82,13 @@ export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<vo
         actorIsAi: true,
         payload: { note: `Lead ingested from ${sourceType}` } as object,
       },
+    });
+
+    // Auto-assign via routing rules engine
+    await assignLead(tx as Parameters<typeof assignLead>[0], tenantId, created.id, {
+      pincode: pincode ?? null,
+      city: city ?? null,
+      sourceType,
     });
 
     return created;

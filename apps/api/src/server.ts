@@ -18,6 +18,7 @@ import { indiamartWebhookRoutes } from './routes/webhooks/indiamart.js';
 import { justdialWebhookRoutes } from './routes/webhooks/justdial.js';
 import { whatsappWebhookRoutes } from './routes/webhooks/whatsapp.js';
 import { vapiWebhookRoutes } from './routes/webhooks/vapi.js';
+import { exotelWebhookRoutes } from './routes/webhooks/exotel.js';
 import { voiceAgentRoutes } from './routes/voice-agent.js';
 import { appointmentsRoutes } from './routes/appointments.js';
 import { franchiseRoutes } from './routes/franchise.js';
@@ -34,6 +35,7 @@ import { reportsRoutes } from './routes/reports.js';
 import { teamsRoutes } from './routes/teams.js';
 import { routingRulesRoutes } from './routes/routing-rules.js';
 import { usersRoutes } from './routes/users.js';
+import { integrationsRoutes } from './routes/integrations.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -65,6 +67,7 @@ export async function buildServer() {
   await app.register(justdialWebhookRoutes, { prefix: '/webhooks' });
   await app.register(whatsappWebhookRoutes, { prefix: '/webhooks' });
   await app.register(vapiWebhookRoutes, { prefix: '/webhooks' });
+  await app.register(exotelWebhookRoutes, { prefix: '/webhooks' });
   await app.register(voiceAgentRoutes, { prefix: '/voice-agent' });
   await app.register(appointmentsRoutes, { prefix: '/appointments' });
   await app.register(franchiseRoutes, { prefix: '/franchise' });
@@ -81,6 +84,7 @@ export async function buildServer() {
   await app.register(teamsRoutes, { prefix: '/teams' });
   await app.register(routingRulesRoutes, { prefix: '/routing-rules' });
   await app.register(usersRoutes, { prefix: '/users' });
+  await app.register(integrationsRoutes, { prefix: '/integrations' });
 
   app.setErrorHandler((error, _req, reply) => {
     app.log.error(error);

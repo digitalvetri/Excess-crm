@@ -19,7 +19,7 @@ export interface CallRecord {
 }
 
 interface CallsResponse {
-  data: CallRecord[];
+  data: { calls: CallRecord[]; nextCursor: string | null; hasMore: boolean };
 }
 
 export function useCalls() {
@@ -29,7 +29,7 @@ export function useCalls() {
   return useQuery({
     queryKey: ['calls', params],
     queryFn: () =>
-      api.get<CallsResponse>('/voice-agent/calls', { params }).then((r) => r.data.data),
+      api.get<CallsResponse>('/voice-agent/calls', { params }).then((r) => r.data.data.calls),
   });
 }
 

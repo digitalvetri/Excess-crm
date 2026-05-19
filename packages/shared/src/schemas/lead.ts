@@ -17,6 +17,7 @@ export const leadSourceTypeSchema = z.enum([
   'WEBSITE',
   'WHATSAPP',
   'MANUAL',
+  'PHONE_INBOUND',
 ]);
 
 export const factSheetSchema = z.object({
@@ -66,4 +67,19 @@ export const bulkLeadActionSchema = z.object({
   action: z.enum(['stage', 'assign']),
   ids: z.array(z.string().uuid()).min(1).max(500),
   value: z.string(),
+});
+
+export const updateLeadTagsSchema = z.object({
+  tags: z.array(z.string().min(1).max(50)).max(20),
+});
+
+export const mergeLeadSchema = z.object({
+  duplicateId: z.string().uuid(),
+});
+
+export const createSavedViewSchema = z.object({
+  name: z.string().min(1).max(100),
+  filters: z.record(z.string()).default({}),
+  icon: z.string().max(10).optional(),
+  isShared: z.boolean().default(false),
 });

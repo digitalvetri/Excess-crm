@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk';
 import type { FastifyPluginAsync } from 'fastify';
 import type { LeadSourceType, LeadStage } from '@excess/db';
 import { can } from '@excess/shared';
@@ -6,7 +7,12 @@ import {
   assignLeadSchema,
   leadFiltersSchema,
   bulkLeadActionSchema,
+  updateLeadTagsSchema,
+  mergeLeadSchema,
+  createSavedViewSchema,
 } from '@excess/shared';
+
+const anthropic = new Anthropic();
 
 export const leadsRoutes: FastifyPluginAsync = async (app) => {
   // GET /leads — list with filters + cursor pagination
@@ -74,6 +80,10 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
           stage: true,
           sourceType: true,
           aiScore: true,
+          aiScoreBreakdown: true,
+          tags: true,
+          isDuplicate: true,
+          duplicateOfId: true,
           ownerUserId: true,
           createdAt: true,
           stageChangedAt: true,
@@ -329,5 +339,238 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return reply.code(202).send({ data: { queued: true } });
+  });
+
+  // PATCH /leads/:id/tags
+  app.patch('/:id/tags', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.tag')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { id } = req.params as { id: string };
+    const parsed = updateLeadTagsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input' } });
+    }
+    const lead = await req.withTenant((tx) =>
+      tx.lead.update({
+        where: { id },
+        data: { tags: parsed.data.tags },
+        select: { id: true, tags: true },
+      }),
+    );
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id }, 'lead.tags_updated');
+    return reply.send({ data: lead });
+  });
+
+  // GET /leads/:id/duplicates
+  app.get('/:id/duplicates', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { id } = req.params as { id: string };
+    const lead = await req.withTenant((tx) =>
+      tx.lead.findUnique({ where: { id }, select: { phone: true } }),
+    );
+    if (!lead) {
+      return reply.code(404).send({ error: { code: 'leads.not_found', message: 'Lead not found' } });
+    }
+    const duplicates = await req.withTenant((tx) =>
+      tx.lead.findMany({
+        where: {
+          phone: lead.phone,
+          id: { not: id },
+          tenantId: req.auth.tenantId,
+        },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          stage: true,
+          sourceType: true,
+          createdAt: true,
+          isDuplicate: true,
+        },
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+    return reply.send({ data: { duplicates } });
+  });
+
+  // POST /leads/:id/merge
+  app.post('/:id/merge', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.merge')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { id: masterId } = req.params as { id: string };
+    const parsed = mergeLeadSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input' } });
+    }
+    const { duplicateId } = parsed.data;
+
+    await req.withTenant(async (tx) => {
+      await tx.leadActivity.updateMany({
+        where: { leadId: duplicateId, tenantId: req.auth.tenantId },
+        data: { leadId: masterId },
+      });
+      await tx.call.updateMany({
+        where: { leadId: duplicateId, tenantId: req.auth.tenantId },
+        data: { leadId: masterId },
+      });
+      await tx.appointment.updateMany({
+        where: { leadId: duplicateId, tenantId: req.auth.tenantId },
+        data: { leadId: masterId },
+      });
+      await tx.lead.update({
+        where: { id: duplicateId },
+        data: { isDuplicate: true, duplicateOfId: masterId, stage: 'INVALID' },
+      });
+      await tx.leadActivity.create({
+        data: {
+          leadId: masterId,
+          tenantId: req.auth.tenantId,
+          actorUserId: req.auth.userId,
+          type: 'NOTE',
+          payload: { note: `Merged duplicate lead ${duplicateId}` } as object,
+        },
+      });
+    });
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, masterId, duplicateId }, 'lead.merged');
+    return reply.send({ data: { merged: true } });
+  });
+
+  // GET /leads/:id/summary — AI summary via Claude Haiku
+  app.get('/:id/summary', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.summarize')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { id } = req.params as { id: string };
+
+    const cacheKey = `lead_summary:${req.auth.tenantId}:${id}`;
+    const cached = await app.redis.get(cacheKey);
+    if (cached) {
+      return reply.send({ data: JSON.parse(cached) as unknown });
+    }
+
+    const lead = await req.withTenant((tx) =>
+      tx.lead.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          city: true,
+          stage: true,
+          sourceType: true,
+          aiScore: true,
+          factSheet: true,
+          createdAt: true,
+          activities: {
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+            select: { type: true, payload: true, createdAt: true, actorIsAi: true },
+          },
+          calls: {
+            orderBy: { initiatedAt: 'desc' },
+            take: 10,
+            select: { status: true, durationSec: true, persona: true, initiatedAt: true },
+          },
+        },
+      }),
+    );
+
+    if (!lead) {
+      return reply.code(404).send({ error: { code: 'leads.not_found', message: 'Lead not found' } });
+    }
+
+    const prompt = `You are a CRM assistant for Excess Renew, a solar company in Coimbatore, India.
+Summarize this lead in 3-4 concise bullet points covering: intent/interest level, engagement history, key facts from fact sheet, and recommended next action.
+
+Lead: ${lead.name}, ${lead.city ?? 'unknown city'}, Stage: ${lead.stage}, Source: ${lead.sourceType}, AI Score: ${lead.aiScore ?? 'N/A'}
+Fact Sheet: ${JSON.stringify(lead.factSheet ?? {})}
+Recent Activities (${lead.activities.length}): ${JSON.stringify(lead.activities.slice(0, 5))}
+Calls (${lead.calls.length}): ${JSON.stringify(lead.calls.slice(0, 5))}
+
+Respond in English. Be brief and actionable.`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const summary = message.content[0]?.type === 'text' ? message.content[0].text : 'Summary unavailable.';
+    const result = { summary, generatedAt: new Date().toISOString() };
+
+    await app.redis.setex(cacheKey, 3600, JSON.stringify(result));
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id }, 'lead.summary_generated');
+
+    return reply.send({ data: result });
+  });
+
+  // GET /leads/views — list saved views
+  app.get('/views', async (req, reply) => {
+    if (!can(req.auth.role, 'saved_views.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const views = await req.withTenant((tx) =>
+      tx.savedView.findMany({
+        where: {
+          tenantId: req.auth.tenantId,
+          OR: [{ userId: req.auth.userId }, { isShared: true }],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true, icon: true, isShared: true, filters: true, createdAt: true, userId: true },
+      }),
+    );
+    return reply.send({ data: views });
+  });
+
+  // POST /leads/views — create saved view
+  app.post('/views', async (req, reply) => {
+    if (!can(req.auth.role, 'saved_views.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const parsed = createSavedViewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input' } });
+    }
+    const view = await req.withTenant((tx) =>
+      tx.savedView.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          userId: req.auth.userId,
+          name: parsed.data.name,
+          filters: parsed.data.filters as object,
+          icon: parsed.data.icon ?? null,
+          isShared: parsed.data.isShared,
+        },
+        select: { id: true, name: true, icon: true, isShared: true, filters: true, createdAt: true },
+      }),
+    );
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, viewId: view.id }, 'saved_view.created');
+    return reply.code(201).send({ data: view });
+  });
+
+  // DELETE /leads/views/:viewId
+  app.delete('/views/:viewId', async (req, reply) => {
+    if (!can(req.auth.role, 'saved_views.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { viewId } = req.params as { viewId: string };
+    const view = await req.withTenant((tx) =>
+      tx.savedView.findUnique({ where: { id: viewId }, select: { userId: true } }),
+    );
+    if (!view) {
+      return reply.code(404).send({ error: { code: 'saved_view.not_found', message: 'View not found' } });
+    }
+    if (view.userId !== req.auth.userId && !can(req.auth.role, 'leads.read.all')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Cannot delete another user\'s view' } });
+    }
+    await req.withTenant((tx) => tx.savedView.delete({ where: { id: viewId } }));
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, viewId }, 'saved_view.deleted');
+    return reply.code(204).send();
   });
 };

@@ -16,7 +16,7 @@ export interface Appointment {
 }
 
 interface AppointmentsResponse {
-  data: Appointment[];
+  data: { appointments: Appointment[]; nextCursor: string | null; hasMore: boolean };
 }
 
 export function useAppointments(leadId?: string) {
@@ -27,7 +27,7 @@ export function useAppointments(leadId?: string) {
         .get<AppointmentsResponse>('/appointments', {
           params: leadId ? { leadId } : {},
         })
-        .then((r) => r.data.data),
+        .then((r) => r.data.data.appointments),
     enabled: true,
   });
 }

@@ -13,10 +13,14 @@ export interface Lead {
   stage: string;
   sourceType: string;
   aiScore: number | null;
+  aiScoreBreakdown: Record<string, unknown> | null;
+  tags: string[];
   ownerUserId: string | null;
   createdAt: string;
   stageChangedAt: string;
   scheduledAt: string | null;
+  isDuplicate: boolean;
+  duplicateOfId: string | null;
 }
 
 interface LeadsResponse {
@@ -27,9 +31,10 @@ interface LeadsResponse {
   };
 }
 
-export function useLeads() {
+export function useLeads(explicitParams?: Record<string, string>) {
   const searchParams = useSearchParams();
-  const filters = Object.fromEntries(searchParams.entries());
+  const urlParams = Object.fromEntries(searchParams.entries());
+  const filters = explicitParams !== undefined ? explicitParams : urlParams;
 
   return useQuery({
     queryKey: ['leads', filters],
@@ -88,4 +93,76 @@ export function useCreateLead() {
       void qc.invalidateQueries({ queryKey: ['leads'] });
     },
   });
+}
+
+export function useUpdateLeadTags() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, tags }: { id: string; tags: string[] }) =>
+      api.patch(`/leads/${id}/tags`, { tags }).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['leads'] });
+    },
+  });
+}
+
+export function useMergeLeads() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ masterId, duplicateId }: { masterId: string; duplicateId: string }) =>
+      api.post(`/leads/${masterId}/merge`, { duplicateId }).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['leads'] });
+    },
+  });
+}
+
+export function useLeadSummary(leadId: string | null) {
+  return useQuery({
+    queryKey: ['leads', leadId, 'summary'],
+    queryFn: () =>
+      api.get<{ data: { summary: string; generatedAt: string } }>(`/leads/${leadId}/summary`)
+        .then((r) => r.data.data),
+    enabled: !!leadId,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function useSavedViews() {
+  return useQuery({
+    queryKey: ['saved-views'],
+    queryFn: () =>
+      api.get<{ data: SavedView[] }>('/leads/views').then((r) => r.data.data),
+  });
+}
+
+export function useCreateSavedView() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { name: string; filters: Record<string, string>; icon?: string; isShared?: boolean }) =>
+      api.post('/leads/views', data).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['saved-views'] });
+    },
+  });
+}
+
+export function useDeleteSavedView() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.delete(`/leads/views/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['saved-views'] });
+    },
+  });
+}
+
+export interface SavedView {
+  id: string;
+  name: string;
+  icon: string | null;
+  isShared: boolean;
+  filters: Record<string, string>;
+  createdAt: string;
 }

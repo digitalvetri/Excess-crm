@@ -43,6 +43,7 @@ enum LeadSourceType {
   WEBSITE
   WHATSAPP
   MANUAL
+  PHONE_INBOUND
 }
 
 enum LeadStage {
@@ -187,6 +188,7 @@ model Tenant {
   reviews        Review[]
   wallet         Wallet?
   coachCache     CoachCache?
+  savedViews     SavedView[]
 
   @@map("tenants")
 }
@@ -206,9 +208,10 @@ model User {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id])
-  team     Team?     @relation(fields: [teamId], references: [id])
-  sessions Session[]
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  team       Team?       @relation(fields: [teamId], references: [id])
+  sessions   Session[]
+  savedViews SavedView[]
 
   @@index([tenantId])
   @@index([email])
@@ -307,6 +310,8 @@ model Lead {
   ownerUserId      String?        @db.Uuid @map("owner_user_id")
   teamId           String?        @db.Uuid @map("team_id")
   factSheet        Json?          @map("fact_sheet")
+  tags             String[]       @default([]) @map("tags")
+  aiScoreBreakdown Json?          @map("ai_score_breakdown")
   isDuplicate      Boolean        @default(false) @map("is_duplicate")
   duplicateOfId    String?        @db.Uuid @map("duplicate_of_id")
   receivedAt       DateTime       @default(now()) @map("received_at")
@@ -328,6 +333,24 @@ model Lead {
   @@index([tenantId, phone])
   @@index([phone])
   @@map("leads")
+}
+
+model SavedView {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid @map("tenant_id")
+  userId    String   @db.Uuid @map("user_id")
+  name      String
+  isShared  Boolean  @default(false) @map("is_shared")
+  filters   Json     @default("{}") @map("filters")
+  icon      String?  @map("icon")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId])
+  @@map("saved_views")
 }
 
 model LeadActivity {

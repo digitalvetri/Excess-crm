@@ -25,10 +25,10 @@ export function useKbArticles(filters?: { q?: string; category?: string }) {
     setError(null);
 
     api
-      .get<{ data: KbArticle[] }>('/kb', { params: filters ?? {} })
+      .get<{ data: { articles: KbArticle[]; hasMore: boolean; nextCursor: string | null } }>('/kb', { params: filters ?? {} })
       .then((r) => {
         if (!cancelled) {
-          setArticles(r.data.data);
+          setArticles(r.data.data.articles);
           setLoading(false);
         }
       })

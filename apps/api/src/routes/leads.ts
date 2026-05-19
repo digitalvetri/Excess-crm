@@ -10,6 +10,7 @@ import {
   updateLeadTagsSchema,
   mergeLeadSchema,
   createSavedViewSchema,
+  createManualLeadSchema,
 } from '@excess/shared';
 
 const anthropic = new Anthropic();
@@ -146,7 +147,37 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     const lead = await req.withTenant((tx) =>
       tx.lead.findUnique({
         where: { id },
-        include: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          city: true,
+          state: true,
+          pincode: true,
+          stage: true,
+          sourceType: true,
+          campaignName: true,
+          adName: true,
+          language: true,
+          aiScore: true,
+          aiScoreBreakdown: true,
+          factSheet: true,
+          tags: true,
+          isDuplicate: true,
+          duplicateOfId: true,
+          ownerUserId: true,
+          teamId: true,
+          utmSource: true,
+          utmMedium: true,
+          utmCampaign: true,
+          utmContent: true,
+          utmTerm: true,
+          receivedAt: true,
+          firstContactedAt: true,
+          stageChangedAt: true,
+          createdAt: true,
+          updatedAt: true,
           activities: {
             orderBy: { createdAt: 'desc' },
             take: 50,
@@ -317,24 +348,27 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
-    const body = req.body as {
-      name: string;
-      phone: string;
-      email?: string;
-      city?: string;
-    };
-
-    if (!body.name || !body.phone) {
-      return reply.code(400).send({ error: { code: 'validation_error', message: 'name and phone are required' } });
+    const parsed = createManualLeadSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() },
+      });
     }
+
+    const { name, phone, email, city, utmSource, utmMedium, utmCampaign, utmContent, utmTerm } = parsed.data;
 
     await app.queues.leadIngest.add('lead-ingest', {
       sourceType: 'MANUAL',
       tenantId: req.auth.tenantId,
-      name: body.name,
-      phone: body.phone,
-      email: body.email,
-      city: body.city,
+      name,
+      phone,
+      email,
+      city,
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      utmContent,
+      utmTerm,
       rawData: { createdBy: req.auth.userId },
     });
 
@@ -394,7 +428,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
         orderBy: { createdAt: 'desc' },
       }),
     );
-    return reply.send({ data: { duplicates } });
+    return reply.send({ data: duplicates });
   });
 
   // POST /leads/:id/merge

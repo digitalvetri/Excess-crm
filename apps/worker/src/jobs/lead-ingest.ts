@@ -12,6 +12,11 @@ export interface LeadIngestPayload {
   phone: string;
   email?: string;
   city?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
+  utmTerm?: string;
   rawData: Record<string, unknown>;
 }
 
@@ -25,8 +30,8 @@ function isBusinessHours(): boolean {
 }
 
 export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<void> {
-  const { tenantId, sourceType, sourceId, externalId, name, phone, email, city, rawData } =
-    job.data;
+  const { tenantId, sourceType, sourceId, externalId, name, phone, email, city,
+    utmSource, utmMedium, utmCampaign, utmContent, utmTerm, rawData } = job.data;
 
   // dnd_list has no RLS — safe to query directly
   const dnd = await prisma.dndList.findFirst({ where: { phone } });
@@ -58,6 +63,11 @@ export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<vo
         sourceId: sourceId ?? null,
         externalId: externalId ?? null,
         rawPayload: rawData as object,
+        utmSource: utmSource ?? null,
+        utmMedium: utmMedium ?? null,
+        utmCampaign: utmCampaign ?? null,
+        utmContent: utmContent ?? null,
+        utmTerm: utmTerm ?? null,
       },
     });
 

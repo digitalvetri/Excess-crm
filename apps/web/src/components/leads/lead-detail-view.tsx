@@ -26,9 +26,14 @@ import {
   ChevronUp,
   Plus,
   Loader2,
+  Copy,
+  GitMerge,
+  Link2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary } from '@/hooks/use-leads';
+import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMergeLeads } from '@/hooks/use-leads';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import { StageBadge } from './stage-badge';
 import { AppointmentsList } from '@/components/appointments/appointments-list';
 import { AssignLeadPanel } from './assign-lead-panel';
@@ -262,6 +267,117 @@ function LeadSummaryCard({ leadId }: { leadId: string }) {
   );
 }
 
+interface DuplicateLead {
+  id: string;
+  name: string;
+  phone: string;
+  stage: string;
+  createdAt: string;
+}
+
+function DuplicatesCard({ masterId }: { masterId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['leads', masterId, 'duplicates'],
+    queryFn: () =>
+      api.get<{ data: DuplicateLead[] }>(`/leads/${masterId}/duplicates`).then((r) => r.data.data),
+  });
+  const { mutateAsync: mergeLeads, isPending } = useMergeLeads();
+  const [merging, setMerging] = useState<string | null>(null);
+
+  const dupes = data ?? [];
+
+  if (isLoading) return (
+    <div className="bg-white rounded-xl border border-border p-5 animate-pulse">
+      <div className="h-4 bg-slate-200 rounded w-32 mb-3" />
+      <div className="h-12 bg-slate-100 rounded" />
+    </div>
+  );
+
+  if (dupes.length === 0) return null;
+
+  async function handleMerge(duplicateId: string) {
+    setMerging(duplicateId);
+    try {
+      await mergeLeads({ masterId, duplicateId });
+      toast.success('Leads merged — duplicate marked as invalid');
+    } catch {
+      toast.error('Failed to merge leads');
+    } finally {
+      setMerging(null);
+    }
+  }
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <Copy size={15} className="text-amber-600" />
+        <h3 className="text-sm font-semibold text-amber-800">
+          {dupes.length} Duplicate{dupes.length !== 1 ? 's' : ''} Found
+        </h3>
+        <span className="text-xs text-amber-600 ml-auto">Same phone number</span>
+      </div>
+      <div className="space-y-2">
+        {dupes.map((d) => (
+          <div key={d.id} className="flex items-center justify-between bg-white rounded-lg px-4 py-3 border border-amber-100">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-700 truncate">{d.name}</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {d.stage.replace(/_/g, ' ')} · {formatDistanceToNow(new Date(d.createdAt), { addSuffix: true })}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 ml-3 shrink-0">
+              <Link href={`/leads/${d.id}`} className="text-xs text-primary hover:underline">
+                View
+              </Link>
+              <button
+                onClick={() => void handleMerge(d.id)}
+                disabled={isPending && merging === d.id}
+                className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2.5 py-1 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+              >
+                {isPending && merging === d.id
+                  ? <Loader2 size={11} className="animate-spin" />
+                  : <GitMerge size={11} />}
+                Merge
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-amber-600 mt-3">
+        Merging keeps this lead's history and marks the duplicate as invalid.
+      </p>
+    </div>
+  );
+}
+
+function UtmCard({ lead }: { lead: { utmSource: string | null; utmMedium: string | null; utmCampaign: string | null; utmContent: string | null; utmTerm: string | null } }) {
+  const params = [
+    { label: 'Source', value: lead.utmSource },
+    { label: 'Medium', value: lead.utmMedium },
+    { label: 'Campaign', value: lead.utmCampaign },
+    { label: 'Content', value: lead.utmContent },
+    { label: 'Term', value: lead.utmTerm },
+  ].filter((p) => p.value);
+
+  if (params.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-xl border border-border p-5">
+      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5 mb-3">
+        <Link2 size={14} className="text-slate-400" /> UTM Attribution
+      </h3>
+      <dl className="space-y-2">
+        {params.map(({ label, value }) => (
+          <div key={label} className="flex justify-between items-center text-sm">
+            <dt className="text-slate-400">utm_{label.toLowerCase()}</dt>
+            <dd className="text-slate-700 font-medium text-right max-w-[60%] truncate" title={value!}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 interface LeadDetailViewProps {
   id: string;
 }
@@ -422,6 +538,9 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
             </div>
           </div>
 
+          {/* Duplicates — only shown when same-phone leads exist */}
+          <DuplicatesCard masterId={id} />
+
           {/* Activity feed */}
           <div className="bg-white rounded-xl border border-border">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
@@ -502,7 +621,7 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
                 <dd>
                   <ScoreWithBreakdown
                     score={lead.aiScore}
-                    breakdown={(lead as unknown as { aiScoreBreakdown?: Record<string, unknown> }).aiScoreBreakdown ?? null}
+                    breakdown={lead.aiScoreBreakdown}
                   />
                 </dd>
               </div>
@@ -516,6 +635,9 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
               </div>
             </dl>
           </div>
+
+          {/* UTM Attribution */}
+          <UtmCard lead={lead} />
 
           {/* Calls */}
           <div className="bg-white rounded-xl border border-border">
@@ -569,7 +691,7 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
           {/* Tags */}
           <LeadTagsCard
             leadId={lead.id}
-            tags={(lead as unknown as { tags?: string[] }).tags ?? []}
+            tags={lead.tags}
           />
 
           {/* AI Summary */}

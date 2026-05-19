@@ -10,17 +10,32 @@ export interface Lead {
   phone: string;
   email: string | null;
   city: string | null;
+  state: string | null;
+  pincode: string | null;
   stage: string;
   sourceType: string;
+  campaignName: string | null;
+  adName: string | null;
+  language: string | null;
   aiScore: number | null;
   aiScoreBreakdown: Record<string, unknown> | null;
+  factSheet: Record<string, unknown> | null;
   tags: string[];
   ownerUserId: string | null;
+  teamId: string | null;
   createdAt: string;
   stageChangedAt: string;
+  receivedAt: string;
+  firstContactedAt: string | null;
+  updatedAt: string;
   scheduledAt: string | null;
   isDuplicate: boolean;
   duplicateOfId: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
 }
 
 interface LeadsResponse {

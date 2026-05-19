@@ -121,6 +121,18 @@ enum QuotationBrandTier {
   PREMIUM
 }
 
+enum SlaAction {
+  NOTIFY
+  REASSIGN
+}
+
+enum CsvImportStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
 enum CommissionStatus {
   PENDING_APPROVAL
   APPROVED
@@ -189,6 +201,9 @@ model Tenant {
   wallet         Wallet?
   coachCache     CoachCache?
   savedViews     SavedView[]
+  stageGates     StageGate[]
+  slaRules       SlaRule[]
+  csvImports     CsvImport[]
 
   @@map("tenants")
 }
@@ -258,8 +273,9 @@ model RoutingRule {
   priority     Int
   condition    Json
   targetTeamId String   @db.Uuid @map("target_team_id")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
+  isActive        Boolean  @default(true) @map("is_active")
+  roundRobinIndex Int      @default(0) @map("round_robin_index")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   tenant     Tenant @relation(fields: [tenantId], references: [id])
   targetTeam Team   @relation(fields: [targetTeamId], references: [id])
@@ -314,6 +330,11 @@ model Lead {
   aiScoreBreakdown Json?          @map("ai_score_breakdown")
   isDuplicate      Boolean        @default(false) @map("is_duplicate")
   duplicateOfId    String?        @db.Uuid @map("duplicate_of_id")
+  utmSource        String?        @map("utm_source")
+  utmMedium        String?        @map("utm_medium")
+  utmCampaign      String?        @map("utm_campaign")
+  utmContent       String?        @map("utm_content")
+  utmTerm          String?        @map("utm_term")
   receivedAt       DateTime       @default(now()) @map("received_at")
   firstContactedAt DateTime?      @map("first_contacted_at")
   createdAt        DateTime       @default(now()) @map("created_at")
@@ -708,4 +729,61 @@ model CoachCache {
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@map("coach_cache")
+}
+
+// ─── Phase B: Process Intelligence ───────────────────────────────────────────
+
+model StageGate {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String    @db.Uuid @map("tenant_id")
+  stage                 LeadStage
+  requiredFields        Json      @default("[]") @map("required_fields")
+  requiredActivityTypes String[]  @default([]) @map("required_activity_types")
+  isActive              Boolean   @default(true) @map("is_active")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, stage])
+  @@index([tenantId])
+  @@map("stage_gates")
+}
+
+model SlaRule {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @db.Uuid @map("tenant_id")
+  stage          LeadStage
+  thresholdHours Int       @map("threshold_hours")
+  action         SlaAction
+  notifyUserId   String?   @db.Uuid @map("notify_user_id")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, stage])
+  @@map("sla_rules")
+}
+
+model CsvImport {
+  id            String          @id @default(uuid()) @db.Uuid
+  tenantId      String          @db.Uuid @map("tenant_id")
+  userId        String          @db.Uuid @map("user_id")
+  filename      String
+  s3Key         String          @map("s3_key")
+  fieldMap      Json            @default("{}") @map("field_map")
+  totalRows     Int             @default(0) @map("total_rows")
+  processedRows Int             @default(0) @map("processed_rows")
+  errorRows     Int             @default(0) @map("error_rows")
+  errors        Json            @default("[]")
+  status        CsvImportStatus @default(PENDING)
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@map("csv_imports")
 }

@@ -77,6 +77,26 @@ export const mergeLeadSchema = z.object({
   duplicateId: z.string().uuid(),
 });
 
+export const utmParamsSchema = z.object({
+  utmSource: z.string().max(200).optional(),
+  utmMedium: z.string().max(200).optional(),
+  utmCampaign: z.string().max(200).optional(),
+  utmContent: z.string().max(200).optional(),
+  utmTerm: z.string().max(200).optional(),
+});
+
+export const createManualLeadSchema = z.object({
+  name: z.string().min(1).max(200),
+  phone: z.string().min(7).max(20),
+  email: z.string().email().optional(),
+  city: z.string().max(100).optional(),
+  utmSource: z.string().max(200).optional(),
+  utmMedium: z.string().max(200).optional(),
+  utmCampaign: z.string().max(200).optional(),
+  utmContent: z.string().max(200).optional(),
+  utmTerm: z.string().max(200).optional(),
+});
+
 export const createSavedViewSchema = z.object({
   name: z.string().min(1).max(100),
   filters: z.record(z.string()).default({}),

@@ -29,6 +29,7 @@ export const appQueues = {
   humanHandoff: mkQueue('human-handoff'),
   commissionCalc: mkQueue('commission-calc'),
   pdfRender: mkQueue('pdf-render'),
+  csvImport: mkQueue('csv-import'),
 };
 
 declare module 'fastify' {

@@ -27,6 +27,7 @@ export const queues = {
   dndScrub: mkQueue('dnd-scrub'),
   humanHandoff: mkQueue('human-handoff'),
   pdfRender: mkQueue('pdf-render'),
+  csvImport: mkQueue('csv-import'),
 } as const;
 
 export type QueueName = keyof typeof queues;

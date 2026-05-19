@@ -11,6 +11,7 @@ import { processCommissionCalc } from './jobs/commission-calc.js';
 import { processWhatsappSend } from './jobs/whatsapp-send.js';
 import { processEmailSend } from './jobs/email-send.js';
 import { processPdfRender } from './jobs/pdf-render.js';
+import { processCsvImport } from './jobs/csv-import.js';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
@@ -37,6 +38,7 @@ mkWorker('commission-calc', processCommissionCalc);
 mkWorker('whatsapp-send', processWhatsappSend);
 mkWorker('email-send', processEmailSend);
 mkWorker('pdf-render', processPdfRender);
+mkWorker('csv-import', processCsvImport);
 
 startFollowUpScheduler();
 startDailyScheduler();

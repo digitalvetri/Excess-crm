@@ -46,6 +46,20 @@ export function useForecast() {
   });
 }
 
+export interface ConversationIntel {
+  analyzedCalls: number;
+  sentiment: { POSITIVE: number; NEUTRAL: number; NEGATIVE: number };
+  topObjections: { tag: string; count: number }[];
+}
+
+export function useConversationIntel() {
+  return useQuery({
+    queryKey: ['insights', 'conversations'],
+    queryFn: () =>
+      api.get<{ data: ConversationIntel }>('/reports/conversations').then((r) => r.data.data),
+  });
+}
+
 export type ReportDimension = 'stage' | 'source' | 'team' | 'owner' | 'city' | 'month';
 export type ReportMetric = 'count' | 'conversionRate' | 'avgAiScore';
 

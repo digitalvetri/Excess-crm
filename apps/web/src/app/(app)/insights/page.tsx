@@ -2,7 +2,17 @@
 
 import Link from 'next/link';
 import { SlidersHorizontal } from 'lucide-react';
-import { useCohorts, useForecast, type CohortRow } from '@/hooks/use-insights';
+import { useCohorts, useForecast, useConversationIntel, type CohortRow } from '@/hooks/use-insights';
+
+const OBJECTION_LABEL: Record<string, string> = {
+  PRICE: 'Price',
+  TIMING: 'Timing',
+  NEEDS_TO_THINK: 'Needs to think',
+  DECISION_MAKER: 'Decision maker',
+  NOT_INTERESTED: 'Not interested',
+  COMPETITOR: 'Competitor',
+  TECHNICAL_DOUBT: 'Technical doubt',
+};
 
 function rateColor(rate: number): string {
   if (rate >= 30) return 'bg-green-500';
@@ -68,6 +78,7 @@ function BreakdownTable({ title, rows }: { title: string; rows: CohortRow[] }) {
 export default function InsightsPage() {
   const cohorts = useCohorts();
   const forecast = useForecast();
+  const conversations = useConversationIntel();
 
   return (
     <div className="space-y-8">
@@ -148,6 +159,65 @@ export default function InsightsPage() {
               </div>
             )}
           </div>
+        )}
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">Conversation Intelligence</h2>
+        {conversations.isLoading ? (
+          <div className="h-40 bg-white rounded-xl border border-border animate-pulse" />
+        ) : conversations.isError || !conversations.data ? (
+          <p className="text-sm text-danger">Failed to load conversation data.</p>
+        ) : conversations.data.analyzedCalls === 0 ? (
+          <div className="bg-white rounded-xl border border-border p-8 text-center">
+            <p className="text-sm text-slate-500">No analyzed calls yet.</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Completed calls are scanned for sentiment and objections every few hours.
+            </p>
+          </div>
+        ) : (
+          (() => {
+            const { analyzedCalls, sentiment, topObjections } = conversations.data;
+            const maxObj = Math.max(1, ...topObjections.map((o) => o.count));
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-white rounded-xl border border-border p-5">
+                  <p className="text-sm font-semibold text-slate-700 mb-1">Sentiment</p>
+                  <p className="text-xs text-slate-400 mb-3">{analyzedCalls} calls analyzed</p>
+                  <div className="flex h-3 rounded-full overflow-hidden mb-2">
+                    {sentiment.POSITIVE > 0 && <div className="bg-green-500" style={{ flex: sentiment.POSITIVE }} />}
+                    {sentiment.NEUTRAL > 0 && <div className="bg-slate-300" style={{ flex: sentiment.NEUTRAL }} />}
+                    {sentiment.NEGATIVE > 0 && <div className="bg-red-500" style={{ flex: sentiment.NEGATIVE }} />}
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Positive {sentiment.POSITIVE}</span>
+                    <span>Neutral {sentiment.NEUTRAL}</span>
+                    <span>Negative {sentiment.NEGATIVE}</span>
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl border border-border p-5">
+                  <p className="text-sm font-semibold text-slate-700 mb-3">Top Objections</p>
+                  {topObjections.length === 0 ? (
+                    <p className="text-sm text-slate-400">No objections detected.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {topObjections.map((o) => (
+                        <div key={o.tag} className="flex items-center gap-2 text-sm">
+                          <span className="w-28 shrink-0 text-slate-600">
+                            {OBJECTION_LABEL[o.tag] ?? o.tag}
+                          </span>
+                          <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-accent" style={{ width: `${(o.count / maxObj) * 100}%` }} />
+                          </div>
+                          <span className="w-6 text-right text-xs text-slate-500">{o.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()
         )}
       </section>
 

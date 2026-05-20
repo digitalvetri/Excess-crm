@@ -468,4 +468,37 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       },
     });
   });
+
+  // Conversation intelligence — aggregate sentiment + objections from analyzed calls
+  app.get('/conversations', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.all')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const calls = await req.withTenant((tx) =>
+      tx.call.findMany({
+        where: { tenantId: req.auth.tenantId, intelAnalyzedAt: { not: null } },
+        select: { sentiment: true, objectionTags: true },
+      }),
+    );
+
+    const sentiment = { POSITIVE: 0, NEUTRAL: 0, NEGATIVE: 0 };
+    const objectionCounts = new Map<string, number>();
+    for (const c of calls) {
+      if (c.sentiment && c.sentiment in sentiment) {
+        sentiment[c.sentiment as keyof typeof sentiment]++;
+      }
+      for (const tag of c.objectionTags) {
+        objectionCounts.set(tag, (objectionCounts.get(tag) ?? 0) + 1);
+      }
+    }
+
+    const topObjections = [...objectionCounts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return reply.send({
+      data: { analyzedCalls: calls.length, sentiment, topObjections },
+    });
+  });
 };

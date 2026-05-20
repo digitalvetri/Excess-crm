@@ -5,11 +5,12 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, Loader2, Plus, Image as ImageIcon, Wrench } from 'lucide-react';
+import { ArrowLeft, Check, Loader2, Plus, Image as ImageIcon, Wrench, Share2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
   useProject,
   useUpdateProject,
+  useProjectPortalLink,
   PROJECT_STAGES,
   STAGE_LABEL,
   type ProjectStage,
@@ -55,6 +56,7 @@ export default function ProjectDetailPage() {
   const id = String(params['id']);
   const { data: project, isLoading, isError } = useProject(id);
   const update = useUpdateProject();
+  const portalLink = useProjectPortalLink();
   const { data: engineers = [] } = useEngineers();
 
   const [photoUrl, setPhotoUrl] = useState('');
@@ -97,6 +99,16 @@ export default function ProjectDetailPage() {
     void patch({ photos }, 'Photo removed');
   }
 
+  async function handleShareLink() {
+    try {
+      const res = await portalLink.mutateAsync(id);
+      await navigator.clipboard.writeText(res.url);
+      toast.success('Customer status link copied to clipboard');
+    } catch {
+      toast.error('Failed to generate link');
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Link href="/projects" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
@@ -114,16 +126,26 @@ export default function ProjectDetailPage() {
             {project.lead.phone}
           </p>
         </div>
-        {nextStage && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => void patch({ stage: nextStage }, `Advanced to ${STAGE_LABEL[nextStage]}`)}
-            disabled={update.isPending}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+            onClick={() => void handleShareLink()}
+            disabled={portalLink.isPending}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
-            {update.isPending && <Loader2 size={14} className="animate-spin" />}
-            Advance to {STAGE_LABEL[nextStage]}
+            {portalLink.isPending ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />}
+            Share status link
           </button>
-        )}
+          {nextStage && (
+            <button
+              onClick={() => void patch({ stage: nextStage }, `Advanced to ${STAGE_LABEL[nextStage]}`)}
+              disabled={update.isPending}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {update.isPending && <Loader2 size={14} className="animate-spin" />}
+              Advance to {STAGE_LABEL[nextStage]}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stage tracker */}

@@ -1,8 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { Prisma } from '@excess/db';
+import { env } from '@excess/config';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 import { enrollLeadInSequences } from '../lib/sequences.js';
+import { signPortalToken } from '../lib/portal-token.js';
 
 const PROJECT_STAGES = ['SURVEY', 'DESIGN', 'MATERIAL_ORDERED', 'INSTALLATION', 'COMMISSIONING', 'HANDED_OVER'] as const;
 type ProjectStage = (typeof PROJECT_STAGES)[number];
@@ -159,6 +161,24 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, projectId: project.id, leadId }, 'project.created');
     return reply.code(201).send({ data: project });
+  });
+
+  // GET /projects/:id/portal-link — signed customer-facing status link
+  app.get('/:id/portal-link', async (req, reply) => {
+    if (!can(req.auth.role, 'projects.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+    const project = await req.withTenant((tx) =>
+      tx.project.findUnique({ where: { id }, select: { id: true } }),
+    );
+    if (!project) {
+      return reply.code(404).send({ error: { code: 'project.not_found', message: 'Project not found' } });
+    }
+
+    const token = signPortalToken(id, req.auth.tenantId);
+    return reply.send({ data: { token, url: `${env.APP_URL}/portal/status/${token}` } });
   });
 
   // PATCH /projects/:id — update stage / fields

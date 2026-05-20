@@ -124,3 +124,12 @@ export function useUpdateProject() {
     },
   });
 }
+
+export function useProjectPortalLink() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      api
+        .get<{ data: { token: string; url: string } }>(`/projects/${id}/portal-link`)
+        .then((r) => r.data.data),
+  });
+}

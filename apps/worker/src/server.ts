@@ -12,6 +12,7 @@ import { processWhatsappSend } from './jobs/whatsapp-send.js';
 import { processEmailSend } from './jobs/email-send.js';
 import { processPdfRender } from './jobs/pdf-render.js';
 import { processCsvImport } from './jobs/csv-import.js';
+import { processBroadcastSend } from './jobs/broadcast-send.js';
 import { startSlaEscalationScheduler } from './jobs/sla-escalation.js';
 import { startServiceVisitReminderScheduler } from './jobs/service-visit-reminder.js';
 
@@ -41,6 +42,7 @@ mkWorker('whatsapp-send', processWhatsappSend);
 mkWorker('email-send', processEmailSend);
 mkWorker('pdf-render', processPdfRender);
 mkWorker('csv-import', processCsvImport);
+mkWorker('broadcast-send', processBroadcastSend);
 
 startFollowUpScheduler();
 startDailyScheduler();

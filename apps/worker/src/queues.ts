@@ -28,6 +28,7 @@ export const queues = {
   humanHandoff: mkQueue('human-handoff'),
   pdfRender: mkQueue('pdf-render'),
   csvImport: mkQueue('csv-import'),
+  broadcastSend: mkQueue('broadcast-send'),
 } as const;
 
 export type QueueName = keyof typeof queues;

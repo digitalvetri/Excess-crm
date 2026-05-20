@@ -30,6 +30,7 @@ export const appQueues = {
   commissionCalc: mkQueue('commission-calc'),
   pdfRender: mkQueue('pdf-render'),
   csvImport: mkQueue('csv-import'),
+  broadcastSend: mkQueue('broadcast-send'),
 };
 
 declare module 'fastify' {

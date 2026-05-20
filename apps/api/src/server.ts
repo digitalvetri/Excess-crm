@@ -41,6 +41,7 @@ import { slaRulesRoutes } from './routes/sla-rules.js';
 import { stageGatesRoutes } from './routes/stage-gates.js';
 import { projectsRoutes } from './routes/projects.js';
 import { serviceTicketsRoutes } from './routes/service-tickets.js';
+import { broadcastsRoutes } from './routes/broadcasts.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -95,6 +96,7 @@ export async function buildServer() {
   await app.register(stageGatesRoutes, { prefix: '/stage-gates' });
   await app.register(projectsRoutes, { prefix: '/projects' });
   await app.register(serviceTicketsRoutes, { prefix: '/service-tickets' });
+  await app.register(broadcastsRoutes, { prefix: '/broadcasts' });
 
   app.setErrorHandler((error, _req, reply) => {
     app.log.error(error);

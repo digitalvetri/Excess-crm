@@ -323,4 +323,69 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       },
     });
   });
+
+  // Acquisition cohorts — leads grouped by when they were created
+  app.get('/cohorts', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.all')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const since = new Date();
+    since.setMonth(since.getMonth() - 11);
+    since.setDate(1);
+    since.setHours(0, 0, 0, 0);
+
+    const { leads, teams } = await req.withTenant(async (tx) => ({
+      leads: await tx.lead.findMany({
+        where: { tenantId: req.auth.tenantId, createdAt: { gte: since } },
+        select: { createdAt: true, stage: true, sourceType: true, teamId: true },
+      }),
+      teams: await tx.team.findMany({
+        where: { tenantId: req.auth.tenantId },
+        select: { id: true, name: true },
+      }),
+    }));
+
+    const teamName = new Map(teams.map((t) => [t.id, t.name]));
+    const QUALIFIED_PLUS = new Set(['QUALIFIED', 'FOLLOW_UP', 'CONVERTED']);
+
+    type Bucket = { totalLeads: number; qualified: number; converted: number };
+    const newBucket = (): Bucket => ({ totalLeads: 0, qualified: 0, converted: 0 });
+    const monthly = new Map<string, Bucket>();
+    const bySource = new Map<string, Bucket>();
+    const byTeam = new Map<string, Bucket>();
+
+    for (const l of leads) {
+      const period = l.createdAt.toISOString().slice(0, 7);
+      const teamKey = l.teamId ? (teamName.get(l.teamId) ?? 'Unknown') : 'Unassigned';
+      for (const [map, key] of [
+        [monthly, period],
+        [bySource, l.sourceType],
+        [byTeam, teamKey],
+      ] as const) {
+        const b = map.get(key) ?? newBucket();
+        b.totalLeads++;
+        if (QUALIFIED_PLUS.has(l.stage)) b.qualified++;
+        if (l.stage === 'CONVERTED') b.converted++;
+        map.set(key, b);
+      }
+    }
+
+    const toRows = (m: Map<string, Bucket>) =>
+      [...m.entries()].map(([key, b]) => ({
+        key,
+        totalLeads: b.totalLeads,
+        qualified: b.qualified,
+        converted: b.converted,
+        conversionRate: b.totalLeads > 0 ? Math.round((b.converted / b.totalLeads) * 100) : 0,
+      }));
+
+    return reply.send({
+      data: {
+        monthly: toRows(monthly).sort((a, b) => a.key.localeCompare(b.key)),
+        bySource: toRows(bySource).sort((a, b) => b.totalLeads - a.totalLeads),
+        byTeam: toRows(byTeam).sort((a, b) => b.totalLeads - a.totalLeads),
+      },
+    });
+  });
 };

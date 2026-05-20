@@ -27,6 +27,7 @@ import {
   Hammer,
   Wrench,
   Megaphone,
+  Sparkles,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -48,6 +49,7 @@ const NAV: { href: string; label: string; icon: React.ElementType }[] = [
   { href: '/appointments', label: 'Appointments', icon: Calendar },
   { href: '/teams', label: 'Teams', icon: Users },
   { href: '/reports', label: 'Reports', icon: BarChart3 },
+  { href: '/insights', label: 'Insights', icon: Sparkles },
   { href: '/franchise', label: 'Franchise', icon: Building2 },
   { href: '/commissions', label: 'Commissions', icon: DollarSign },
   { href: '/settings', label: 'Settings', icon: Settings },

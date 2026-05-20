@@ -13,6 +13,7 @@ import { processEmailSend } from './jobs/email-send.js';
 import { processPdfRender } from './jobs/pdf-render.js';
 import { processCsvImport } from './jobs/csv-import.js';
 import { startSlaEscalationScheduler } from './jobs/sla-escalation.js';
+import { startServiceVisitReminderScheduler } from './jobs/service-visit-reminder.js';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
@@ -44,6 +45,7 @@ mkWorker('csv-import', processCsvImport);
 startFollowUpScheduler();
 startDailyScheduler();
 startSlaEscalationScheduler();
+startServiceVisitReminderScheduler();
 
 log.info('Worker started — listening on: lead-ingest, voice-dial, call-webhook, human-handoff, commission-calc, whatsapp-send, email-send, pdf-render + follow-up scheduler + daily-compliance-scheduler');
 

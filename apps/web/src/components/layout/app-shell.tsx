@@ -25,6 +25,7 @@ import {
   Star,
   Wallet,
   Hammer,
+  Wrench,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -35,6 +36,7 @@ const NAV: { href: string; label: string; icon: React.ElementType }[] = [
   { href: '/calls', label: 'Calls', icon: PhoneCall },
   { href: '/quotations', label: 'Quotations', icon: FileText },
   { href: '/projects', label: 'Projects', icon: Hammer },
+  { href: '/service-tickets', label: 'Service Tickets', icon: Wrench },
   { href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
   { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
   { href: '/referrals', label: 'Referrals', icon: UserPlus },

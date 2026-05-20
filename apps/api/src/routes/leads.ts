@@ -118,10 +118,14 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
-    const today = new Date();
+    const now = new Date();
+    const today = new Date(now);
     today.setHours(0, 0, 0, 0);
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
+    // Compare like-for-like: yesterday only up to the current time of day,
+    // so an early-morning "0 today" isn't shown as a -100% crash vs a full day.
+    const yesterdayCutoff = new Date(yesterday.getTime() + (now.getTime() - today.getTime()));
 
     const stats = await req.withTenant(async (tx) => {
       const tenantId = req.auth.tenantId;
@@ -131,8 +135,8 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
           tx.lead.count({ where: { tenantId, createdAt: { gte: today } } }),
           tx.call.count({ where: { tenantId, initiatedAt: { gte: today } } }),
           tx.lead.count({ where: { tenantId, stage: 'CONVERTED' } }),
-          tx.lead.count({ where: { tenantId, createdAt: { gte: yesterday, lt: today } } }),
-          tx.call.count({ where: { tenantId, initiatedAt: { gte: yesterday, lt: today } } }),
+          tx.lead.count({ where: { tenantId, createdAt: { gte: yesterday, lt: yesterdayCutoff } } }),
+          tx.call.count({ where: { tenantId, initiatedAt: { gte: yesterday, lt: yesterdayCutoff } } }),
         ]);
       return { totalLeads, newToday, callsToday, converted, newYesterday, callsYesterday };
     });

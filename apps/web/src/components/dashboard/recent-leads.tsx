@@ -25,7 +25,8 @@ const AVATAR_COLORS = [
 function avatarColor(name: string): string {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length] ?? AVATAR_COLORS[0]!;
+  const idx = Math.abs(h) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[idx]!;
 }
 
 function initials(name: string): string {

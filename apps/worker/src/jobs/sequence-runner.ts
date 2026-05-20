@@ -15,7 +15,9 @@ interface DueEnrollment {
 export async function runSequenceStep(): Promise<void> {
   const now = new Date();
   const due = await prisma.sequenceEnrollment.findMany({
-    where: { status: 'ACTIVE', nextRunAt: { lte: now } },
+    // sequence.isActive guard — a deactivated sequence must stop firing
+    // remaining steps for already-enrolled leads, not just block new ones
+    where: { status: 'ACTIVE', nextRunAt: { lte: now }, sequence: { isActive: true } },
     select: { id: true, tenantId: true, sequenceId: true, leadId: true, currentStep: true },
     take: 200,
   });

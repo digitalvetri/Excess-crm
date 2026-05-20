@@ -29,6 +29,10 @@ const envSchema = z.object({
   VAPI_ASSISTANT_ID_RESHMA_VERIFY: z.string().optional(),
   VAPI_ASSISTANT_ID_KARTHIK_SALES: z.string().optional(),
   VAPI_ASSISTANT_ID_RESHMA_FOLLOWUP: z.string().optional(),
+  // Optional B-variant assistants for prompt A/B testing
+  VAPI_ASSISTANT_ID_RESHMA_VERIFY_B: z.string().optional(),
+  VAPI_ASSISTANT_ID_KARTHIK_SALES_B: z.string().optional(),
+  VAPI_ASSISTANT_ID_RESHMA_FOLLOWUP_B: z.string().optional(),
 
   EXOTEL_ACCOUNT_SID: z.string().optional(),
   EXOTEL_API_KEY: z.string().optional(),

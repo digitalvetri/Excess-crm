@@ -12,14 +12,17 @@ export interface VoiceDialPayload {
 const PERSONA_TO_ENV_KEY = {
   RESHMA_VERIFY: {
     assistantId: env.VAPI_ASSISTANT_ID_RESHMA_VERIFY,
+    assistantIdB: env.VAPI_ASSISTANT_ID_RESHMA_VERIFY_B,
     phoneNumberId: env.VAPI_PHONE_NUMBER_ID_RESHMA_VERIFY,
   },
   KARTHIK_SALES: {
     assistantId: env.VAPI_ASSISTANT_ID_KARTHIK_SALES,
+    assistantIdB: env.VAPI_ASSISTANT_ID_KARTHIK_SALES_B,
     phoneNumberId: env.VAPI_PHONE_NUMBER_ID_KARTHIK_SALES,
   },
   RESHMA_FOLLOWUP: {
     assistantId: env.VAPI_ASSISTANT_ID_RESHMA_FOLLOWUP,
+    assistantIdB: env.VAPI_ASSISTANT_ID_RESHMA_FOLLOWUP_B,
     phoneNumberId: env.VAPI_PHONE_NUMBER_ID_RESHMA_FOLLOWUP,
   },
 } as const;
@@ -58,10 +61,27 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
     throw new Error('VAPI_API_KEY is not set');
   }
 
+  // Prompt A/B test — split to a B-variant assistant by per-persona percentage
+  let abVariant: string | null = null;
+  let chosenAssistantId: string = assistantId;
+  const settings = await withSystemContext(prisma, tenantId, (tx) =>
+    tx.voiceAgentSettings.findUnique({
+      where: { tenantId },
+      select: { abTestConfig: true },
+    }),
+  );
+  const abConfig = (settings?.abTestConfig ?? {}) as Record<string, number>;
+  const splitPercent = Number(abConfig[personaId] ?? 0);
+  if (splitPercent > 0 && personaConfig.assistantIdB) {
+    const useB = Math.random() * 100 < splitPercent;
+    abVariant = useB ? 'B' : 'A';
+    if (useB) chosenAssistantId = personaConfig.assistantIdB;
+  }
+
   const { data } = await axios.post(
     'https://api.vapi.ai/call/phone',
     {
-      assistantId,
+      assistantId: chosenAssistantId,
       customer: { number: lead.phone, name: lead.name },
       phoneNumberId,
     },
@@ -83,9 +103,10 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
         fromNumber: phoneNumberId,
         toNumber: lead.phone,
         initiatedAt: new Date(),
+        ...(abVariant && { abVariant }),
       },
     }),
   );
 
-  await job.log(`Call initiated vapiCallId=${data.id}`);
+  await job.log(`Call initiated vapiCallId=${data.id}${abVariant ? ` variant=${abVariant}` : ''}`);
 }

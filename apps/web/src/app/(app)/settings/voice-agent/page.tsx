@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { VoiceAgentSettingsForm } from '@/components/voice-agent/settings-form';
 import { PersonaCards } from '@/components/voice-agent/persona-cards';
+import { VoiceAbTesting } from '@/components/voice-agent/voice-ab-testing';
 
 export const metadata = { title: 'Voice Agent Settings — Excess CRM' };
 
@@ -19,6 +20,8 @@ export default function VoiceAgentSettingsPage() {
       <Suspense fallback={<div className="h-64 bg-white rounded-xl animate-pulse" />}>
         <VoiceAgentSettingsForm />
       </Suspense>
+
+      <VoiceAbTesting />
     </div>
   );
 }

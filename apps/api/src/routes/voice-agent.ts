@@ -71,6 +71,86 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({ data: settings });
   });
 
+  // PUT /voice-agent/ab-config — per-persona prompt A/B split percentages
+  app.put('/ab-config', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.configure')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const parsed = z
+      .object({ abTestConfig: z.record(z.number().int().min(0).max(100)) })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid A/B config' } });
+    }
+
+    const settings = await req.withTenant((tx) =>
+      tx.voiceAgentSettings.upsert({
+        where: { tenantId: req.auth.tenantId },
+        create: { tenantId: req.auth.tenantId, abTestConfig: parsed.data.abTestConfig },
+        update: { abTestConfig: parsed.data.abTestConfig },
+      }),
+    );
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId }, 'voice_agent.ab_config_updated');
+    return reply.send({ data: settings });
+  });
+
+  // GET /voice-agent/ab-results — compare A vs B variant call outcomes
+  app.get('/ab-results', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const calls = await req.withTenant((tx) =>
+      tx.call.findMany({
+        where: { tenantId: req.auth.tenantId, abVariant: { not: null } },
+        select: { persona: true, abVariant: true, status: true, durationSec: true, connectedAt: true },
+      }),
+    );
+
+    type Bucket = {
+      persona: string;
+      variant: string;
+      calls: number;
+      connected: number;
+      durationSum: number;
+      durationCount: number;
+    };
+    const map = new Map<string, Bucket>();
+    for (const c of calls) {
+      const variant = c.abVariant ?? 'A';
+      const key = `${c.persona}|${variant}`;
+      const b = map.get(key) ?? {
+        persona: c.persona,
+        variant,
+        calls: 0,
+        connected: 0,
+        durationSum: 0,
+        durationCount: 0,
+      };
+      b.calls++;
+      if (c.connectedAt || c.status === 'COMPLETED') b.connected++;
+      if (c.durationSec != null) {
+        b.durationSum += c.durationSec;
+        b.durationCount++;
+      }
+      map.set(key, b);
+    }
+
+    const results = [...map.values()]
+      .map((b) => ({
+        persona: b.persona,
+        variant: b.variant,
+        calls: b.calls,
+        connectRate: b.calls > 0 ? Math.round((b.connected / b.calls) * 100) : 0,
+        avgDurationSec: b.durationCount > 0 ? Math.round(b.durationSum / b.durationCount) : 0,
+      }))
+      .sort((a, b) => a.persona.localeCompare(b.persona) || a.variant.localeCompare(b.variant));
+
+    return reply.send({ data: results });
+  });
+
   // GET /voice-agent/configs — list persona configs for tenant
   app.get('/configs', async (req, reply) => {
     if (!can(req.auth.role, 'voice_agent.read')) {

@@ -475,9 +475,12 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
+    // Only calls that actually yielded a sentiment — calls with no extractable
+    // transcript text are stamped analyzed but carry no signal, so excluding
+    // them keeps analyzedCalls consistent with the sentiment + objection totals.
     const calls = await req.withTenant((tx) =>
       tx.call.findMany({
-        where: { tenantId: req.auth.tenantId, intelAnalyzedAt: { not: null } },
+        where: { tenantId: req.auth.tenantId, sentiment: { not: null } },
         select: { sentiment: true, objectionTags: true },
       }),
     );

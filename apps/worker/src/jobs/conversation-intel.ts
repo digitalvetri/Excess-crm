@@ -8,6 +8,9 @@ const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
  * Lexicons cover English + common Tamil/Tanglish terms; extend as the
  * Tamil Nadu customer base surfaces more phrasing.
  */
+// note: keyword matching is context-blind — e.g. 'budget' fires PRICE even when
+// the customer is stating their budget rather than objecting. Acceptable v1
+// noise; refine the lexicon as real transcripts are reviewed.
 const OBJECTION_PATTERNS: { tag: string; keywords: string[] }[] = [
   { tag: 'PRICE', keywords: ['too expensive', 'expensive', 'costly', 'price is high', 'high price', 'budget', 'cannot afford', "can't afford", 'adhigam', 'rate adhigam', 'vela adhigam'] },
   { tag: 'TIMING', keywords: ['not now', 'later', 'call back', 'next month', 'busy', 'appuram', 'aprom', 'ippo illa', 'rendu maasam'] },

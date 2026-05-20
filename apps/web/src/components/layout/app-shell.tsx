@@ -24,16 +24,17 @@ import {
   UserPlus,
   Star,
   Wallet,
+  Hammer,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import type { Route } from 'next';
 
-const NAV: { href: Route; label: string; icon: React.ElementType }[] = [
+const NAV: { href: string; label: string; icon: React.ElementType }[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/leads', label: 'Leads', icon: Users },
   { href: '/calls', label: 'Calls', icon: PhoneCall },
   { href: '/quotations', label: 'Quotations', icon: FileText },
+  { href: '/projects', label: 'Projects', icon: Hammer },
   { href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
   { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
   { href: '/referrals', label: 'Referrals', icon: UserPlus },

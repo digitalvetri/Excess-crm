@@ -15,6 +15,13 @@ import {
 
 const anthropic = new Anthropic();
 
+function generateProjectNumber(): string {
+  const now = new Date();
+  const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const hex = Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, '0');
+  return `PRJ-${yyyymm}-${hex}`;
+}
+
 export const leadsRoutes: FastifyPluginAsync = async (app) => {
   // GET /leads — list with filters + cursor pagination
   app.get('/', async (req, reply) => {
@@ -313,6 +320,47 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
         tenantId: req.auth.tenantId,
         dealValueInr,
       });
+    }
+
+    // Auto-create install Project when a lead converts (one per lead)
+    if (stage === 'CONVERTED') {
+      try {
+        await req.withTenant(async (tx) => {
+          const existing = await tx.project.findUnique({
+            where: { leadId: id },
+            select: { id: true },
+          });
+          if (existing) return;
+
+          const quotation = await tx.quotation.findFirst({
+            where: { leadId: id },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, systemKw: true, totalInr: true },
+          });
+          const surveyAppt = await tx.appointment.findFirst({
+            where: { leadId: id, status: 'COMPLETED' },
+            orderBy: { scheduledAt: 'desc' },
+            select: { id: true },
+          });
+
+          await tx.project.create({
+            data: {
+              tenantId: req.auth.tenantId,
+              leadId: id,
+              number: generateProjectNumber(),
+              ...(quotation && {
+                quotationId: quotation.id,
+                systemKw: quotation.systemKw,
+                totalValueInr: quotation.totalInr,
+              }),
+              ...(surveyAppt && { surveyAppointmentId: surveyAppt.id }),
+            },
+          });
+        });
+        req.log.info({ tenantId: req.auth.tenantId, leadId: id }, 'project.auto_created');
+      } catch (err) {
+        req.log.error({ tenantId: req.auth.tenantId, leadId: id, err }, 'project.auto_create_failed');
+      }
     }
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id, stage }, 'lead.updated');

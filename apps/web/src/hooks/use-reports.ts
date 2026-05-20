@@ -37,6 +37,18 @@ export interface CallAnalytics {
   byHour: { hour: number; count: number }[];
 }
 
+export interface NpsReport {
+  nps: number;
+  total: number;
+  requestedCount: number;
+  responseRate: number;
+  avgScore: number;
+  promoters: number;
+  passives: number;
+  detractors: number;
+  recentComments: { name: string; score: number | null; comment: string | null }[];
+}
+
 interface ReportState<T> {
   data: T | null;
   loading: boolean;
@@ -201,6 +213,35 @@ export function useCallAnalytics(): ReportState<CallAnalytics> {
         }
       });
     return () => { cancelled = true; };
+  }, []);
+
+  return state;
+}
+
+export function useNps(): ReportState<NpsReport> {
+  const [state, setState] = useState<ReportState<NpsReport>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true, error: null }));
+    api
+      .get<{ data: NpsReport }>('/reports/nps')
+      .then((res) => {
+        if (!cancelled) setState({ data: res.data.data, loading: false, error: null });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : 'Failed to load NPS data';
+          setState({ data: null, loading: false, error: message });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return state;

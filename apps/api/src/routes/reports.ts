@@ -273,4 +273,54 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       data: { qualifiedPipeline, convertedRevenue, quotationsThisMonth },
     });
   });
+
+  app.get('/nps', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.all')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { responses, requestedCount } = await req.withTenant(async (tx) => ({
+      responses: await tx.review.findMany({
+        where: { tenantId: req.auth.tenantId, npsScore: { not: null } },
+        select: { npsScore: true, npsComment: true, npsRespondedAt: true, lead: { select: { name: true } } },
+        orderBy: { npsRespondedAt: 'desc' },
+      }),
+      requestedCount: await tx.review.count({
+        where: { tenantId: req.auth.tenantId, npsRequestedAt: { not: null } },
+      }),
+    }));
+
+    let promoters = 0;
+    let passives = 0;
+    let detractors = 0;
+    let sum = 0;
+    for (const r of responses) {
+      const s = r.npsScore ?? 0;
+      sum += s;
+      if (s >= 9) promoters++;
+      else if (s >= 7) passives++;
+      else detractors++;
+    }
+    const total = responses.length;
+    const nps = total > 0 ? Math.round(((promoters - detractors) / total) * 100) : 0;
+    const avgScore = total > 0 ? Math.round((sum / total) * 10) / 10 : 0;
+    const recentComments = responses
+      .filter((r) => r.npsComment)
+      .slice(0, 5)
+      .map((r) => ({ name: r.lead.name, score: r.npsScore, comment: r.npsComment }));
+
+    return reply.send({
+      data: {
+        nps,
+        total,
+        requestedCount,
+        responseRate: requestedCount > 0 ? Math.round((total / requestedCount) * 100) : 0,
+        avgScore,
+        promoters,
+        passives,
+        detractors,
+        recentComments,
+      },
+    });
+  });
 };

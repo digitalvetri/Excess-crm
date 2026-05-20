@@ -1,7 +1,74 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyBaseLogger } from 'fastify';
 import crypto from 'crypto';
 import { env } from '@excess/config';
 import { prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
+
+/**
+ * If the sender has a pending NPS request and replied with a 0-10 score,
+ * record it on the Review row and clear the pending flag. Returns true
+ * when the message was consumed as an NPS response.
+ */
+async function tryCaptureNps(
+  tenantId: string,
+  phone: string,
+  text: string,
+  log: FastifyBaseLogger,
+): Promise<boolean> {
+  const session = await withSystemContext(prisma, tenantId, (tx) =>
+    tx.waSession.findUnique({
+      where: { tenantId_phone: { tenantId, phone } },
+      select: { npsPendingProjectId: true },
+    }),
+  );
+  if (!session?.npsPendingProjectId) return false;
+
+  const firstToken = text.trim().split(/\s+/)[0] ?? '';
+  if (!/^(10|[0-9])$/.test(firstToken)) return false;
+  const score = Number(firstToken);
+  const comment = text.trim().slice(firstToken.length).trim();
+  const projectId = session.npsPendingProjectId;
+
+  await withSystemContext(prisma, tenantId, async (tx) => {
+    const project = await tx.project.findUnique({
+      where: { id: projectId },
+      select: { leadId: true },
+    });
+    if (!project) return;
+
+    const review = await tx.review.findFirst({
+      where: { leadId: project.leadId, npsRequestedAt: { not: null }, npsRespondedAt: null },
+      orderBy: { npsRequestedAt: 'desc' },
+      select: { id: true },
+    });
+    if (review) {
+      await tx.review.update({
+        where: { id: review.id },
+        data: { npsScore: score, npsRespondedAt: new Date(), ...(comment && { npsComment: comment }) },
+      });
+    }
+
+    await tx.waSession.update({
+      where: { tenantId_phone: { tenantId, phone } },
+      data: { npsPendingProjectId: null },
+    });
+
+    await tx.leadActivity.create({
+      data: {
+        leadId: project.leadId,
+        tenantId,
+        actorIsAi: true,
+        type: 'NOTE',
+        payload: {
+          note: `📊 NPS response: ${score}/10${comment ? ` — "${comment}"` : ''}`,
+          npsScore: score,
+        } as object,
+      },
+    });
+  });
+
+  log.info({ tenantId, projectId, npsScore: score }, 'nps.captured');
+  return true;
+}
 
 interface WaMessage {
   from: string;
@@ -81,6 +148,15 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
 
         for (const msg of v.messages ?? []) {
           if (msg.type !== 'text') continue;
+
+          // Capture NPS replies before treating the message as a fresh lead
+          const npsCaptured = await tryCaptureNps(
+            source.tenantId,
+            msg.from,
+            msg.text?.body ?? '',
+            req.log,
+          );
+          if (npsCaptured) continue;
 
           const contact = v.contacts?.find((c) => c.wa_id === msg.from);
           const name = contact?.profile.name ?? 'WhatsApp User';

@@ -22,6 +22,7 @@ import {
   useAgentPerformance,
   useRevenuePipeline,
   useCallAnalytics,
+  useNps,
 } from '@/hooks/use-reports';
 
 const STAGE_COLORS: Record<string, string> = {
@@ -52,6 +53,7 @@ export default function ReportsPage() {
   const sources = useSourceBreakdown();
   const agents = useAgentPerformance();
   const callAnalytics = useCallAnalytics();
+  const nps = useNps();
 
   const totalLeads =
     funnel.data?.stages.reduce((sum, s) => sum + s.count, 0) ?? 0;
@@ -203,6 +205,95 @@ export default function ReportsPage() {
                 {revenue.data.quotationsThisMonth}
               </p>
             </div>
+          </div>
+        )}
+      </section>
+
+      {/* Section 1b: Customer NPS */}
+      <section>
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">Customer Satisfaction (NPS)</h2>
+        {nps.loading ? (
+          <p className="text-sm text-slate-500">Loading...</p>
+        ) : nps.error ? (
+          <p className="text-sm text-red-500">{nps.error}</p>
+        ) : !nps.data ? (
+          <p className="text-sm text-slate-400">No data available</p>
+        ) : nps.data.total === 0 ? (
+          <div className="bg-white rounded-xl border border-border p-8 text-center">
+            <p className="text-sm text-slate-500">No NPS responses yet.</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Surveys are sent automatically 7 days after a project is commissioned.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">NPS Score</p>
+                <p className={`text-3xl font-bold ${nps.data.nps >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {nps.data.nps > 0 ? '+' : ''}
+                  {nps.data.nps}
+                </p>
+              </div>
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Avg Score</p>
+                <p className="text-3xl font-bold text-slate-900">{nps.data.avgScore}/10</p>
+              </div>
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Responses</p>
+                <p className="text-3xl font-bold text-slate-900">{nps.data.total}</p>
+              </div>
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Response Rate</p>
+                <p className="text-3xl font-bold text-primary">{nps.data.responseRate}%</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-border p-5">
+              <div className="flex h-3 rounded-full overflow-hidden mb-2">
+                {nps.data.detractors > 0 && (
+                  <div className="bg-red-500" style={{ flex: nps.data.detractors }} />
+                )}
+                {nps.data.passives > 0 && (
+                  <div className="bg-amber-400" style={{ flex: nps.data.passives }} />
+                )}
+                {nps.data.promoters > 0 && (
+                  <div className="bg-green-500" style={{ flex: nps.data.promoters }} />
+                )}
+              </div>
+              <div className="flex justify-between text-xs text-slate-500">
+                <span>Detractors (0–6): {nps.data.detractors}</span>
+                <span>Passives (7–8): {nps.data.passives}</span>
+                <span>Promoters (9–10): {nps.data.promoters}</span>
+              </div>
+            </div>
+
+            {nps.data.recentComments.length > 0 && (
+              <div className="bg-white rounded-xl border border-border p-5">
+                <p className="text-sm font-semibold text-slate-700 mb-3">Recent Comments</p>
+                <div className="space-y-2">
+                  {nps.data.recentComments.map((c, i) => (
+                    <div key={i} className="flex items-start gap-3 text-sm border-b border-border last:border-0 pb-2 last:pb-0">
+                      <span
+                        className={`shrink-0 w-8 text-center font-bold rounded ${
+                          (c.score ?? 0) >= 9
+                            ? 'text-green-700'
+                            : (c.score ?? 0) >= 7
+                              ? 'text-amber-600'
+                              : 'text-red-600'
+                        }`}
+                      >
+                        {c.score}
+                      </span>
+                      <div>
+                        <span className="text-slate-800">{c.comment}</span>
+                        <span className="text-xs text-slate-400 ml-2">— {c.name}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>

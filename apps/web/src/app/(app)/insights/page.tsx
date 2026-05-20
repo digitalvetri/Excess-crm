@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { SlidersHorizontal } from 'lucide-react';
 import { useCohorts, useForecast, type CohortRow } from '@/hooks/use-insights';
 
 function rateColor(rate: number): string {
@@ -69,9 +71,17 @@ export default function InsightsPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Insights</h1>
-        <p className="text-sm text-slate-500 mt-1">Cohort, conversion and pipeline intelligence.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Insights</h1>
+          <p className="text-sm text-slate-500 mt-1">Cohort, conversion and pipeline intelligence.</p>
+        </div>
+        <Link
+          href="/insights/builder"
+          className="inline-flex items-center gap-1.5 text-sm border border-border text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
+        >
+          <SlidersHorizontal size={15} /> Report Builder
+        </Link>
       </div>
 
       <section>

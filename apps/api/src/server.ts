@@ -44,6 +44,7 @@ import { serviceTicketsRoutes } from './routes/service-tickets.js';
 import { broadcastsRoutes } from './routes/broadcasts.js';
 import { sequencesRoutes } from './routes/sequences.js';
 import { portalRoutes } from './routes/portal.js';
+import { reportBuilderRoutes } from './routes/report-builder.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -101,6 +102,7 @@ export async function buildServer() {
   await app.register(broadcastsRoutes, { prefix: '/broadcasts' });
   await app.register(sequencesRoutes, { prefix: '/sequences' });
   await app.register(portalRoutes, { prefix: '/portal' });
+  await app.register(reportBuilderRoutes, { prefix: '/report-builder' });
 
   app.setErrorHandler((error, _req, reply) => {
     app.log.error(error);

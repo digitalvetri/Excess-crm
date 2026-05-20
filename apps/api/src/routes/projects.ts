@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { Prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
+import { enrollLeadInSequences } from '../lib/sequences.js';
 
 const PROJECT_STAGES = ['SURVEY', 'DESIGN', 'MATERIAL_ORDERED', 'INSTALLATION', 'COMMISSIONING', 'HANDED_OVER'] as const;
 type ProjectStage = (typeof PROJECT_STAGES)[number];
@@ -180,7 +181,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       tx.project.findUnique({
         where: { id },
         select: {
-          id: true, stage: true,
+          id: true, stage: true, leadId: true,
           surveyDoneAt: true, designApprovedAt: true, materialOrderedAt: true,
           installStartedAt: true, commissionedAt: true, handedOverAt: true,
         },
@@ -211,12 +212,17 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'No fields to update' } });
     }
 
-    const project = await req.withTenant((tx) =>
-      tx.project.update({
+    const stageChanged = !!stage && stage !== existing.stage;
+    const project = await req.withTenant(async (tx) => {
+      const updated = await tx.project.update({
         where: { id },
         data: data as Parameters<typeof tx.project.update>[0]['data'],
-      }),
-    );
+      });
+      if (stageChanged) {
+        await enrollLeadInSequences(tx, req.auth.tenantId, existing.leadId, 'PROJECT_STAGE', stage as string);
+      }
+      return updated;
+    });
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, projectId: id, stage }, 'project.updated');
     return reply.send({ data: project });

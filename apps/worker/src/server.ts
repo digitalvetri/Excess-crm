@@ -16,6 +16,7 @@ import { processBroadcastSend } from './jobs/broadcast-send.js';
 import { startSlaEscalationScheduler } from './jobs/sla-escalation.js';
 import { startServiceVisitReminderScheduler } from './jobs/service-visit-reminder.js';
 import { startNpsSolicitationScheduler } from './jobs/nps-solicitation.js';
+import { startSequenceRunner } from './jobs/sequence-runner.js';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
@@ -50,6 +51,7 @@ startDailyScheduler();
 startSlaEscalationScheduler();
 startServiceVisitReminderScheduler();
 startNpsSolicitationScheduler();
+startSequenceRunner();
 
 log.info('Worker started — listening on: lead-ingest, voice-dial, call-webhook, human-handoff, commission-calc, whatsapp-send, email-send, pdf-render + follow-up scheduler + daily-compliance-scheduler');
 

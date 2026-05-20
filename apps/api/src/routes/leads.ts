@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { FastifyPluginAsync } from 'fastify';
 import type { LeadSourceType, LeadStage, ActivityType } from '@excess/db';
 import { can } from '@excess/shared';
+import { enrollLeadInSequences } from '../lib/sequences.js';
 import {
   updateLeadSchema,
   assignLeadSchema,
@@ -309,6 +310,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
             payload: { newStage: stage } as object,
           },
         });
+        await enrollLeadInSequences(tx, req.auth.tenantId, id, 'LEAD_STAGE', stage);
       }
 
       return updated;

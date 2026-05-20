@@ -8,6 +8,7 @@ const SETTINGS_NAV = [
   { href: '/settings/sla-rules', label: 'SLA Rules' },
   { href: '/settings/assignment-rules', label: 'Assignment Rules' },
   { href: '/settings/stage-gates', label: 'Stage Gates' },
+  { href: '/settings/sequences', label: 'Drip Sequences' },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

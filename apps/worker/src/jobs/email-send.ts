@@ -20,6 +20,15 @@ function renderHtml(template: string, subject: string, vars: Record<string, stri
     case 'QUOTATION_SENT_CONFIRMATION':
       return `<h2>Quotation Sent</h2><p>Quotation has been sent to ${vars['leadName'] ?? ''} via ${vars['via'] ?? ''}</p>`;
 
+    case 'SEQUENCE_MESSAGE': {
+      const escaped = (vars['body'] ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+      return `<div style="font-family:sans-serif;line-height:1.5">${escaped}</div>`;
+    }
+
     default:
       return `<h2>${subject}</h2><p>This is an automated notification from Excess CRM.</p>`;
   }

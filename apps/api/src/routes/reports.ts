@@ -388,4 +388,84 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       },
     });
   });
+
+  // Weighted pipeline forecast — open leads valued by stage win-probability
+  app.get('/forecast', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.all')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const STAGE_PROB: Record<string, number> = {
+      NEW: 0.1,
+      QUALIFIED: 0.5,
+      FOLLOW_UP: 0.3,
+      NOT_ANSWERED: 0.05,
+    };
+
+    const { leads, quotations } = await req.withTenant(async (tx) => ({
+      leads: await tx.lead.findMany({
+        where: {
+          tenantId: req.auth.tenantId,
+          stage: { in: ['NEW', 'QUALIFIED', 'FOLLOW_UP', 'NOT_ANSWERED', 'CONVERTED'] },
+        },
+        select: { id: true, stage: true },
+      }),
+      quotations: await tx.quotation.findMany({
+        where: { tenantId: req.auth.tenantId },
+        select: { leadId: true, netPayable: true },
+      }),
+    }));
+
+    // Highest quotation value seen per lead; fallback to the average deal size
+    const valueByLead = new Map<string, number>();
+    for (const q of quotations) {
+      const v = Number(q.netPayable);
+      valueByLead.set(q.leadId, Math.max(valueByLead.get(q.leadId) ?? 0, v));
+    }
+
+    type StageBucket = {
+      stage: string;
+      probability: number;
+      leadCount: number;
+      rawValue: number;
+      weightedValue: number;
+    };
+    const stageMap = new Map<string, StageBucket>();
+    let committedRevenue = 0;
+
+    for (const l of leads) {
+      const value = valueByLead.get(l.id) ?? AVG_DEAL_VALUE_INR;
+      if (l.stage === 'CONVERTED') {
+        committedRevenue += value;
+        continue;
+      }
+      const probability = STAGE_PROB[l.stage];
+      if (probability === undefined) continue;
+      const sb = stageMap.get(l.stage) ?? {
+        stage: l.stage,
+        probability,
+        leadCount: 0,
+        rawValue: 0,
+        weightedValue: 0,
+      };
+      sb.leadCount++;
+      sb.rawValue += value;
+      sb.weightedValue += value * probability;
+      stageMap.set(l.stage, sb);
+    }
+
+    const order = ['QUALIFIED', 'FOLLOW_UP', 'NEW', 'NOT_ANSWERED'];
+    const stages = [...stageMap.values()]
+      .map((s) => ({ ...s, weightedValue: Math.round(s.weightedValue) }))
+      .sort((a, b) => order.indexOf(a.stage) - order.indexOf(b.stage));
+
+    return reply.send({
+      data: {
+        stages,
+        totalWeighted: stages.reduce((s, x) => s + x.weightedValue, 0),
+        totalRaw: stages.reduce((s, x) => s + x.rawValue, 0),
+        committedRevenue: Math.round(committedRevenue),
+      },
+    });
+  });
 };

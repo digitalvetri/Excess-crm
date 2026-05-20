@@ -23,3 +23,25 @@ export function useCohorts() {
     queryFn: () => api.get<{ data: CohortsData }>('/reports/cohorts').then((r) => r.data.data),
   });
 }
+
+export interface ForecastStage {
+  stage: string;
+  probability: number;
+  leadCount: number;
+  rawValue: number;
+  weightedValue: number;
+}
+
+export interface ForecastData {
+  stages: ForecastStage[];
+  totalWeighted: number;
+  totalRaw: number;
+  committedRevenue: number;
+}
+
+export function useForecast() {
+  return useQuery({
+    queryKey: ['insights', 'forecast'],
+    queryFn: () => api.get<{ data: ForecastData }>('/reports/forecast').then((r) => r.data.data),
+  });
+}

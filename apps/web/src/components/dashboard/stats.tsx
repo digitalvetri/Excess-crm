@@ -1,6 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { Users, UserPlus, PhoneCall, TrendingUp } from 'lucide-react';
+import type React from 'react';
 import { api } from '@/lib/api';
 
 interface StatsData {
@@ -8,6 +10,14 @@ interface StatsData {
   newToday: number;
   callsToday: number;
   conversionRate: number;
+}
+
+interface StatCard {
+  label: string;
+  value: string;
+  icon: React.ElementType;
+  tint: string;
+  iconColor: string;
 }
 
 export function DashboardStats() {
@@ -18,27 +28,59 @@ export function DashboardStats() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bg-white rounded-xl border border-border p-5 animate-pulse h-28" />
+          <div key={i} className="h-28 animate-pulse rounded-xl border border-border bg-white" />
         ))}
       </div>
     );
   }
 
-  const stats = [
-    { label: 'Total Leads', value: data?.totalLeads?.toLocaleString() ?? '—' },
-    { label: 'New Today', value: data?.newToday?.toLocaleString() ?? '—' },
-    { label: 'Calls Today', value: data?.callsToday?.toLocaleString() ?? '—' },
-    { label: 'Conversion Rate', value: data ? `${data.conversionRate}%` : '—' },
+  const cards: StatCard[] = [
+    {
+      label: 'Total Leads',
+      value: data?.totalLeads?.toLocaleString() ?? '—',
+      icon: Users,
+      tint: 'bg-primary/10',
+      iconColor: 'text-primary',
+    },
+    {
+      label: 'New Today',
+      value: data?.newToday?.toLocaleString() ?? '—',
+      icon: UserPlus,
+      tint: 'bg-accent/10',
+      iconColor: 'text-accent',
+    },
+    {
+      label: 'Calls Today',
+      value: data?.callsToday?.toLocaleString() ?? '—',
+      icon: PhoneCall,
+      tint: 'bg-sky-100',
+      iconColor: 'text-sky-600',
+    },
+    {
+      label: 'Conversion Rate',
+      value: data ? `${data.conversionRate}%` : '—',
+      icon: TrendingUp,
+      tint: 'bg-success/10',
+      iconColor: 'text-success',
+    },
   ];
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      {stats.map(({ label, value }) => (
-        <div key={label} className="bg-white rounded-xl border border-border p-5">
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className="text-3xl font-bold text-slate-800 mt-1">{value}</p>
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {cards.map(({ label, value, icon: Icon, tint, iconColor }) => (
+        <div
+          key={label}
+          className="rounded-xl border border-border bg-white p-5 transition-shadow hover:shadow-sm"
+        >
+          <div className="flex items-start justify-between">
+            <p className="text-sm text-slate-500">{label}</p>
+            <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${tint}`}>
+              <Icon size={17} className={iconColor} />
+            </span>
+          </div>
+          <p className="mt-3 text-3xl font-bold text-slate-800">{value}</p>
         </div>
       ))}
     </div>

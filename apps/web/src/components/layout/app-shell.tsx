@@ -37,6 +37,7 @@ import {
   Shuffle,
   Shield,
   Workflow,
+  Bell,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -281,6 +282,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
           <h1 className="text-base font-semibold text-slate-800 truncate">{pageTitle}</h1>
           <div className="flex-1" />
+          <button
+            type="button"
+            aria-label="Notifications"
+            className="relative text-slate-400 hover:text-slate-700 transition-colors"
+          >
+            <Bell size={19} />
+            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-danger ring-2 ring-white" />
+          </button>
           <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-success bg-success/10 px-2.5 py-1 rounded-full">
             <span className="w-1.5 h-1.5 rounded-full bg-success" />
             Live

@@ -13,51 +13,79 @@ interface Lead {
   createdAt: string;
 }
 
-const STAGE_COLORS: Record<string, string> = {
-  NEW: 'bg-blue-100 text-blue-700',
-  QUALIFIED: 'bg-green-100 text-green-700',
-  FOLLOW_UP: 'bg-yellow-100 text-yellow-700',
-  CONVERTED: 'bg-emerald-100 text-emerald-700',
-  NOT_ANSWERED: 'bg-slate-100 text-slate-600',
-  INVALID: 'bg-red-100 text-red-700',
-};
+const AVATAR_COLORS = [
+  'bg-primary/10 text-primary',
+  'bg-accent/15 text-accent',
+  'bg-sky-100 text-sky-600',
+  'bg-purple-100 text-purple-600',
+  'bg-rose-100 text-rose-600',
+  'bg-emerald-100 text-emerald-600',
+];
+
+function avatarColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length] ?? AVATAR_COLORS[0]!;
+}
+
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+}
 
 export function RecentLeads() {
   const { data, isLoading } = useQuery({
     queryKey: ['recent-leads'],
     queryFn: () =>
-      api.get<{ data: { leads: Lead[] } }>('/leads?limit=10').then((r) => r.data.data.leads),
+      api.get<{ data: { leads: Lead[] } }>('/leads?limit=6').then((r) => r.data.data.leads),
   });
 
   return (
-    <div className="bg-white rounded-xl border border-border">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+    <div className="rounded-xl border border-border bg-white">
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <h2 className="font-semibold text-slate-800">Recent Leads</h2>
-        <Link href="/leads" className="text-sm text-primary hover:underline">View all</Link>
+        <Link href="/leads" className="text-sm font-medium text-primary hover:underline">
+          View all
+        </Link>
       </div>
 
       {isLoading ? (
-        <div className="p-6 space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-10 bg-slate-100 rounded animate-pulse" />
+        <div className="space-y-3 p-5">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100" />
           ))}
         </div>
+      ) : !data || data.length === 0 ? (
+        <p className="px-5 py-10 text-center text-sm text-slate-400">No leads yet.</p>
       ) : (
         <div className="divide-y divide-border">
-          {(data ?? []).map((lead) => (
-            <Link
+          {data.map((lead) => (
+            <div
               key={lead.id}
-              href={`/leads/${lead.id}`}
-              className="flex items-center gap-4 px-6 py-3 hover:bg-slate-50 transition-colors"
+              className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-slate-50"
             >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800 truncate">{lead.name}</p>
-                <p className="text-xs text-slate-500">{lead.phone} · {lead.sourceType}</p>
-              </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STAGE_COLORS[lead.stage] ?? 'bg-slate-100 text-slate-600'}`}>
-                {lead.stage.replace('_', ' ')}
+              <span
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${avatarColor(lead.name)}`}
+              >
+                {initials(lead.name)}
               </span>
-            </Link>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-slate-800">{lead.name}</p>
+                <p className="truncate text-xs text-slate-400">
+                  {lead.phone} · {lead.sourceType.replace(/_/g, ' ')}
+                </p>
+              </div>
+              <Link
+                href={`/leads/${lead.id}`}
+                className="shrink-0 rounded-md border border-primary/20 px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/5"
+              >
+                View
+              </Link>
+            </div>
           ))}
         </div>
       )}

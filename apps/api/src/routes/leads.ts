@@ -120,15 +120,21 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
     const stats = await req.withTenant(async (tx) => {
-      const [totalLeads, newToday, callsToday, converted] = await Promise.all([
-        tx.lead.count({ where: { tenantId: req.auth.tenantId } }),
-        tx.lead.count({ where: { tenantId: req.auth.tenantId, createdAt: { gte: today } } }),
-        tx.call.count({ where: { tenantId: req.auth.tenantId, initiatedAt: { gte: today } } }),
-        tx.lead.count({ where: { tenantId: req.auth.tenantId, stage: 'CONVERTED' } }),
-      ]);
-      return { totalLeads, newToday, callsToday, converted };
+      const tenantId = req.auth.tenantId;
+      const [totalLeads, newToday, callsToday, converted, newYesterday, callsYesterday] =
+        await Promise.all([
+          tx.lead.count({ where: { tenantId } }),
+          tx.lead.count({ where: { tenantId, createdAt: { gte: today } } }),
+          tx.call.count({ where: { tenantId, initiatedAt: { gte: today } } }),
+          tx.lead.count({ where: { tenantId, stage: 'CONVERTED' } }),
+          tx.lead.count({ where: { tenantId, createdAt: { gte: yesterday, lt: today } } }),
+          tx.call.count({ where: { tenantId, initiatedAt: { gte: yesterday, lt: today } } }),
+        ]);
+      return { totalLeads, newToday, callsToday, converted, newYesterday, callsYesterday };
     });
 
     const conversionRate =
@@ -140,6 +146,9 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
         newToday: stats.newToday,
         callsToday: stats.callsToday,
         conversionRate,
+        converted: stats.converted,
+        newYesterday: stats.newYesterday,
+        callsYesterday: stats.callsYesterday,
       },
     });
   });

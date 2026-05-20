@@ -208,6 +208,7 @@ model Tenant {
   broadcasts     Broadcast[]
   sequences      Sequence[]
   serviceTickets ServiceTicket[]
+  savedReports   SavedReport[]
 
   @@map("tenants")
 }
@@ -332,6 +333,7 @@ model Lead {
   factSheet        Json?          @map("fact_sheet")
   tags             String[]       @default([]) @map("tags")
   aiScoreBreakdown Json?          @map("ai_score_breakdown")
+  scoredAt         DateTime?      @map("scored_at")
   isDuplicate      Boolean        @default(false) @map("is_duplicate")
   duplicateOfId    String?        @db.Uuid @map("duplicate_of_id")
   utmSource        String?        @map("utm_source")
@@ -421,6 +423,10 @@ model Call {
   transcript    Json?
   llmAnalysis   Json?         @map("llm_analysis")
   costInr       Decimal?      @db.Decimal(10, 4) @map("cost_inr")
+  sentiment       String?     @map("sentiment")
+  objectionTags   String[]    @default([]) @map("objection_tags")
+  intelAnalyzedAt DateTime?   @map("intel_analyzed_at")
+  abVariant       String?     @map("ab_variant")
   createdAt     DateTime      @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
@@ -458,6 +464,7 @@ model VoiceAgentSettings {
   dailyCallCap       Int      @default(2000) @map("daily_call_cap")
   dndPolicy          Json     @default("{}") @map("dnd_policy")
   retryConfig        Json     @default("{}") @map("retry_config")
+  abTestConfig       Json     @default("{}") @map("ab_test_config")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
@@ -1003,4 +1010,22 @@ model ServiceTicket {
   @@index([projectId])
   @@index([scheduledVisitAt])
   @@map("service_tickets")
+}
+
+// ─── Phase D: Intelligence & Insights ────────────────────────────────────────
+
+model SavedReport {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid @map("tenant_id")
+  name            String
+  definition      Json     @default("{}")
+  isShared        Boolean  @default(false) @map("is_shared")
+  createdByUserId String   @db.Uuid @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@map("saved_reports")
 }

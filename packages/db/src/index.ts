@@ -57,4 +57,5 @@ export type {
   SequenceTrigger,
   EnrollmentStatus,
   ServiceTicketType,
+  SavedReport,
 } from '@prisma/client';

@@ -23,7 +23,8 @@ DECLARE
     'coach_cache',
     'stage_gates', 'sla_rules', 'csv_imports',
     'projects', 'broadcasts', 'broadcast_recipients',
-    'sequences', 'sequence_enrollments', 'service_tickets'
+    'sequences', 'sequence_enrollments', 'service_tickets',
+    'saved_reports'
   ];
 BEGIN
   FOREACH t IN ARRAY tables LOOP

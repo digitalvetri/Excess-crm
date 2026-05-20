@@ -26,5 +26,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api).*)'],
+  // Exclude Next internals, the API, and public static assets so the login
+  // page's logo/hero images aren't redirected to /login.
+  matcher: ['/((?!_next|api|favicon.ico|logo.jpeg|solar-hero.png).*)'],
 };

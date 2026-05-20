@@ -204,6 +204,10 @@ model Tenant {
   stageGates     StageGate[]
   slaRules       SlaRule[]
   csvImports     CsvImport[]
+  projects       Project[]
+  broadcasts     Broadcast[]
+  sequences      Sequence[]
+  serviceTickets ServiceTicket[]
 
   @@map("tenants")
 }
@@ -337,18 +341,21 @@ model Lead {
   utmTerm          String?        @map("utm_term")
   receivedAt       DateTime       @default(now()) @map("received_at")
   firstContactedAt DateTime?      @map("first_contacted_at")
+  commsOptedOutAt  DateTime?      @map("comms_opted_out_at")
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  source       LeadSource?   @relation(fields: [sourceId], references: [id])
-  team         Team?         @relation(fields: [teamId], references: [id])
-  activities   LeadActivity[]
-  calls        Call[]
-  appointments Appointment[]
-  quotations   Quotation[]
-  referrals    Referral[]
-  reviews      Review[]
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  source         LeadSource?     @relation(fields: [sourceId], references: [id])
+  team           Team?           @relation(fields: [teamId], references: [id])
+  activities     LeadActivity[]
+  calls          Call[]
+  appointments   Appointment[]
+  quotations     Quotation[]
+  referrals      Referral[]
+  reviews        Review[]
+  project        Project?
+  serviceTickets ServiceTicket[]
 
   @@index([tenantId, stage, receivedAt])
   @@index([tenantId, phone])
@@ -608,13 +615,14 @@ model KbArticle {
 // ─── WhatsApp Sessions ────────────────────────────────────────────────────────
 
 model WaSession {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @db.Uuid @map("tenant_id")
-  leadId           String   @db.Uuid @map("lead_id")
-  phone            String
-  sessionExpiresAt DateTime @map("session_expires_at")
-  lastMessageAt    DateTime @map("last_message_at")
-  createdAt        DateTime @default(now()) @map("created_at")
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String   @db.Uuid @map("tenant_id")
+  leadId              String   @db.Uuid @map("lead_id")
+  phone               String
+  sessionExpiresAt    DateTime @map("session_expires_at")
+  lastMessageAt       DateTime @map("last_message_at")
+  npsPendingProjectId String?  @db.Uuid @map("nps_pending_project_id")
+  createdAt           DateTime @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -654,13 +662,17 @@ model Referral {
 }
 
 model Review {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @db.Uuid @map("tenant_id")
-  leadId    String   @db.Uuid @map("lead_id")
-  rating    Int
-  comment   String?  @db.Text
-  source    String   @default("INTERNAL")
-  createdAt DateTime @default(now()) @map("created_at")
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @db.Uuid @map("tenant_id")
+  leadId         String    @db.Uuid @map("lead_id")
+  rating         Int?
+  comment        String?   @db.Text
+  source         String    @default("INTERNAL")
+  npsScore       Int?      @map("nps_score")
+  npsComment     String?   @db.Text @map("nps_comment")
+  npsRequestedAt DateTime? @map("nps_requested_at")
+  npsRespondedAt DateTime? @map("nps_responded_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
   lead   Lead   @relation(fields: [leadId], references: [id])
@@ -786,4 +798,209 @@ model CsvImport {
 
   @@index([tenantId, createdAt])
   @@map("csv_imports")
+}
+
+// ─── Phase C: Customer Lifecycle & Communications ────────────────────────────
+
+enum ProjectStage {
+  SURVEY
+  DESIGN
+  MATERIAL_ORDERED
+  INSTALLATION
+  COMMISSIONING
+  HANDED_OVER
+}
+
+enum BroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+}
+
+enum BroadcastRecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  OPTED_OUT
+}
+
+enum CommsChannel {
+  EMAIL
+  WHATSAPP
+  SMS
+}
+
+enum SequenceTrigger {
+  LEAD_STAGE
+  PROJECT_STAGE
+  MANUAL
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  OPTED_OUT
+  CANCELLED
+}
+
+enum ServiceTicketType {
+  COMPLAINT
+  AMC_VISIT
+  WARRANTY
+  GENERAL
+}
+
+model Project {
+  id                  String       @id @default(uuid()) @db.Uuid
+  tenantId            String       @db.Uuid @map("tenant_id")
+  leadId              String       @unique @db.Uuid @map("lead_id")
+  quotationId         String?      @db.Uuid @map("quotation_id")
+  surveyAppointmentId String?      @db.Uuid @map("survey_appointment_id")
+  number              String       @unique
+  systemKw            Decimal      @default(0) @map("system_kw")
+  totalValueInr       Decimal      @default(0) @map("total_value_inr")
+  stage               ProjectStage @default(SURVEY)
+  stageChangedAt      DateTime     @default(now()) @map("stage_changed_at")
+  surveyDoneAt        DateTime?    @map("survey_done_at")
+  designApprovedAt    DateTime?    @map("design_approved_at")
+  materialOrderedAt   DateTime?    @map("material_ordered_at")
+  installStartedAt    DateTime?    @map("install_started_at")
+  commissionedAt      DateTime?    @map("commissioned_at")
+  handedOverAt        DateTime?    @map("handed_over_at")
+  assignedEngineerId  String?      @db.Uuid @map("assigned_engineer_id")
+  photos              Json         @default("[]")
+  notes               String?      @db.Text
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  lead           Lead            @relation(fields: [leadId], references: [id])
+  serviceTickets ServiceTicket[]
+
+  @@index([tenantId, stage])
+  @@map("projects")
+}
+
+model Broadcast {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @db.Uuid @map("tenant_id")
+  name            String
+  channel         CommsChannel
+  templateName    String?         @map("template_name")
+  templateParams  Json            @default("{}") @map("template_params")
+  bodyText        String?         @db.Text @map("body_text")
+  audienceFilter  Json            @default("{}") @map("audience_filter")
+  scheduledAt     DateTime?       @map("scheduled_at")
+  startedAt       DateTime?       @map("started_at")
+  completedAt     DateTime?       @map("completed_at")
+  recipientCount  Int             @default(0) @map("recipient_count")
+  sentCount       Int             @default(0) @map("sent_count")
+  failedCount     Int             @default(0) @map("failed_count")
+  status          BroadcastStatus @default(DRAFT)
+  createdByUserId String          @db.Uuid @map("created_by_user_id")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  tenant     Tenant               @relation(fields: [tenantId], references: [id])
+  recipients BroadcastRecipient[]
+
+  @@index([tenantId, status])
+  @@map("broadcasts")
+}
+
+model BroadcastRecipient {
+  id          String                   @id @default(uuid()) @db.Uuid
+  broadcastId String                   @db.Uuid @map("broadcast_id")
+  tenantId    String                   @db.Uuid @map("tenant_id")
+  leadId      String                   @db.Uuid @map("lead_id")
+  phone       String
+  status      BroadcastRecipientStatus @default(PENDING)
+  sentAt      DateTime?                @map("sent_at")
+  error       String?
+  createdAt   DateTime                 @default(now()) @map("created_at")
+
+  broadcast Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@index([broadcastId, status])
+  @@map("broadcast_recipients")
+}
+
+model Sequence {
+  id           String          @id @default(uuid()) @db.Uuid
+  tenantId     String          @db.Uuid @map("tenant_id")
+  name         String
+  trigger      SequenceTrigger
+  triggerValue String?         @map("trigger_value")
+  isActive     Boolean         @default(true) @map("is_active")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id])
+  steps       SequenceStep[]
+  enrollments SequenceEnrollment[]
+
+  @@index([tenantId, isActive])
+  @@map("sequences")
+}
+
+model SequenceStep {
+  id           String       @id @default(uuid()) @db.Uuid
+  sequenceId   String       @db.Uuid @map("sequence_id")
+  stepOrder    Int          @map("step_order")
+  channel      CommsChannel
+  templateName String       @map("template_name")
+  params       Json         @default("{}")
+  delayHours   Int          @default(0) @map("delay_hours")
+
+  sequence Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@unique([sequenceId, stepOrder])
+  @@map("sequence_steps")
+}
+
+model SequenceEnrollment {
+  id          String           @id @default(uuid()) @db.Uuid
+  tenantId    String           @db.Uuid @map("tenant_id")
+  sequenceId  String           @db.Uuid @map("sequence_id")
+  leadId      String           @db.Uuid @map("lead_id")
+  currentStep Int              @default(0) @map("current_step")
+  status      EnrollmentStatus @default(ACTIVE)
+  nextRunAt   DateTime         @map("next_run_at")
+  enrolledAt  DateTime         @default(now()) @map("enrolled_at")
+  completedAt DateTime?        @map("completed_at")
+
+  sequence Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@unique([sequenceId, leadId])
+  @@index([status, nextRunAt])
+  @@map("sequence_enrollments")
+}
+
+model ServiceTicket {
+  id                 String            @id @default(uuid()) @db.Uuid
+  tenantId           String            @db.Uuid @map("tenant_id")
+  projectId          String?           @db.Uuid @map("project_id")
+  leadId             String            @db.Uuid @map("lead_id")
+  type               ServiceTicketType
+  subject            String
+  description        String            @db.Text
+  status             TicketStatus      @default(OPEN)
+  priority           TicketPriority    @default(P3)
+  scheduledVisitAt   DateTime?         @map("scheduled_visit_at")
+  assignedEngineerId String?           @db.Uuid @map("assigned_engineer_id")
+  resolvedAt         DateTime?         @map("resolved_at")
+  createdByUserId    String?           @db.Uuid @map("created_by_user_id")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+  lead    Lead     @relation(fields: [leadId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([projectId])
+  @@index([scheduledVisitAt])
+  @@map("service_tickets")
 }

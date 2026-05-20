@@ -20,7 +20,10 @@ DECLARE
     'commissions', 'payouts',
     'tickets', 'wa_sessions',
     'teams', 'routing_rules',
-    'coach_cache'
+    'coach_cache',
+    'stage_gates', 'sla_rules', 'csv_imports',
+    'projects', 'broadcasts', 'broadcast_recipients',
+    'sequences', 'sequence_enrollments', 'service_tickets'
   ];
 BEGIN
   FOREACH t IN ARRAY tables LOOP

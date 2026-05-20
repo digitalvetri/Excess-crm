@@ -35,7 +35,7 @@ const STAGE_COLORS: Record<string, string> = {
   WRONG_ENQUIRY: 'bg-red-100 text-red-700',
 };
 
-const PIE_COLORS = ['#0F4C81', '#F39C12', '#27AE60', '#C0392B', '#8E44AD', '#2980B9'];
+const PIE_COLORS = ['#0B7A3D', '#F39C12', '#15A34A', '#C0392B', '#8E44AD', '#0EA5E9'];
 
 function formatCurrency(value: string | number): string {
   const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -113,7 +113,7 @@ export default function ReportsPage() {
                       <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v: string) => v.slice(-5)} />
                       <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
                       <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                      <Line type="monotone" dataKey="count" stroke="#0F4C81" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="count" stroke="#0B7A3D" strokeWidth={2} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 )}
@@ -375,7 +375,7 @@ export default function ReportsPage() {
                 <Tooltip
                   contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
                 />
-                <Bar dataKey="count" fill="#0F4C81" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" fill="#0B7A3D" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

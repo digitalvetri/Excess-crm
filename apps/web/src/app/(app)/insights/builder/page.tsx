@@ -186,7 +186,7 @@ export default function ReportBuilderPage() {
                         contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
                         formatter={(v: number) => [v, metricLabel]}
                       />
-                      <Bar dataKey="value" fill="#0F4C81" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="value" fill="#0B7A3D" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                   <table className="w-full text-sm">

@@ -88,29 +88,53 @@ function SlaBanner({ stage, stageChangedAt }: { stage: string; stageChangedAt: s
   );
 }
 
+interface ScoreFactorV2 {
+  name: string;
+  contribution: number;
+  evidence: string;
+}
+
 function ScoreWithBreakdown({ score, breakdown }: { score: number | null; breakdown: Record<string, unknown> | null }) {
   const [open, setOpen] = useState(false);
   if (score === null) return <span className="text-xs text-slate-400">—</span>;
   const color = score >= 80 ? 'bg-green-100 text-green-700 border-green-200' : score >= 50 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200';
-  const factors = breakdown ? Object.entries(breakdown) : [];
+
+  // v2 breakdown: { factors: [{name, contribution, evidence}], total, version }
+  const rawFactors = breakdown ? (breakdown as { factors?: unknown }).factors : undefined;
+  const v2Factors: ScoreFactorV2[] | null = Array.isArray(rawFactors)
+    ? (rawFactors as ScoreFactorV2[])
+    : null;
+  const legacyFactors = breakdown && !v2Factors ? Object.entries(breakdown) : [];
+  const hasDetail = (v2Factors?.length ?? 0) > 0 || legacyFactors.length > 0;
+
   return (
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
         className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity ${color}`}
-        title={factors.length ? 'Click to see score breakdown' : undefined}
+        title={hasDetail ? 'Click to see score breakdown' : undefined}
       >
-        <Star size={11} /> {score} {factors.length ? (open ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : null}
+        <Star size={11} /> {score} {hasDetail ? (open ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : null}
       </button>
-      {open && factors.length > 0 && (
-        <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-border rounded-xl shadow-lg p-3 w-56 text-xs space-y-1.5">
+      {open && hasDetail && (
+        <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-border rounded-xl shadow-lg p-3 w-64 text-xs space-y-1.5">
           <p className="font-semibold text-slate-700 mb-2">Score Breakdown</p>
-          {factors.map(([key, val]) => (
-            <div key={key} className="flex justify-between">
-              <span className="text-slate-500 capitalize">{key.replace(/_/g, ' ')}</span>
-              <span className="font-medium text-slate-700">{String(val)}</span>
-            </div>
-          ))}
+          {v2Factors
+            ? v2Factors.map((f) => (
+                <div key={f.name} className="flex justify-between gap-3">
+                  <span className="text-slate-500">
+                    {f.name}
+                    <span className="text-slate-400 ml-1">· {f.evidence}</span>
+                  </span>
+                  <span className="font-medium text-slate-700 shrink-0">+{f.contribution}</span>
+                </div>
+              ))
+            : legacyFactors.map(([key, val]) => (
+                <div key={key} className="flex justify-between">
+                  <span className="text-slate-500 capitalize">{key.replace(/_/g, ' ')}</span>
+                  <span className="font-medium text-slate-700">{String(val)}</span>
+                </div>
+              ))}
         </div>
       )}
     </div>

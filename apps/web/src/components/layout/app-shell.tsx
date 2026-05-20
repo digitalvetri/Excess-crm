@@ -32,6 +32,11 @@ import {
   PackageCheck,
   Radio,
   Network,
+  Bot,
+  Timer,
+  Shuffle,
+  Shield,
+  Workflow,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -109,11 +114,22 @@ const GROUPS: NavGroup[] = [
       { href: '/wallet', label: 'Wallet', icon: Wallet },
     ],
   },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: Settings,
+    items: [
+      { href: '/settings/voice-agent', label: 'Voice Agent', icon: Bot },
+      { href: '/settings/sla-rules', label: 'SLA Rules', icon: Timer },
+      { href: '/settings/assignment-rules', label: 'Assignment Rules', icon: Shuffle },
+      { href: '/settings/stage-gates', label: 'Stage Gates', icon: Shield },
+      { href: '/settings/sequences', label: 'Drip Sequences', icon: Workflow },
+    ],
+  },
 ];
 
 const SOLO_BOTTOM: NavLink[] = [
   { href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
-  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 const ALL_LINKS: NavLink[] = [SOLO_TOP, ...GROUPS.flatMap((g) => g.items), ...SOLO_BOTTOM];

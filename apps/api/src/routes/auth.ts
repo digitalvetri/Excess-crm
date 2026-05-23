@@ -111,6 +111,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       expires: expiresAt,
     });
 
+    // Non-httpOnly cookie so Next.js middleware can read the role for route protection
+    reply.setCookie('excess_role', user.role, {
+      httpOnly: false,
+      secure: process.env['NODE_ENV'] === 'production',
+      sameSite: 'lax',
+      path: '/',
+      expires: expiresAt,
+    });
+
     return reply.send({
       data: {
         user: {
@@ -158,6 +167,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const token = req.cookies['excess_session'];
     if (token) await prisma.session.deleteMany({ where: { token } });
     reply.clearCookie('excess_session', { path: '/' });
+    reply.clearCookie('excess_role', { path: '/' });
     return reply.send({ data: { success: true } });
   });
 

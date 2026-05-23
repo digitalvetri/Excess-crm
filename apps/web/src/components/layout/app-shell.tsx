@@ -47,16 +47,20 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { CommandPalette } from '@/components/command-palette';
+import { useAuth } from '@/hooks/use-auth';
+import type { UserRole } from '@excess/shared';
 
 interface NavLink {
   href: string;
   label: string;
   icon: React.ElementType;
+  roles?: UserRole[]; // undefined = all roles
 }
 interface NavGroup {
   id: string;
   label: string;
   icon: React.ElementType;
+  roles?: UserRole[]; // undefined = all roles; hides entire group if role not included
   items: NavLink[];
 }
 
@@ -67,29 +71,42 @@ const GROUPS: NavGroup[] = [
     id: 'sales',
     label: 'Sales',
     icon: Briefcase,
+    roles: ['ADMIN', 'EMPLOYEE'],
     items: [
-      { href: '/leads', label: 'Leads', icon: Users },
-      { href: '/calls', label: 'Calls', icon: PhoneCall },
+      { href: '/leads',        label: 'Leads',        icon: Users },
+      { href: '/calls',        label: 'Calls',        icon: PhoneCall },
       { href: '/appointments', label: 'Appointments', icon: Calendar },
-      { href: '/quotations', label: 'Quotations', icon: FileText },
+      { href: '/quotations',   label: 'Quotations',   icon: FileText },
+    ],
+  },
+  {
+    // Franchise users see only their own leads — standalone, not grouped
+    id: 'franchise-leads',
+    label: 'My Leads',
+    icon: Users,
+    roles: ['FRANCHISE_OWNER', 'FRANCHISE_USER'],
+    items: [
+      { href: '/leads', label: 'My Leads', icon: Users },
     ],
   },
   {
     id: 'delivery',
     label: 'Delivery',
     icon: PackageCheck,
+    roles: ['ADMIN', 'EMPLOYEE'],
     items: [
-      { href: '/projects',         label: 'Projects',         icon: Hammer },
-      { href: '/service-tickets',  label: 'Service Tickets',  icon: Wrench },
-      { href: '/amc',              label: 'AMC Contracts',     icon: ClipboardList },
+      { href: '/projects',        label: 'Projects',        icon: Hammer },
+      { href: '/service-tickets', label: 'Service Tickets', icon: Wrench },
+      { href: '/amc',             label: 'AMC Contracts',   icon: ClipboardList },
     ],
   },
   {
     id: 'marketing',
     label: 'Marketing',
     icon: Radio,
+    roles: ['ADMIN', 'EMPLOYEE'],
     items: [
-      { href: '/whatsapp', label: 'WhatsApp', icon: MessageSquare },
+      { href: '/whatsapp',   label: 'WhatsApp',   icon: MessageSquare },
       { href: '/broadcasts', label: 'Broadcasts', icon: Megaphone },
     ],
   },
@@ -97,26 +114,50 @@ const GROUPS: NavGroup[] = [
     id: 'analytics',
     label: 'Analytics',
     icon: BarChart3,
+    roles: ['ADMIN', 'EMPLOYEE'],
     items: [
-      { href: '/reports', label: 'Reports', icon: BarChart3 },
+      { href: '/reports',  label: 'Reports',  icon: BarChart3 },
       { href: '/insights', label: 'Insights', icon: Sparkles },
+    ],
+  },
+  {
+    id: 'network',
+    label: 'Network',
+    icon: Trophy,
+    // All roles — items filtered individually below
+    items: [
+      { href: '/referrals',   label: 'Referrals',   icon: UserPlus,  roles: ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] },
+      { href: '/leaderboard', label: 'Leaderboard', icon: Trophy,    roles: ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] },
+      { href: '/reviews',     label: 'Reviews',     icon: Star,      roles: ['ADMIN', 'EMPLOYEE'] },
+    ],
+  },
+  {
+    id: 'earnings',
+    label: 'My Earnings',
+    icon: DollarSign,
+    roles: ['FRANCHISE_OWNER'],
+    items: [
+      { href: '/commissions', label: 'Commissions', icon: DollarSign },
+      { href: '/wallet',      label: 'Wallet',      icon: Wallet },
     ],
   },
   {
     id: 'franchise',
     label: 'Franchise',
     icon: Building2,
+    roles: ['ADMIN'],
     items: [
-      { href: '/franchise', label: 'Franchises', icon: Building2 },
-      { href: '/commissions', label: 'Commissions', icon: DollarSign },
-      { href: '/payouts', label: 'Payouts', icon: Banknote },
-      { href: '/teams', label: 'Teams', icon: Users },
+      { href: '/franchise',   label: 'Franchises',   icon: Building2 },
+      { href: '/commissions', label: 'Commissions',  icon: DollarSign },
+      { href: '/payouts',     label: 'Payouts',      icon: Banknote },
+      { href: '/teams',       label: 'Teams',        icon: Users },
     ],
   },
   {
     id: 'engagement',
     label: 'Engagement',
     icon: Network,
+    roles: ['ADMIN', 'EMPLOYEE'],
     items: [
       { href: '/engagement', label: 'Engagement Hub', icon: Network },
     ],
@@ -125,13 +166,14 @@ const GROUPS: NavGroup[] = [
     id: 'settings',
     label: 'Settings',
     icon: Settings,
+    roles: ['ADMIN'],
     items: [
-      { href: '/settings/voice-agent', label: 'Voice Agent', icon: Bot },
-      { href: '/settings/sla-rules', label: 'SLA Rules', icon: Timer },
-      { href: '/settings/assignment-rules', label: 'Assignment Rules', icon: Shuffle },
-      { href: '/settings/stage-gates', label: 'Stage Gates', icon: Shield },
-      { href: '/settings/sequences', label: 'Drip Sequences', icon: Workflow },
-      { href: '/settings/webhooks', label: 'Webhooks', icon: Webhook },
+      { href: '/settings/voice-agent',      label: 'Voice Agent',       icon: Bot },
+      { href: '/settings/sla-rules',        label: 'SLA Rules',         icon: Timer },
+      { href: '/settings/assignment-rules', label: 'Assignment Rules',  icon: Shuffle },
+      { href: '/settings/stage-gates',      label: 'Stage Gates',       icon: Shield },
+      { href: '/settings/sequences',        label: 'Drip Sequences',    icon: Workflow },
+      { href: '/settings/webhooks',         label: 'Webhooks',          icon: Webhook },
     ],
   },
 ];
@@ -140,7 +182,24 @@ const SOLO_BOTTOM: NavLink[] = [
   { href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
 ];
 
-const ALL_LINKS: NavLink[] = [SOLO_TOP, ...GROUPS.flatMap((g) => g.items), ...SOLO_BOTTOM];
+const ROLE_LABELS: Record<UserRole, string> = {
+  ADMIN:           'HQ Administrator',
+  EMPLOYEE:        'Employee',
+  FRANCHISE_OWNER: 'Franchise Owner',
+  FRANCHISE_USER:  'Franchise Staff',
+  ENGINEER:        'Field Engineer',
+};
+
+function filterGroups(groups: NavGroup[], role: UserRole | null): NavGroup[] {
+  if (!role) return [];
+  return groups
+    .filter((g) => !g.roles || g.roles.includes(role))
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((i) => !i.roles || i.roles.includes(role)),
+    }))
+    .filter((g) => g.items.length > 0);
+}
 
 function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + '/');
@@ -151,9 +210,13 @@ const NAV_STORAGE_KEY = 'excess.nav.groups';
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user, role } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expanded, setExpanded] = useState<string[]>([]);
   const [darkMode, setDarkMode] = useState(false);
+
+  const visibleGroups = filterGroups(GROUPS, role);
+  const allLinks = [SOLO_TOP, ...visibleGroups.flatMap((g) => g.items), ...SOLO_BOTTOM];
 
   // Restore expanded groups + dark mode (client-only)
   useEffect(() => {
@@ -177,8 +240,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const activeGroupId = GROUPS.find((g) => g.items.some((i) => isActive(pathname, i.href)))?.id ?? null;
-  const pageTitle = ALL_LINKS.find((l) => isActive(pathname, l.href))?.label ?? 'Excess CRM';
+  const activeGroupId = visibleGroups.find((g) => g.items.some((i) => isActive(pathname, i.href)))?.id ?? null;
+  const pageTitle = allLinks.find((l) => isActive(pathname, l.href))?.label ?? 'Excess CRM';
 
   function toggleGroup(id: string) {
     setExpanded((prev) => {
@@ -198,6 +261,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const closeMobile = () => setSidebarOpen(false);
+
+  const initials = user?.name
+    ? user.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+    : 'EA';
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface">
@@ -228,11 +295,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-0.5" aria-label="Main navigation">
           <NavItem link={SOLO_TOP} pathname={pathname} onNavigate={closeMobile} />
 
-          <div className="pt-4 pb-1 px-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Modules</p>
-          </div>
+          {visibleGroups.length > 0 && (
+            <div className="pt-4 pb-1 px-1">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Modules</p>
+            </div>
+          )}
 
-          {GROUPS.map((group) => {
+          {visibleGroups.map((group) => {
             const open = expanded.includes(group.id) || activeGroupId === group.id;
             const groupActive = activeGroupId === group.id;
             const GroupIcon = group.icon;
@@ -275,11 +344,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="p-3 border-t border-border shrink-0 bg-slate-50/50">
           <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white transition-colors">
             <span className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
-              EA
+              {initials}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-800 truncate">Excess Admin</p>
-              <p className="text-xs text-slate-400 truncate">HQ Administrator</p>
+              <p className="text-sm font-semibold text-slate-800 truncate">
+                {user?.name ?? 'Loading…'}
+              </p>
+              <p className="text-xs text-slate-400 truncate">
+                {role ? ROLE_LABELS[role] : ''}
+              </p>
             </div>
             <div className="flex items-center gap-0.5">
               <button

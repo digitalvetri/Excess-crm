@@ -29,6 +29,9 @@ function renderHtml(template: string, subject: string, vars: Record<string, stri
       return `<div style="font-family:sans-serif;line-height:1.5">${escaped}</div>`;
     }
 
+    case 'CUSTOM_EMAIL':
+      return `<div style="font-family:sans-serif;line-height:1.6;max-width:600px;margin:0 auto;color:#1a1a1a"><div style="background:#0F4C81;padding:20px 24px;border-radius:8px 8px 0 0"><h2 style="color:white;margin:0;font-size:18px">Excess Renew Tech</h2><p style="color:rgba(255,255,255,0.7);margin:4px 0 0;font-size:13px">Solar Energy Solutions</p></div><div style="padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">${(vars['body'] ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br/>')}<hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/><p style="color:#94a3b8;font-size:12px;margin:0">Sent via Excess CRM &middot; Excess Renew Tech Pvt Ltd, Coimbatore</p></div></div>`;
+
     default:
       return `<h2>${subject}</h2><p>This is an automated notification from Excess CRM.</p>`;
   }

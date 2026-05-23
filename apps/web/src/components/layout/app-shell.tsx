@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { NotificationPanel } from '@/components/notifications/notification-panel';
 import {
   LayoutDashboard,
   Users,
@@ -18,6 +19,7 @@ import {
   Sparkles,
   Building2,
   DollarSign,
+  Banknote,
   Trophy,
   UserPlus,
   Star,
@@ -26,10 +28,14 @@ import {
   Settings,
   LogOut,
   Menu,
+  Moon,
+  Search,
+  Sun,
   X,
   ChevronDown,
   Briefcase,
   PackageCheck,
+  ClipboardList,
   Radio,
   Network,
   Bot,
@@ -37,9 +43,10 @@ import {
   Shuffle,
   Shield,
   Workflow,
-  Bell,
+  Webhook,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { CommandPalette } from '@/components/command-palette';
 
 interface NavLink {
   href: string;
@@ -72,8 +79,9 @@ const GROUPS: NavGroup[] = [
     label: 'Delivery',
     icon: PackageCheck,
     items: [
-      { href: '/projects', label: 'Projects', icon: Hammer },
-      { href: '/service-tickets', label: 'Service Tickets', icon: Wrench },
+      { href: '/projects',         label: 'Projects',         icon: Hammer },
+      { href: '/service-tickets',  label: 'Service Tickets',  icon: Wrench },
+      { href: '/amc',              label: 'AMC Contracts',     icon: ClipboardList },
     ],
   },
   {
@@ -101,6 +109,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/franchise', label: 'Franchises', icon: Building2 },
       { href: '/commissions', label: 'Commissions', icon: DollarSign },
+      { href: '/payouts', label: 'Payouts', icon: Banknote },
       { href: '/teams', label: 'Teams', icon: Users },
     ],
   },
@@ -109,10 +118,7 @@ const GROUPS: NavGroup[] = [
     label: 'Engagement',
     icon: Network,
     items: [
-      { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
-      { href: '/referrals', label: 'Referrals', icon: UserPlus },
-      { href: '/reviews', label: 'Reviews', icon: Star },
-      { href: '/wallet', label: 'Wallet', icon: Wallet },
+      { href: '/engagement', label: 'Engagement Hub', icon: Network },
     ],
   },
   {
@@ -125,6 +131,7 @@ const GROUPS: NavGroup[] = [
       { href: '/settings/assignment-rules', label: 'Assignment Rules', icon: Shuffle },
       { href: '/settings/stage-gates', label: 'Stage Gates', icon: Shield },
       { href: '/settings/sequences', label: 'Drip Sequences', icon: Workflow },
+      { href: '/settings/webhooks', label: 'Webhooks', icon: Webhook },
     ],
   },
 ];
@@ -146,15 +153,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expanded, setExpanded] = useState<string[]>([]);
+  const [darkMode, setDarkMode] = useState(false);
 
-  // Restore expanded groups (client-only — localStorage is undefined during SSR)
+  // Restore expanded groups + dark mode (client-only)
   useEffect(() => {
     try {
       const stored = localStorage.getItem(NAV_STORAGE_KEY);
       if (stored) setExpanded(JSON.parse(stored) as string[]);
+      const dark = localStorage.getItem('excess.dark') === 'true';
+      setDarkMode(dark);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : '');
     } catch {
       /* ignore malformed storage */
     }
+  }, []);
+
+  const toggleDark = useCallback(() => {
+    setDarkMode((prev) => {
+      const next = !prev;
+      document.documentElement.setAttribute('data-theme', next ? 'dark' : '');
+      try { localStorage.setItem('excess.dark', String(next)); } catch { /* ignore */ }
+      return next;
+    });
   }, []);
 
   const activeGroupId = GROUPS.find((g) => g.items.some((i) => isActive(pathname, i.href)))?.id ?? null;
@@ -181,29 +201,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface">
+      <CommandPalette />
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-border flex flex-col transform transition-transform duration-200 lg:relative lg:translate-x-0 ${
+        suppressHydrationWarning
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-border flex flex-col transform transition-transform duration-200 ease-out lg:relative lg:translate-x-0 lg:shrink-0 ${
           sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         }`}
       >
         {/* Brand */}
-        <div className="flex items-center justify-between h-[72px] px-5 border-b border-border shrink-0">
-          <Link href="/dashboard" onClick={closeMobile} className="flex items-center">
+        <div className="flex items-center justify-between h-14 sm:h-16 px-4 sm:px-5 border-b border-border shrink-0 bg-white">
+          <Link href="/dashboard" onClick={closeMobile} className="flex items-center gap-2 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.jpeg" alt="Excess Renew Tech" className="h-10 w-auto rounded" />
+            <img src="/logo.jpeg" alt="Excess Renew Tech" className="h-9 w-auto rounded shrink-0" />
           </Link>
-          <button onClick={closeMobile} className="lg:hidden text-slate-400 hover:text-slate-600">
-            <X size={20} />
+          <button
+            onClick={closeMobile}
+            className="lg:hidden flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            aria-label="Close menu"
+          >
+            <X size={18} />
           </button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-0.5" aria-label="Main navigation">
           <NavItem link={SOLO_TOP} pathname={pathname} onNavigate={closeMobile} />
 
-          <div className="pt-3 pb-1">
-            <p className="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Modules</p>
+          <div className="pt-4 pb-1 px-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Modules</p>
           </div>
 
           {GROUPS.map((group) => {
@@ -214,21 +240,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div key={group.id}>
                 <button
                   onClick={() => toggleGroup(group.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     groupActive
-                      ? 'text-slate-900'
-                      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                      ? 'text-primary bg-primary/5'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
-                  <GroupIcon size={18} className={groupActive ? 'text-primary' : 'text-slate-400'} />
+                  <GroupIcon size={17} className={groupActive ? 'text-primary' : 'text-slate-400'} />
                   <span className="flex-1 text-left">{group.label}</span>
                   <ChevronDown
-                    size={15}
-                    className={`text-slate-400 transition-transform ${open ? '' : '-rotate-90'}`}
+                    size={14}
+                    className={`text-slate-400 transition-transform duration-200 ${open ? 'rotate-0' : '-rotate-90'}`}
                   />
                 </button>
                 {open && (
-                  <div className="ml-[22px] mt-0.5 mb-1 pl-3 border-l border-border space-y-0.5">
+                  <div className="ml-5 mt-0.5 mb-1 pl-3 border-l-2 border-primary/15 space-y-0.5">
                     {group.items.map((item) => (
                       <NavItem key={item.href} link={item} pathname={pathname} onNavigate={closeMobile} sub />
                     ))}
@@ -238,7 +264,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
 
-          <div className="pt-3 mt-2 border-t border-border space-y-1">
+          <div className="pt-3 mt-1 border-t border-border space-y-0.5">
             {SOLO_BOTTOM.map((link) => (
               <NavItem key={link.href} link={link} pathname={pathname} onNavigate={closeMobile} />
             ))}
@@ -246,22 +272,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* User footer */}
-        <div className="p-3 border-t border-border shrink-0">
-          <div className="flex items-center gap-3 px-2 py-2">
-            <span className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm shrink-0">
+        <div className="p-3 border-t border-border shrink-0 bg-slate-50/50">
+          <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white transition-colors">
+            <span className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
               EA
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-slate-800 truncate">Excess Admin</p>
-              <p className="text-xs text-slate-400 truncate">Excess Renew Tech</p>
+              <p className="text-sm font-semibold text-slate-800 truncate">Excess Admin</p>
+              <p className="text-xs text-slate-400 truncate">HQ Administrator</p>
             </div>
-            <button
-              onClick={handleLogout}
-              title="Sign out"
-              className="text-slate-400 hover:text-danger transition-colors p-1.5"
-            >
-              <LogOut size={17} />
-            </button>
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={toggleDark}
+                title={darkMode ? 'Light mode' : 'Dark mode'}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 rounded-md hover:bg-slate-100"
+              >
+                {darkMode ? <Sun size={15} /> : <Moon size={15} />}
+              </button>
+              <button
+                onClick={handleLogout}
+                title="Sign out"
+                className="text-slate-400 hover:text-danger transition-colors p-1.5 rounded-md hover:bg-danger/5"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -272,31 +307,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Main */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white border-b border-border flex items-center px-4 sm:px-6 gap-3 shrink-0">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <header className="h-14 sm:h-16 bg-white border-b border-border flex items-center px-3 sm:px-6 gap-2 sm:gap-3 shrink-0 shadow-sm">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden text-slate-500 hover:text-slate-800"
+            className="lg:hidden flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+            aria-label="Open menu"
           >
-            <Menu size={22} />
+            <Menu size={20} />
           </button>
-          <h1 className="text-base font-semibold text-slate-800 truncate">{pageTitle}</h1>
+          <h1 className="text-sm sm:text-base font-semibold text-slate-800 truncate">{pageTitle}</h1>
           <div className="flex-1" />
+          {/* Cmd+K trigger */}
           <button
-            type="button"
-            aria-label="Notifications"
-            className="relative text-slate-400 hover:text-slate-700 transition-colors"
+            onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border text-slate-400 hover:text-slate-600 hover:border-slate-300 text-xs transition-colors bg-slate-50 hover:bg-white"
+            aria-label="Open command palette"
           >
-            <Bell size={19} />
-            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-danger ring-2 ring-white" />
+            <Search size={13} />
+            <span className="text-slate-400">Search…</span>
+            <span className="ml-1 flex items-center gap-0.5">
+              <kbd className="text-[9px] bg-white border border-slate-200 rounded px-1 py-0.5 leading-none">⌘</kbd>
+              <kbd className="text-[9px] bg-white border border-slate-200 rounded px-1 py-0.5 leading-none">K</kbd>
+            </span>
           </button>
-          <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-success bg-success/10 px-2.5 py-1 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-success" />
+          <NotificationPanel />
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-success bg-success/10 px-2.5 py-1.5 rounded-full border border-success/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
             Live
-          </span>
+          </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6">{children}</main>
       </div>
     </div>
   );
@@ -320,15 +362,17 @@ function NavItem({
       href={link.href}
       onClick={onNavigate}
       className={`flex items-center gap-2.5 rounded-lg text-sm transition-colors ${
-        sub ? 'px-3 py-2' : 'px-3 py-2.5 font-medium'
+        sub ? 'px-3 py-1.5' : 'px-3 py-2.5 font-medium'
       } ${
         active
-          ? 'bg-primary text-white shadow-sm'
-          : 'text-slate-500 hover:text-primary hover:bg-primary/5'
+          ? 'bg-primary text-white shadow-sm font-semibold'
+          : sub
+          ? 'text-slate-500 hover:text-primary hover:bg-primary/5'
+          : 'text-slate-600 hover:text-primary hover:bg-primary/5'
       }`}
     >
-      <Icon size={sub ? 16 : 18} />
-      {link.label}
+      <Icon size={sub ? 15 : 17} className={active ? 'text-white' : ''} />
+      <span className="truncate">{link.label}</span>
     </Link>
   );
 }

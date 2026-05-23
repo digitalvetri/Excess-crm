@@ -2,50 +2,91 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Wrench, Plus, Loader2, X, CalendarClock } from 'lucide-react';
+import { Wrench, Plus, CalendarClock, Clock, AlertTriangle, CalendarDays, BarChart3, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useServiceTickets,
-  useCreateServiceTicket,
   useUpdateServiceTicket,
+  useServiceTicketAlerts,
+  useBulkUpdateTickets,
+  useEngineers,
   SERVICE_TICKET_STATUSES,
-  SERVICE_TICKET_TYPES,
+  SLA_RESOLVE_HOURS,
   TYPE_LABEL,
+  STATUS_LABEL,
   type ServiceTicketStatus,
-  type ServiceTicketType,
 } from '@/hooks/use-service-tickets';
-import { useProjects } from '@/hooks/use-projects';
+import { RaiseTicketModal } from '@/components/service-tickets/raise-ticket-modal';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 const STATUS_BADGE: Record<ServiceTicketStatus, string> = {
-  OPEN: 'bg-amber-100 text-amber-700',
+  OPEN:        'bg-amber-100 text-amber-700',
   IN_PROGRESS: 'bg-blue-100 text-blue-700',
-  RESOLVED: 'bg-green-100 text-green-700',
-  CLOSED: 'bg-slate-100 text-slate-600',
+  RESOLVED:    'bg-green-100 text-green-700',
+  CLOSED:      'bg-slate-100 text-slate-600',
 };
 
 const PRIORITY_BADGE: Record<string, string> = {
   P1: 'bg-red-100 text-red-700',
   P2: 'bg-orange-100 text-orange-700',
   P3: 'bg-slate-100 text-slate-600',
-  P4: 'bg-slate-100 text-slate-500',
+  P4: 'bg-slate-50 text-slate-500',
 };
 
 export default function ServiceTicketsPage() {
   const [statusFilter, setStatusFilter] = useState<ServiceTicketStatus | 'ALL'>('ALL');
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm]         = useState(false);
+  const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
+  const [bulkEngId, setBulkEngId]       = useState('');
+  const [bulkStatus, setBulkStatus]     = useState<ServiceTicketStatus | ''>('');
 
   const { data, isLoading, isError } = useServiceTickets(
     statusFilter !== 'ALL' ? { status: statusFilter } : undefined,
   );
-  const tickets = data?.tickets ?? [];
-  const update = useUpdateServiceTicket();
+  const tickets    = data?.tickets ?? [];
+  const update     = useUpdateServiceTicket();
+  const bulkUpdate = useBulkUpdateTickets();
+  const { data: alerts }     = useServiceTicketAlerts();
+  const { data: engineers }  = useEngineers();
 
   async function changeStatus(id: string, status: ServiceTicketStatus) {
     try {
       await update.mutateAsync({ id, data: { status } });
-      toast.success(`Marked ${status.replace('_', ' ').toLowerCase()}`);
-    } catch {
-      toast.error('Update failed');
+      toast.success(`Marked ${STATUS_LABEL[status].toLowerCase()}`);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Status update failed'));
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedIds(tickets.length > 0 && selectedIds.size === tickets.length
+      ? new Set()
+      : new Set(tickets.map((t) => t.id)));
+  }
+
+  async function applyBulk() {
+    if (selectedIds.size === 0) return;
+    const payload: { assignedEngineerId?: string | null; status?: ServiceTicketStatus } = {};
+    if (bulkEngId === '__none__')   payload.assignedEngineerId = null;
+    else if (bulkEngId !== '')      payload.assignedEngineerId = bulkEngId;
+    if (bulkStatus !== '')          payload.status = bulkStatus as ServiceTicketStatus;
+    if (Object.keys(payload).length === 0) { toast.error('Select an action to apply'); return; }
+    try {
+      await bulkUpdate.mutateAsync({ ids: [...selectedIds], data: payload });
+      toast.success(`Updated ${selectedIds.size} ticket${selectedIds.size > 1 ? 's' : ''}`);
+      setSelectedIds(new Set());
+      setBulkEngId('');
+      setBulkStatus('');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Bulk update failed'));
     }
   }
 
@@ -54,266 +95,229 @@ export default function ServiceTicketsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Service Tickets</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            AMC visits, warranty claims and post-install support.
-          </p>
+          <p className="text-sm text-slate-500 mt-1">AMC visits, warranty claims and post-install support.</p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="inline-flex items-center gap-1.5 text-sm bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={15} /> New Ticket
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/service-tickets/analytics"
+            className="inline-flex items-center gap-1.5 text-sm border border-border px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <BarChart3 size={15} /> Analytics
+          </Link>
+          <Link
+            href="/service-tickets/schedule"
+            className="inline-flex items-center gap-1.5 text-sm border border-border px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <CalendarDays size={15} /> Schedule
+          </Link>
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center gap-1.5 text-sm bg-primary text-white px-4 py-2 rounded-xl hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={15} /> New Ticket
+          </button>
+        </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap">
+      {/* Status filter tabs */}
+      <div className="flex gap-2 flex-wrap" role="tablist">
         {(['ALL', ...SERVICE_TICKET_STATUSES] as const).map((s) => (
           <button
             key={s}
-            onClick={() => setStatusFilter(s)}
+            role="tab"
+            aria-selected={statusFilter === s}
+            onClick={() => { setStatusFilter(s); setSelectedIds(new Set()); }}
             className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              statusFilter === s
-                ? 'bg-primary text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              statusFilter === s ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            {s === 'ALL' ? 'All' : s.replace('_', ' ').charAt(0) + s.replace('_', ' ').slice(1).toLowerCase()}
+            {s === 'ALL' ? 'All' : STATUS_LABEL[s]}
           </button>
         ))}
       </div>
 
-      {showForm && <CreateTicketModal onClose={() => setShowForm(false)} />}
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 flex-wrap rounded-xl bg-primary/5 border border-primary/20 px-4 py-3">
+          <span className="text-sm font-semibold text-primary">{selectedIds.size} selected</span>
+          <span className="text-slate-300">|</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={bulkEngId}
+              onChange={(e) => setBulkEngId(e.target.value)}
+              className="text-sm border border-border rounded-xl px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">Assign engineer…</option>
+              <option value="__none__">Unassign</option>
+              {(engineers ?? []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+            <select
+              value={bulkStatus}
+              onChange={(e) => setBulkStatus(e.target.value as ServiceTicketStatus | '')}
+              className="text-sm border border-border rounded-xl px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">Change status…</option>
+              {SERVICE_TICKET_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+            </select>
+            <button
+              onClick={() => void applyBulk()}
+              disabled={bulkUpdate.isPending}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl bg-primary text-white hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {bulkUpdate.isPending && <Loader2 size={12} className="animate-spin" />}
+              Apply
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="text-sm text-slate-500 hover:text-slate-700">
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SLA alert banner */}
+      {alerts && (alerts.overdueCount > 0 || alerts.unassignedP1Count > 0) && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <AlertTriangle size={16} className="text-danger shrink-0 mt-0.5" />
+          <div className="text-sm text-danger">
+            {alerts.overdueCount > 0 && (
+              <span className="font-semibold">{alerts.overdueCount} ticket{alerts.overdueCount > 1 ? 's' : ''} overdue</span>
+            )}
+            {alerts.overdueCount > 0 && alerts.unassignedP1Count > 0 && <span> · </span>}
+            {alerts.unassignedP1Count > 0 && (
+              <span className="font-semibold">{alerts.unassignedP1Count} P1 ticket{alerts.unassignedP1Count > 1 ? 's' : ''} unassigned</span>
+            )}
+            <span className="text-red-400 ml-1">— action required</span>
+          </div>
+        </div>
+      )}
+
+      {showForm && <RaiseTicketModal onClose={() => setShowForm(false)} />}
 
       {isLoading ? (
         <div className="space-y-2">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-16 bg-white rounded-xl border border-border animate-pulse" />
-          ))}
+          {[1, 2, 3].map((i) => <div key={i} className="h-16 bg-white rounded-xl border border-border animate-pulse" />)}
         </div>
       ) : isError ? (
         <p className="text-danger text-sm">Failed to load service tickets. Please refresh.</p>
       ) : tickets.length === 0 ? (
-        <div className="bg-white rounded-xl border border-border p-10 text-center">
-          <Wrench size={26} className="text-slate-300 mx-auto mb-3" />
-          <p className="text-sm text-slate-500">No service tickets.</p>
+        <div className="bg-white rounded-xl border border-border p-12 sm:p-16 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100">
+            <Wrench size={28} className="text-slate-400" />
+          </div>
+          <h3 className="text-sm font-semibold text-slate-700 mb-1">
+            {statusFilter !== 'ALL' ? `No ${STATUS_LABEL[statusFilter as ServiceTicketStatus]} tickets` : 'No service tickets yet'}
+          </h3>
+          <p className="text-xs text-slate-400 mb-5 max-w-xs mx-auto">
+            {statusFilter !== 'ALL'
+              ? 'Try switching to a different status filter.'
+              : 'When customers report issues after installation, tickets will appear here.'}
+          </p>
+          {statusFilter === 'ALL' && (
+            <button
+              onClick={() => setShowForm(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-dark transition-colors"
+            >
+              <Plus size={14} />
+              Raise First Ticket
+            </button>
+          )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-border bg-white">
+        <div className="overflow-x-auto rounded-2xl border border-border bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 border-b border-border">
               <tr>
-                {['Subject', 'Customer', 'Type', 'Project', 'Priority', 'Visit', 'Status'].map((col) => (
-                  <th key={col} className="px-4 py-3 text-left font-semibold text-slate-600 whitespace-nowrap">
+                <th className="px-4 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all tickets"
+                    checked={tickets.length > 0 && selectedIds.size === tickets.length}
+                    onChange={toggleAll}
+                    className="rounded border-slate-300 text-primary focus:ring-primary/30"
+                  />
+                </th>
+                {['Subject', 'Customer', 'Type', 'Project', 'Priority', 'SLA', 'Visit', 'Status'].map((col) => (
+                  <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">
                     {col}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {tickets.map((t) => (
-                <tr key={t.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 max-w-[240px]">
-                    <div className="font-medium text-slate-900 truncate">{t.subject}</div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="text-slate-800">{t.lead.name}</div>
-                    <div className="text-xs text-slate-500">{t.lead.phone}</div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-slate-600">{TYPE_LABEL[t.type]}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {t.project ? (
-                      <Link href={`/projects/${t.project.id}`} className="text-primary hover:underline">
-                        {t.project.number}
+              {tickets.map((t) => {
+                const hours   = SLA_RESOLVE_HOURS[t.priority] ?? 120;
+                const age     = (Date.now() - new Date(t.createdAt).getTime()) / 3600000;
+                const left    = hours - age;
+                const open    = t.status !== 'RESOLVED' && t.status !== 'CLOSED';
+                const overdue = open && left < 0;
+                const atRisk  = open && !overdue && left < hours * 0.25;
+                return (
+                  <tr key={t.id} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(t.id) ? 'bg-primary/[0.03]' : ''}`}>
+                    <td className="px-4 py-3 w-8">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ticket ${t.subject}`}
+                        checked={selectedIds.has(t.id)}
+                        onChange={() => toggleSelect(t.id)}
+                        className="rounded border-slate-300 text-primary focus:ring-primary/30"
+                      />
+                    </td>
+                    <td className="px-4 py-3 max-w-[220px]">
+                      <Link href={`/service-tickets/${t.id}`} className="font-medium text-slate-900 hover:text-primary transition-colors block truncate">
+                        {t.subject}
                       </Link>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${PRIORITY_BADGE[t.priority] ?? 'bg-slate-100 text-slate-600'}`}>
-                      {t.priority}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-slate-600">
-                    {t.scheduledVisitAt ? (
-                      <span className="inline-flex items-center gap-1">
-                        <CalendarClock size={13} className="text-slate-400" />
-                        {new Date(t.scheduledVisitAt).toLocaleDateString('en-IN')}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-slate-800 font-medium">{t.lead.name}</div>
+                      <div className="text-xs text-slate-400">{t.lead.phone}</div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-600 text-xs">{TYPE_LABEL[t.type]}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {t.project ? (
+                        <Link href={`/projects/${t.project.id}`} className="text-primary hover:underline text-xs">
+                          {t.project.number}
+                        </Link>
+                      ) : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${PRIORITY_BADGE[t.priority] ?? 'bg-slate-100 text-slate-600'}`}>
+                        {t.priority}
                       </span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <select
-                      value={t.status}
-                      onChange={(e) => void changeStatus(t.id, e.target.value as ServiceTicketStatus)}
-                      className={`text-xs font-medium rounded-full px-2.5 py-1 border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary ${STATUS_BADGE[t.status]}`}
-                    >
-                      {SERVICE_TICKET_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s.replace('_', ' ')}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {open ? (
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${overdue ? 'bg-red-50 text-danger' : atRisk ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-500'}`}>
+                          <Clock size={9} />
+                          {overdue ? `${Math.abs(Math.round(left))}h over` : `${Math.round(left)}h left`}
+                        </span>
+                      ) : <span className="text-slate-300 text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-600">
+                      {t.scheduledVisitAt ? (
+                        <span className="inline-flex items-center gap-1 text-xs">
+                          <CalendarClock size={12} className="text-slate-400" />
+                          {new Date(t.scheduledVisitAt).toLocaleDateString('en-IN')}
+                        </span>
+                      ) : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <select
+                        value={t.status}
+                        onChange={(e) => void changeStatus(t.id, e.target.value as ServiceTicketStatus)}
+                        className={`text-xs font-semibold rounded-full px-2.5 py-1 border-0 cursor-pointer focus:outline-none ${STATUS_BADGE[t.status]}`}
+                      >
+                        {SERVICE_TICKET_STATUSES.map((s) => (
+                          <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
-    </div>
-  );
-}
-
-function CreateTicketModal({ onClose }: { onClose: () => void }) {
-  const { data: projectData } = useProjects();
-  const projects = projectData?.projects ?? [];
-  const create = useCreateServiceTicket();
-
-  const [projectId, setProjectId] = useState('');
-  const [type, setType] = useState<ServiceTicketType>('COMPLAINT');
-  const [subject, setSubject] = useState('');
-  const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState('P3');
-  const [scheduledVisitAt, setScheduledVisitAt] = useState('');
-
-  async function handleSave() {
-    const project = projects.find((p) => p.id === projectId);
-    if (!project) {
-      toast.error('Select a project');
-      return;
-    }
-    if (!subject.trim() || !description.trim()) {
-      toast.error('Subject and description are required');
-      return;
-    }
-    try {
-      await create.mutateAsync({
-        leadId: project.lead.id,
-        projectId: project.id,
-        type,
-        subject: subject.trim(),
-        description: description.trim(),
-        priority,
-        ...(scheduledVisitAt && { scheduledVisitAt: new Date(scheduledVisitAt).toISOString() }),
-      });
-      toast.success('Service ticket created');
-      onClose();
-    } catch {
-      toast.error('Failed to create ticket');
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-base font-semibold text-slate-900">New Service Ticket</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="p-5 space-y-4">
-          <Field label="Project / Customer">
-            <select
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-            >
-              <option value="">Select a project…</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.number} — {p.lead.name}
-                </option>
-              ))}
-            </select>
-            {projects.length === 0 && (
-              <p className="text-xs text-slate-400 mt-1">No projects yet — service tickets attach to install projects.</p>
-            )}
-          </Field>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Type">
-              <select
-                value={type}
-                onChange={(e) => setType(e.target.value as ServiceTicketType)}
-                className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-              >
-                {SERVICE_TICKET_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {TYPE_LABEL[t]}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Priority">
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-              >
-                {['P1', 'P2', 'P3', 'P4'].map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-
-          <Field label="Subject">
-            <input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              maxLength={200}
-              className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </Field>
-
-          <Field label="Description">
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              maxLength={5000}
-              className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary resize-y"
-            />
-          </Field>
-
-          <Field label="Scheduled visit (optional)">
-            <input
-              type="datetime-local"
-              value={scheduledVisitAt}
-              onChange={(e) => setScheduledVisitAt(e.target.value)}
-              className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </Field>
-        </div>
-        <div className="flex justify-end gap-3 px-5 py-4 border-t border-border">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700">
-            Cancel
-          </button>
-          <button
-            onClick={() => void handleSave()}
-            disabled={create.isPending}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
-          >
-            {create.isPending && <Loader2 size={14} className="animate-spin" />}
-            Create Ticket
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-xs font-medium text-slate-500 mb-1">{label}</label>
-      {children}
     </div>
   );
 }

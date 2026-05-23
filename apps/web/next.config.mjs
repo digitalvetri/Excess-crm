@@ -1,8 +1,6 @@
-import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
-  output: 'standalone',
-  typedRoutes: true,
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
   transpilePackages: ['@excess/shared', '@excess/ui', '@excess/config'],
   images: {
     remotePatterns: [

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { BookOpen } from 'lucide-react';
 import { useKbArticles, useKbArticle } from '@/hooks/use-kb';
 
 export default function KnowledgeBasePage() {
@@ -126,7 +127,19 @@ export default function KnowledgeBasePage() {
       ) : error ? (
         <p className="text-sm text-red-600">{error}</p>
       ) : articles.length === 0 ? (
-        <p className="text-sm text-slate-500">No articles found</p>
+        <div className="bg-white rounded-xl border border-border p-12 flex flex-col items-center text-center">
+          <div className="h-14 w-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+            <BookOpen size={26} className="text-slate-400" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-800 mb-1">
+            {debouncedSearch ? 'No articles match your search' : 'Knowledge base is empty'}
+          </h3>
+          <p className="text-sm text-slate-500 max-w-xs">
+            {debouncedSearch
+              ? 'Try a different keyword or clear the search.'
+              : 'Articles, guides and FAQs added by your team will appear here.'}
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {articles.map((article) => (

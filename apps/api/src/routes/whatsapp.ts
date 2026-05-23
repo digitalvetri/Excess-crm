@@ -2,13 +2,143 @@ import type { FastifyPluginAsync } from 'fastify';
 import { prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
+import { env } from '@excess/config';
 
 const sendMessageSchema = z.object({
   leadId: z.string().uuid(),
   message: z.string().min(1).max(4096),
 });
 
+const whatsappConfigSchema = z.object({
+  phoneNumberId:      z.string().min(1, 'Phone Number ID is required'),
+  businessAccountId:  z.string().min(1, 'Business Account ID is required'),
+  accessToken:        z.string().min(10, 'Access token is required'),
+  displayName:        z.string().max(100).optional(),
+});
+
 export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
+  // GET /whatsapp/config — return saved WhatsApp Business config (token redacted)
+  app.get('/config', async (req, reply) => {
+    if (!can(req.auth.role, 'broadcasts.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const config = await req.withTenant((tx) =>
+      tx.whatsappConfig.findUnique({ where: { tenantId: req.auth.tenantId } }),
+    );
+
+    if (!config) {
+      return reply.send({ data: null });
+    }
+
+    const webhookUrl = `${env.API_URL}/webhooks/whatsapp`;
+
+    return reply.send({
+      data: {
+        phoneNumberId:      config.phoneNumberId,
+        businessAccountId:  config.businessAccountId,
+        displayName:        config.displayName,
+        webhookVerifyToken: config.webhookVerifyToken,
+        webhookUrl,
+        isConnected:        config.isConnected,
+        connectedAt:        config.connectedAt,
+        hasToken:           config.accessToken.length > 0,
+      },
+    });
+  });
+
+  // PUT /whatsapp/config — save or update WhatsApp Business credentials
+  app.put('/config', async (req, reply) => {
+    if (!can(req.auth.role, 'broadcasts.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const parsed = whatsappConfigSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() },
+      });
+    }
+
+    const { phoneNumberId, businessAccountId, accessToken, displayName } = parsed.data;
+
+    // Verify credentials by calling Meta API before saving
+    let displayNameFromMeta: string | null = null;
+    try {
+      const metaRes = await fetch(
+        `https://graph.facebook.com/v18.0/${phoneNumberId}?fields=display_phone_number%2Cverified_name`,
+        { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(8000) },
+      );
+      if (!metaRes.ok) throw new Error(`Meta API ${metaRes.status}`);
+      const metaData = await metaRes.json() as { display_phone_number?: string; verified_name?: string };
+      displayNameFromMeta = metaData.verified_name ?? metaData.display_phone_number ?? null;
+    } catch {
+      return reply.code(422).send({
+        error: {
+          code: 'whatsapp.invalid_credentials',
+          message: 'Could not verify credentials with Meta — check your Phone Number ID and Access Token.',
+        },
+      });
+    }
+
+    const config = await req.withTenant((tx) =>
+      tx.whatsappConfig.upsert({
+        where:  { tenantId: req.auth.tenantId },
+        update: {
+          phoneNumberId,
+          businessAccountId,
+          accessToken,
+          displayName: displayName ?? displayNameFromMeta ?? null,
+          isConnected: true,
+          connectedAt: new Date(),
+        },
+        create: {
+          tenantId:         req.auth.tenantId,
+          phoneNumberId,
+          businessAccountId,
+          accessToken,
+          displayName:      displayName ?? displayNameFromMeta ?? null,
+          isConnected:      true,
+          connectedAt:      new Date(),
+        },
+      }),
+    );
+
+    req.log.info(
+      { tenantId: req.auth.tenantId, userId: req.auth.userId, phoneNumberId },
+      'whatsapp.config_saved',
+    );
+
+    return reply.send({
+      data: {
+        phoneNumberId:      config.phoneNumberId,
+        businessAccountId:  config.businessAccountId,
+        displayName:        config.displayName,
+        webhookVerifyToken: config.webhookVerifyToken,
+        webhookUrl:         `${env.API_URL}/webhooks/whatsapp`,
+        isConnected:        true,
+      },
+    });
+  });
+
+  // DELETE /whatsapp/config — disconnect WhatsApp
+  app.delete('/config', async (req, reply) => {
+    if (!can(req.auth.role, 'broadcasts.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    await req.withTenant((tx) =>
+      tx.whatsappConfig.deleteMany({ where: { tenantId: req.auth.tenantId } }),
+    );
+
+    req.log.info(
+      { tenantId: req.auth.tenantId, userId: req.auth.userId },
+      'whatsapp.config_deleted',
+    );
+
+    return reply.send({ data: { disconnected: true } });
+  });
+
   // GET /whatsapp/conversations — list active WaSessions for tenant
   app.get('/conversations', async (req, reply) => {
     if (!can(req.auth.role, 'leads.read.own')) {

@@ -37,6 +37,11 @@ describe('Auth guard: unauthenticated requests are rejected', () => {
     ['GET', '/api/v1/leaderboard'],
     ['GET', '/api/v1/referrals'],
     ['GET', '/api/v1/reviews'],
+    // Delivery module
+    ['GET', '/api/v1/projects'],
+    ['GET', '/api/v1/service-tickets'],
+    ['GET', '/api/v1/service-tickets/alerts'],
+    ['GET', '/api/v1/amc-contracts'],
   ];
 
   for (const [method, url] of protectedRoutes) {

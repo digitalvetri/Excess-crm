@@ -4,8 +4,8 @@ import { z } from 'zod';
 
 const createPayoutSchema = z.object({
   commissionIds: z.array(z.string().uuid()).min(1),
-  bankUtr: z.string().optional(),
-  paidAt: z.string().datetime({ offset: true }).optional(),
+  bankUtr:       z.string().optional(),
+  paidAt:        z.string().datetime({ offset: true }).optional(),
 });
 
 export const payoutsRoutes: FastifyPluginAsync = async (app) => {
@@ -15,28 +15,37 @@ export const payoutsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
-    const query = req.query as { cursor?: string; limit?: string };
+    const query = req.query as { cursor?: string; limit?: string; franchiseId?: string };
     const limit = Math.min(Number(query.limit ?? 20), 100);
 
     const payouts = await req.withTenant(async (tx) =>
       tx.payout.findMany({
-        where: { ...(query.cursor && { id: { lt: query.cursor } }) },
+        where: {
+          ...(query.franchiseId && { tenantId: query.franchiseId }),
+          ...(query.cursor      && { id: { lt: query.cursor } }),
+        },
         orderBy: { createdAt: 'desc' },
         take: limit + 1,
         select: {
           id: true, tenantId: true, amountInr: true, bankUtr: true,
           paidAt: true, commissionIds: true, createdAt: true,
+          tenant: { select: { name: true } },
         },
       }),
     );
 
     const hasMore = payouts.length > limit;
-    const items = hasMore ? payouts.slice(0, limit) : payouts;
+    const items   = hasMore ? payouts.slice(0, limit) : payouts;
 
-    return reply.send({ data: { payouts: items, hasMore, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null } });
+    const enriched = items.map(({ tenant, ...p }) => ({
+      ...p,
+      franchiseName: tenant.name,
+    }));
+
+    return reply.send({ data: { payouts: enriched, hasMore, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null } });
   });
 
-  // POST /payouts — create payout (batch commissions)
+  // POST /payouts — create payout (batch approved commissions → marks them PAID)
   app.post('/', async (req, reply) => {
     if (!can(req.auth.role, 'payouts.write')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
@@ -49,46 +58,49 @@ export const payoutsRoutes: FastifyPluginAsync = async (app) => {
 
     const { commissionIds, bankUtr, paidAt } = parsed.data;
 
-    // Sum up approved commissions
     const commissions = await req.withTenant(async (tx) =>
       tx.commission.findMany({
-        where: { id: { in: commissionIds }, status: 'APPROVED' },
-        select: { id: true, netPayableInr: true },
+        where:  { id: { in: commissionIds }, status: 'APPROVED' },
+        select: { id: true, netPayableInr: true, tenantId: true },
       }),
     );
 
     if (commissions.length === 0) {
-      return reply.code(400).send({ error: { code: 'payout.no_approved_commissions', message: 'No approved commissions found for given IDs' } });
+      return reply.code(400).send({ error: { code: 'payout.no_approved_commissions', message: 'No approved commissions found' } });
     }
 
-    const totalAmount = commissions.reduce(
-      (sum, c) => sum + Number(c.netPayableInr),
-      0,
-    );
+    const tenantIds = [...new Set(commissions.map((c) => c.tenantId))];
+    if (tenantIds.length > 1) {
+      return reply.code(400).send({ error: { code: 'payout.mixed_tenants', message: 'All commissions must belong to the same franchise' } });
+    }
 
-    const payoutDate = paidAt ? new Date(paidAt) : new Date();
+    const totalAmount = commissions.reduce((sum, c) => sum + Number(c.netPayableInr), 0);
+    const payoutDate  = paidAt ? new Date(paidAt) : new Date();
+    const tenantId    = tenantIds[0]!;
 
     const payout = await req.withTenant(async (tx) => {
       const p = await tx.payout.create({
         data: {
-          tenantId: req.auth.tenantId,
-          amountInr: totalAmount,
+          tenantId,
+          amountInr:    totalAmount,
           commissionIds,
-          paidAt: payoutDate,
+          paidAt:       payoutDate,
           ...(bankUtr !== undefined && { bankUtr }),
         },
       });
 
-      // Mark commissions as PAID and link to payout
       await tx.commission.updateMany({
         where: { id: { in: commissions.map((c) => c.id) } },
-        data: { status: 'PAID', paidAt: payoutDate, payoutId: p.id },
+        data:  { status: 'PAID', paidAt: payoutDate, payoutId: p.id },
       });
 
       return p;
     });
 
-    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, payoutId: payout.id, amount: totalAmount }, 'payout.created');
+    req.log.info(
+      { tenantId: req.auth.tenantId, userId: req.auth.userId, payoutId: payout.id, amount: totalAmount },
+      'payout.created',
+    );
     return reply.code(201).send({ data: payout });
   });
 };

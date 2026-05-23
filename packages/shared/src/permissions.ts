@@ -48,6 +48,9 @@ const PERMS = {
   'franchise.suspend': ['ADMIN'] as UserRole[],
   'franchise.terminate': ['ADMIN'] as UserRole[],
   'franchise.broadcast': ['ADMIN'] as UserRole[],
+  'franchise.agents.read': ['ADMIN', 'FRANCHISE_OWNER'] as UserRole[],
+  'franchise.agents.write': ['ADMIN'] as UserRole[],
+  'franchise.leaderboard': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER'] as UserRole[],
   'commissions.read': ['ADMIN', 'FRANCHISE_OWNER'] as UserRole[],
   'commissions.approve': ['ADMIN'] as UserRole[],
   'payouts.read': ['ADMIN', 'FRANCHISE_OWNER'] as UserRole[],
@@ -121,6 +124,8 @@ const PERMS = {
     'FRANCHISE_OWNER',
     'FRANCHISE_USER',
   ] as UserRole[],
+  'settings.read': ['ADMIN', 'FRANCHISE_OWNER'] as UserRole[],
+  'settings.write': ['ADMIN'] as UserRole[],
 } as const;
 
 export type Permission = keyof typeof PERMS;

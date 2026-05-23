@@ -158,6 +158,86 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
           );
           if (npsCaptured) continue;
 
+          // Check if this phone belongs to an existing lead
+          const existingLead = await withSystemContext(prisma, source.tenantId, (tx) =>
+            tx.lead.findFirst({
+              where: { tenantId: source.tenantId, phone: msg.from, isDuplicate: false },
+              select: { id: true },
+              orderBy: { createdAt: 'desc' },
+            }),
+          );
+
+          if (existingLead) {
+            const msgText = msg.text?.body ?? '';
+            const OPT_OUT_KEYWORDS = ['STOP', 'UNSUBSCRIBE', 'OPTOUT', 'OPT OUT', 'OPT-OUT'];
+            const isOptOut = OPT_OUT_KEYWORDS.includes(msgText.trim().toUpperCase());
+
+            if (isOptOut) {
+              await withSystemContext(prisma, source.tenantId, async (tx) => {
+                // Mark lead as opted out
+                await tx.lead.update({
+                  where: { id: existingLead.id },
+                  data:  { commsOptedOutAt: new Date() },
+                });
+                // Cancel all active sequence enrollments
+                await tx.sequenceEnrollment.updateMany({
+                  where:  { leadId: existingLead.id, tenantId: source.tenantId, status: 'ACTIVE' },
+                  data:   { status: 'OPTED_OUT', completedAt: new Date() },
+                });
+                // Log activity
+                await tx.leadActivity.create({
+                  data: {
+                    leadId:    existingLead.id,
+                    tenantId:  source.tenantId,
+                    actorIsAi: true,
+                    type:      'NOTE',
+                    payload: { note: 'Customer sent STOP — opted out of all WhatsApp communications.' } as object,
+                  },
+                });
+              });
+              // Send opt-out confirmation back to customer
+              await req.server.queues.whatsappSend.add('whatsapp-send', {
+                tenantId: source.tenantId,
+                leadId:   existingLead.id,
+                phone:    msg.from,
+                template: 'DIRECT_MESSAGE',
+                vars: { message: 'You have been unsubscribed from Excess Renew messages. Reply START to re-subscribe.' },
+              });
+              req.log.info({ tenantId: source.tenantId, leadId: existingLead.id }, 'whatsapp.opt_out');
+              continue;
+            }
+
+            await withSystemContext(prisma, source.tenantId, async (tx) => {
+              await tx.leadActivity.create({
+                data: {
+                  leadId:    existingLead.id,
+                  tenantId:  source.tenantId,
+                  actorIsAi: true,
+                  type:      'WHATSAPP',
+                  payload: {
+                    message:     msgText,
+                    direction:   'inbound',
+                    waMessageId: msg.id,
+                  } as object,
+                },
+              });
+              const sessionExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+              await tx.waSession.upsert({
+                where:  { tenantId_phone: { tenantId: source.tenantId, phone: msg.from } },
+                create: {
+                  tenantId:        source.tenantId,
+                  leadId:          existingLead.id,
+                  phone:           msg.from,
+                  sessionExpiresAt: sessionExpiry,
+                  lastMessageAt:   new Date(),
+                },
+                update: { lastMessageAt: new Date(), sessionExpiresAt: sessionExpiry },
+              });
+            });
+            req.log.info({ tenantId: source.tenantId, leadId: existingLead.id, waMessageId: msg.id }, 'whatsapp.inbound_reply_stored');
+            continue;
+          }
+
           const contact = v.contacts?.find((c) => c.wa_id === msg.from);
           const name = contact?.profile.name ?? 'WhatsApp User';
 

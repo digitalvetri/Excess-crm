@@ -10,32 +10,39 @@ const createReviewSchema = z.object({
 });
 
 export const reviewsRoutes: FastifyPluginAsync = async (app) => {
-  // GET /reviews/summary — aggregate rating stats (before /:leadId to avoid route conflict)
+  // GET /reviews/summary — aggregate rating stats + NPS breakdown
   app.get('/summary', async (req, reply) => {
     if (!can(req.auth.role, 'reviews.read')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
-    const { avgRating, totalCount, distribution } = await req.withTenant(async (tx) => {
-      const aggregate = await tx.review.aggregate({
-        _avg: { rating: true },
-        _count: { id: true },
-      });
+    const { avgRating, totalCount, distribution, nps } = await req.withTenant(async (tx) => {
+      const [aggregate, grouped, npsRows] = await Promise.all([
+        tx.review.aggregate({ _avg: { rating: true }, _count: { id: true } }),
+        tx.review.groupBy({ by: ['rating'], _count: { id: true }, orderBy: { rating: 'asc' } }),
+        tx.review.findMany({
+          where: { npsScore: { not: null } },
+          select: { npsScore: true },
+        }),
+      ]);
 
-      const grouped = await tx.review.groupBy({
-        by: ['rating'],
-        _count: { id: true },
-        orderBy: { rating: 'asc' },
-      });
+      const promoters  = npsRows.filter((r) => (r.npsScore ?? 0) >= 9).length;
+      const passives   = npsRows.filter((r) => { const s = r.npsScore ?? 0; return s >= 7 && s <= 8; }).length;
+      const detractors = npsRows.filter((r) => (r.npsScore ?? 0) <= 6).length;
+      const npsTotal   = npsRows.length;
+      const npsScore   = npsTotal > 0
+        ? Math.round(((promoters - detractors) / npsTotal) * 100)
+        : null;
 
       return {
-        avgRating: aggregate._avg.rating ?? 0,
-        totalCount: aggregate._count.id,
+        avgRating:    aggregate._avg.rating ?? 0,
+        totalCount:   aggregate._count.id,
         distribution: grouped.map((g) => ({ rating: g.rating, count: g._count.id })),
+        nps: { score: npsScore, promoters, passives, detractors, total: npsTotal },
       };
     });
 
-    return reply.send({ data: { avgRating, totalCount, distribution } });
+    return reply.send({ data: { avgRating, totalCount, distribution, nps } });
   });
 
   // GET /reviews — list reviews for tenant, optional ?leadId= filter
@@ -44,16 +51,19 @@ export const reviewsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
-    const query = req.query as { leadId?: string };
+    const query = req.query as { leadId?: string; rating?: string };
 
     const reviews = await req.withTenant(async (tx) =>
       tx.review.findMany({
         where: {
           ...(query.leadId && { leadId: query.leadId }),
+          ...(query.rating && { rating: Number(query.rating) }),
         },
         orderBy: { createdAt: 'desc' },
-        include: {
-          lead: { select: { name: true } },
+        select: {
+          id: true, leadId: true, rating: true, comment: true, source: true,
+          npsScore: true, npsComment: true, createdAt: true,
+          lead: { select: { id: true, name: true, phone: true } },
         },
       }),
     );

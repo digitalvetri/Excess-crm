@@ -12,6 +12,10 @@ const audienceFilterSchema = z.object({
   sourceType: z.enum(['META', 'INDIAMART', 'JUSTDIAL', 'WEBSITE', 'WHATSAPP', 'MANUAL', 'PHONE_INBOUND']).optional(),
   city: z.string().max(100).optional(),
   tag: z.string().max(60).optional(),
+  // Solar-specific segments
+  amcWindow:    z.enum(['expiring30', 'expiring60', 'expired']).optional(),
+  subsidyStatus: z.enum(['NOT_APPLIED', 'APPLIED', 'DISCOM_INSPECTION_SCHEDULED', 'DISCOM_APPROVED', 'PORTAL_UPLOAD_DONE', 'CREDITED']).optional(),
+  projectStage:  z.enum(['SURVEY', 'DESIGN', 'MATERIAL_ORDERED', 'INSTALLATION', 'COMMISSIONING', 'HANDED_OVER']).optional(),
 });
 
 const createBroadcastSchema = z.object({
@@ -20,11 +24,24 @@ const createBroadcastSchema = z.object({
   templateParams: z.record(z.string()).optional(),
   bodyText: z.string().max(2000).optional(),
   audienceFilter: audienceFilterSchema.default({}),
+  scheduledAt: z.string().datetime().optional(),
 });
 
 type AudienceFilter = z.infer<typeof audienceFilterSchema>;
 
 function buildLeadWhere(tenantId: string, filter: AudienceFilter) {
+  const now   = new Date();
+  const in30  = new Date(now.getTime() + 30 * 86400000);
+  const in60  = new Date(now.getTime() + 60 * 86400000);
+
+  type ProjectWhere = { amcExpiresAt?: { gte?: Date; lte?: Date; lt?: Date }; subsidyStatus?: string; stage?: string };
+  const projectFilter: ProjectWhere = {};
+  if (filter.amcWindow === 'expiring30') projectFilter.amcExpiresAt = { gte: now, lte: in30 };
+  else if (filter.amcWindow === 'expiring60') projectFilter.amcExpiresAt = { gte: now, lte: in60 };
+  else if (filter.amcWindow === 'expired') projectFilter.amcExpiresAt = { lt: now };
+  if (filter.subsidyStatus) projectFilter.subsidyStatus = filter.subsidyStatus;
+  if (filter.projectStage)  projectFilter.stage         = filter.projectStage;
+
   return {
     tenantId,
     isDuplicate: false,
@@ -33,6 +50,7 @@ function buildLeadWhere(tenantId: string, filter: AudienceFilter) {
     ...(filter.sourceType && { sourceType: filter.sourceType as LeadSourceType }),
     ...(filter.city && { city: { contains: filter.city, mode: 'insensitive' as const } }),
     ...(filter.tag && { tags: { has: filter.tag } }),
+    ...(Object.keys(projectFilter).length > 0 && { projects: { some: projectFilter } }),
   };
 }
 
@@ -66,6 +84,120 @@ export const broadcastsRoutes: FastifyPluginAsync = async (app) => {
     );
 
     return reply.send({ data: broadcasts });
+  });
+
+  // GET /broadcasts/analytics — campaign performance summary
+  app.get('/analytics', async (req, reply) => {
+    if (!can(req.auth.role, 'broadcasts.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const [totalSent, totalFailed, campaigns, byStatus] = await req.withTenant(async (tx) => [
+      await tx.broadcastRecipient.count({ where: { status: 'SENT' } }),
+      await tx.broadcastRecipient.count({ where: { status: 'FAILED' } }),
+      await tx.broadcast.findMany({
+        where:   { status: { in: ['SENT', 'SENDING', 'FAILED'] } },
+        orderBy: { createdAt: 'desc' },
+        take:    30,
+        select:  {
+          id: true, name: true, status: true,
+          recipientCount: true, sentCount: true, failedCount: true,
+          scheduledAt: true, startedAt: true, completedAt: true, createdAt: true,
+        },
+      }),
+      await tx.broadcast.groupBy({ by: ['status'], _count: true }),
+    ]);
+
+    // Conversion attribution: recipients who moved to CONVERTED after this broadcast started
+    const campaignsWithConversions = await req.withTenant(async (tx) =>
+      Promise.all(
+        campaigns.map(async (c) => {
+          if (!c.startedAt) return { ...c, conversions: 0 };
+          const recipientIds = await tx.broadcastRecipient.findMany({
+            where:  { broadcastId: c.id, status: 'SENT' },
+            select: { leadId: true },
+          });
+          if (recipientIds.length === 0) return { ...c, conversions: 0 };
+          const conversions = await tx.lead.count({
+            where: {
+              id:            { in: recipientIds.map((r) => r.leadId) },
+              stage:         'CONVERTED',
+              stageChangedAt: { gte: c.startedAt },
+            },
+          });
+          return { ...c, conversions };
+        }),
+      ),
+    );
+
+    const statMap: Record<string, number> = {};
+    for (const s of byStatus) statMap[s.status] = s._count;
+
+    const deliveryRate = totalSent + totalFailed > 0
+      ? Math.round((totalSent / (totalSent + totalFailed)) * 100)
+      : 0;
+
+    return reply.send({ data: { totalSent, totalFailed, deliveryRate, campaigns: campaignsWithConversions, byStatus: statMap } });
+  });
+
+  // GET /broadcasts/templates — static solar template library
+  app.get('/templates', async (req, reply) => {
+    if (!can(req.auth.role, 'broadcasts.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const templates = [
+      {
+        id: 'amc_renewal_reminder',
+        name: 'AMC Renewal Reminder',
+        description: 'Remind customers their Annual Maintenance Contract is expiring soon.',
+        templateName: 'amc_renewal_reminder',
+        defaultAudienceFilter: { amcWindow: 'expiring30' },
+        previewText: 'Hi {{name}}, your AMC for project {{project_number}} expires in {{days}} days. Renew now for uninterrupted service.',
+      },
+      {
+        id: 'subsidy_followup',
+        name: 'Subsidy Follow-up',
+        description: 'Follow up with customers on pending subsidy applications.',
+        templateName: 'subsidy_followup',
+        defaultAudienceFilter: { subsidyStatus: 'APPLIED' },
+        previewText: "Hi {{name}}, your solar subsidy application is under review. We'll keep you posted!",
+      },
+      {
+        id: 'installation_complete',
+        name: 'Installation Complete',
+        description: 'Congratulate customers on successful installation.',
+        templateName: 'installation_complete',
+        defaultAudienceFilter: { projectStage: 'HANDED_OVER' },
+        previewText: 'Congratulations {{name}}! Your solar system is live. Download the monitoring app to track your savings.',
+      },
+      {
+        id: 'system_health_check',
+        name: 'System Health Check',
+        description: 'Prompt customers to schedule an annual health check.',
+        templateName: 'system_health_check',
+        defaultAudienceFilter: { amcWindow: 'expiring60' },
+        previewText: "Hi {{name}}, it's time for your annual solar system health check. Book a free inspection today.",
+      },
+      {
+        id: 'referral_invite',
+        name: 'Referral Invite',
+        description: 'Ask happy customers to refer friends and earn rewards.',
+        templateName: 'referral_invite',
+        defaultAudienceFilter: { projectStage: 'HANDED_OVER' },
+        previewText: 'Hi {{name}}, love your solar system? Refer a friend and earn Rs 2,000 when they install!',
+      },
+      {
+        id: 'nps_survey',
+        name: 'NPS Survey',
+        description: 'Collect Net Promoter Score from recently installed customers.',
+        templateName: 'nps_survey',
+        defaultAudienceFilter: { projectStage: 'COMMISSIONING' },
+        previewText: 'Hi {{name}}, how likely are you to recommend Excess Solar to friends? Reply with a score 0-10.',
+      },
+    ];
+
+    return reply.send({ data: templates });
   });
 
   // GET /broadcasts/:id — detail
@@ -117,7 +249,7 @@ export const broadcastsRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    const { name, templateName, templateParams, bodyText, audienceFilter } = parsed.data;
+    const { name, templateName, templateParams, bodyText, audienceFilter, scheduledAt } = parsed.data;
     if (!templateName && !bodyText) {
       return reply.code(400).send({
         error: { code: 'validation_error', message: 'Provide a template name or message text' },
@@ -135,6 +267,7 @@ export const broadcastsRoutes: FastifyPluginAsync = async (app) => {
           ...(templateName && { templateName }),
           ...(templateParams && { templateParams: templateParams as Prisma.InputJsonValue }),
           ...(bodyText && { bodyText }),
+          ...(scheduledAt && { scheduledAt: new Date(scheduledAt), status: 'SCHEDULED' }),
         },
       }),
     );
@@ -240,5 +373,69 @@ export const broadcastsRoutes: FastifyPluginAsync = async (app) => {
     await req.withTenant((tx) => tx.broadcast.delete({ where: { id } }));
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, broadcastId: id }, 'broadcast.deleted');
     return reply.code(204).send();
+  });
+
+  // POST /broadcasts/:id/enroll-sequence — enrol SENT recipients into a follow-up sequence
+  app.post('/:id/enroll-sequence', async (req, reply) => {
+    if (!can(req.auth.role, 'broadcasts.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+    const body = z.object({ sequenceId: z.string().uuid() }).safeParse(req.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'sequenceId is required' } });
+    }
+
+    const broadcast = await req.withTenant((tx) =>
+      tx.broadcast.findUnique({ where: { id }, select: { status: true, startedAt: true } }),
+    );
+    if (!broadcast) {
+      return reply.code(404).send({ error: { code: 'broadcast.not_found', message: 'Broadcast not found' } });
+    }
+    if (broadcast.status !== 'SENT') {
+      return reply.code(409).send({ error: { code: 'broadcast.not_sent', message: 'Broadcast must be fully SENT to enrol in a sequence' } });
+    }
+
+    const sequence = await req.withTenant((tx) =>
+      tx.sequence.findUnique({
+        where:  { id: body.data.sequenceId },
+        select: { id: true, steps: { orderBy: { stepOrder: 'asc' }, take: 1, select: { delayHours: true } } },
+      }),
+    );
+    if (!sequence) {
+      return reply.code(404).send({ error: { code: 'sequence.not_found', message: 'Sequence not found' } });
+    }
+    const firstStep = sequence.steps[0];
+    if (!firstStep) {
+      return reply.code(422).send({ error: { code: 'sequence.no_steps', message: 'Sequence has no steps' } });
+    }
+
+    const recipients = await req.withTenant((tx) =>
+      tx.broadcastRecipient.findMany({
+        where:  { broadcastId: id, status: 'SENT' },
+        select: { leadId: true },
+        take:   MAX_RECIPIENTS,
+      }),
+    );
+
+    const enrolled = await req.withTenant((tx) =>
+      tx.sequenceEnrollment.createMany({
+        data: recipients.map((r) => ({
+          tenantId:   req.auth.tenantId,
+          sequenceId: body.data.sequenceId,
+          leadId:     r.leadId,
+          currentStep: 0,
+          nextRunAt:  new Date(Date.now() + firstStep.delayHours * 3600 * 1000),
+        })),
+        skipDuplicates: true,
+      }),
+    );
+
+    req.log.info(
+      { tenantId: req.auth.tenantId, broadcastId: id, sequenceId: body.data.sequenceId, count: enrolled.count },
+      'broadcast.sequence_enrolled',
+    );
+    return reply.send({ data: { enrolled: enrolled.count } });
   });
 };

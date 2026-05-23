@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { FileText } from 'lucide-react';
 import { useQuotations, useSendQuotation } from '@/hooks/use-quotations';
 
 type StatusFilter = 'ALL' | 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED';
@@ -121,7 +122,19 @@ export default function QuotationsPage() {
       ) : error ? (
         <p className="text-red-600 text-sm">{error}</p>
       ) : quotations.length === 0 ? (
-        <p className="text-slate-500 text-sm">No quotations found</p>
+        <div className="bg-white rounded-xl border border-border p-12 flex flex-col items-center text-center">
+          <div className="h-14 w-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+            <FileText size={26} className="text-slate-400" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-800 mb-1">No quotations yet</h3>
+          <p className="text-sm text-slate-500 mb-5 max-w-xs">Create a solar system quotation for a qualified lead and send it via WhatsApp or email.</p>
+          <Link
+            href="/quotations/new"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            + Create First Quotation
+          </Link>
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-white">
           <table className="min-w-full text-sm">

@@ -66,6 +66,15 @@ export function useUsers() {
   });
 }
 
+export function useCreateTeam() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { name: string }) =>
+      api.post<{ data: Team }>('/teams', data).then((r) => r.data.data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['teams'] }),
+  });
+}
+
 export function useAddTeamMember(teamId: string) {
   const qc = useQueryClient();
   return useMutation({

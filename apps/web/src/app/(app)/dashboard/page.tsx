@@ -3,55 +3,27 @@ import { DashboardStats } from '@/components/dashboard/stats';
 import { RecentLeads } from '@/components/dashboard/recent-leads';
 import { LeadsOverview } from '@/components/dashboard/leads-overview';
 import { TopSources } from '@/components/dashboard/top-sources';
+import { PipelineFunnel } from '@/components/dashboard/pipeline-funnel';
+import { TodayAppointments } from '@/components/dashboard/today-appointments';
+import { VoiceActivity } from '@/components/dashboard/voice-activity';
+import { FranchiseSnapshot } from '@/components/dashboard/franchise-snapshot';
 
 export const metadata = { title: 'Dashboard — Excess CRM' };
 
 function BannerArt() {
   return (
-    <svg
-      viewBox="0 0 280 190"
-      className="pointer-events-none absolute right-0 top-0 hidden h-full w-auto sm:block"
-      fill="none"
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/banner-hero.png"
+      alt=""
       aria-hidden="true"
-    >
-      <circle cx="208" cy="56" r="48" fill="#ffffff" fillOpacity="0.06" />
-      <circle cx="208" cy="56" r="18" fill="#ffffff" fillOpacity="0.85" />
-      {Array.from({ length: 8 }).map((_, i) => {
-        const a = (i * Math.PI) / 4;
-        return (
-          <line
-            key={i}
-            x1={208 + Math.cos(a) * 26}
-            y1={56 + Math.sin(a) * 26}
-            x2={208 + Math.cos(a) * 36}
-            y2={56 + Math.sin(a) * 36}
-            stroke="#ffffff"
-            strokeOpacity="0.45"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-          />
-        );
-      })}
-      <g transform="rotate(-13 165 140)">
-        <rect
-          x="110"
-          y="112"
-          width="116"
-          height="58"
-          rx="3"
-          fill="#ffffff"
-          fillOpacity="0.14"
-          stroke="#ffffff"
-          strokeOpacity="0.5"
-          strokeWidth="1.5"
-        />
-        <line x1="139" y1="112" x2="139" y2="170" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="1.2" />
-        <line x1="168" y1="112" x2="168" y2="170" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="1.2" />
-        <line x1="197" y1="112" x2="197" y2="170" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="1.2" />
-        <line x1="110" y1="141" x2="226" y2="141" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="1.2" />
-      </g>
-    </svg>
+      className="pointer-events-none absolute right-0 top-0 hidden h-full w-auto object-cover sm:block"
+    />
   );
+}
+
+function CardSkeleton({ h = 'h-64' }: { h?: string }) {
+  return <div className={`${h} animate-pulse rounded-xl border border-border bg-white`} />;
 }
 
 export default function DashboardPage() {
@@ -76,31 +48,57 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <Suspense fallback={<StatsSkeleton />}>
+      {/* KPI stat cards */}
+      <Suspense
+        fallback={
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-32 animate-pulse rounded-xl border border-border bg-white" />
+            ))}
+          </div>
+        }
+      >
         <DashboardStats />
       </Suspense>
 
+      {/* Row: Pipeline Funnel + Today's Appointments */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        <div className="lg:col-span-3">
-          <Suspense fallback={<div className="h-96 animate-pulse rounded-xl border border-border bg-white" />}>
-            <RecentLeads />
+        <div className="lg:col-span-2">
+          <Suspense fallback={<CardSkeleton h="h-72" />}>
+            <PipelineFunnel />
           </Suspense>
         </div>
-        <div className="space-y-6 lg:col-span-2">
+        <div className="lg:col-span-3">
+          <Suspense fallback={<CardSkeleton h="h-72" />}>
+            <TodayAppointments />
+          </Suspense>
+        </div>
+      </div>
+
+      {/* Row: Leads Trend + Voice Activity + Top Sources */}
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="sm:col-span-2 lg:col-span-3">
           <LeadsOverview />
+        </div>
+        <div className="lg:col-span-1">
+          <VoiceActivity />
+        </div>
+        <div className="lg:col-span-1">
           <TopSources />
         </div>
       </div>
-    </div>
-  );
-}
 
-function StatsSkeleton() {
-  return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="h-32 animate-pulse rounded-xl border border-border bg-white" />
-      ))}
+      {/* Row: Recent Leads + Franchise Network */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+        <div className="lg:col-span-3">
+          <Suspense fallback={<CardSkeleton h="h-80" />}>
+            <RecentLeads />
+          </Suspense>
+        </div>
+        <div className="lg:col-span-2">
+          <FranchiseSnapshot />
+        </div>
+      </div>
     </div>
   );
 }

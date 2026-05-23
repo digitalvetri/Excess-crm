@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Megaphone, Plus, Loader2, X, Send, Trash2, Users } from 'lucide-react';
+import Link from 'next/link';
+import { Megaphone, Plus, Loader2, X, Send, Trash2, Users, BarChart2, Sparkles, Clock, GitMerge } from 'lucide-react';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
   useBroadcasts,
@@ -9,35 +11,47 @@ import {
   useCreateBroadcast,
   useStartBroadcast,
   useDeleteBroadcast,
+  useBroadcastTemplates,
+  useBroadcastEnrollSequence,
   type BroadcastStatus,
   type AudienceFilter,
+  type BroadcastTemplate,
 } from '@/hooks/use-broadcasts';
+import { useSequences } from '@/hooks/use-sequences';
+import { useFocusTrap } from '@/hooks/use-focus-trap';
+import { getApiErrorMessage } from '@/lib/api-error';
 
 const STATUS_BADGE: Record<BroadcastStatus, string> = {
-  DRAFT: 'bg-slate-100 text-slate-600',
+  DRAFT:     'bg-slate-100 text-slate-600',
   SCHEDULED: 'bg-blue-100 text-blue-700',
-  SENDING: 'bg-amber-100 text-amber-700',
-  SENT: 'bg-green-100 text-green-700',
-  FAILED: 'bg-red-100 text-red-700',
+  SENDING:   'bg-amber-100 text-amber-700',
+  SENT:      'bg-green-100 text-green-700',
+  FAILED:    'bg-red-100 text-red-700',
 };
 
-const LEAD_STAGES = ['NEW', 'QUALIFIED', 'FOLLOW_UP', 'CONVERTED', 'NOT_ANSWERED', 'INVALID', 'WRONG_ENQUIRY'];
-const SOURCE_TYPES = ['META', 'INDIAMART', 'JUSTDIAL', 'WEBSITE', 'WHATSAPP', 'MANUAL', 'PHONE_INBOUND'];
+const LEAD_STAGES    = ['NEW', 'QUALIFIED', 'FOLLOW_UP', 'CONVERTED', 'NOT_ANSWERED', 'INVALID', 'WRONG_ENQUIRY'];
+const SOURCE_TYPES   = ['META', 'INDIAMART', 'JUSTDIAL', 'WEBSITE', 'WHATSAPP', 'MANUAL', 'PHONE_INBOUND'];
+const AMC_WINDOWS    = [{ value: 'expiring30', label: 'AMC expiring in 30 days' }, { value: 'expiring60', label: 'AMC expiring in 60 days' }, { value: 'expired', label: 'AMC expired' }];
+const SUBSIDY_STATUS = ['NOT_APPLIED', 'APPLIED', 'DISCOM_INSPECTION_SCHEDULED', 'DISCOM_APPROVED', 'PORTAL_UPLOAD_DONE', 'CREDITED'];
+const PROJECT_STAGES = ['SURVEY', 'DESIGN', 'MATERIAL_ORDERED', 'INSTALLATION', 'COMMISSIONING', 'HANDED_OVER'];
 
 export default function BroadcastsPage() {
   const { data: broadcasts = [], isLoading, isError } = useBroadcasts();
-  const [showForm, setShowForm] = useState(false);
-  const start = useStartBroadcast();
-  const del = useDeleteBroadcast();
+  const { data: sequences = [] } = useSequences();
+  const [showForm, setShowForm]     = useState(false);
+  const [enrollTarget, setEnroll]   = useState<string | null>(null);
+  const [enrollSeqId, setEnrollSeq] = useState('');
+  const start       = useStartBroadcast();
+  const del         = useDeleteBroadcast();
+  const enrollSeq   = useBroadcastEnrollSequence();
 
-  async function handleStart(id: string, recipientLabel: string) {
-    if (!window.confirm(`Send this broadcast to ${recipientLabel}? This cannot be undone.`)) return;
+  async function handleStart(id: string) {
+    if (!window.confirm('Send this broadcast to the matched audience? This cannot be undone.')) return;
     try {
       await start.mutateAsync(id);
       toast.success('Broadcast started');
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: { message?: string } } } };
-      toast.error(e.response?.data?.error?.message ?? 'Failed to start broadcast');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to start broadcast'));
     }
   }
 
@@ -50,6 +64,18 @@ export default function BroadcastsPage() {
     }
   }
 
+  async function handleEnrollSequence() {
+    if (!enrollTarget || !enrollSeqId) return;
+    try {
+      const res = await enrollSeq.mutateAsync({ broadcastId: enrollTarget, sequenceId: enrollSeqId });
+      toast.success(`${res.enrolled} lead${res.enrolled === 1 ? '' : 's'} enrolled in sequence`);
+      setEnroll(null);
+      setEnrollSeq('');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Enrolment failed'));
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -59,15 +85,63 @@ export default function BroadcastsPage() {
             Send a template message to a filtered segment of leads.
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="inline-flex items-center gap-1.5 text-sm bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={15} /> New Broadcast
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/broadcasts/analytics"
+            className="inline-flex items-center gap-1.5 text-sm border border-border px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <BarChart2 size={14} /> Analytics
+          </Link>
+          <Link
+            href="/broadcasts/optouts"
+            className="inline-flex items-center gap-1.5 text-sm border border-border px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <Users size={14} /> Opt-outs
+          </Link>
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center gap-1.5 text-sm bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={15} /> New Broadcast
+          </button>
+        </div>
       </div>
 
       {showForm && <CreateBroadcastModal onClose={() => setShowForm(false)} />}
+
+      {/* Enroll-in-sequence modal */}
+      {enrollTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-slate-900">Follow up with sequence</h2>
+            <p className="text-sm text-slate-500">All SENT recipients of this broadcast will be enrolled in the selected drip sequence.</p>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Sequence</label>
+              <select
+                value={enrollSeqId}
+                onChange={(e) => setEnrollSeq(e.target.value)}
+                className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="">Choose a sequence…</option>
+                {sequences.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => { setEnroll(null); setEnrollSeq(''); }} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700">Cancel</button>
+              <button
+                onClick={() => void handleEnrollSequence()}
+                disabled={!enrollSeqId || enrollSeq.isPending}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {enrollSeq.isPending && <Loader2 size={14} className="animate-spin" />}
+                Enroll
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-2">
@@ -78,9 +152,21 @@ export default function BroadcastsPage() {
       ) : isError ? (
         <p className="text-danger text-sm">Failed to load broadcasts. Please refresh.</p>
       ) : broadcasts.length === 0 ? (
-        <div className="bg-white rounded-xl border border-border p-10 text-center">
-          <Megaphone size={26} className="text-slate-300 mx-auto mb-3" />
-          <p className="text-sm text-slate-500">No broadcasts yet.</p>
+        <div className="bg-white rounded-xl border border-border p-12 sm:p-16 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100">
+            <Megaphone size={28} className="text-slate-400" />
+          </div>
+          <h3 className="text-sm font-semibold text-slate-700 mb-1">No broadcasts yet</h3>
+          <p className="text-xs text-slate-400 mb-5 max-w-xs mx-auto">
+            Send a WhatsApp message to a filtered segment of leads in one click.
+          </p>
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-dark transition-colors"
+          >
+            <span className="text-base">+</span>
+            New Broadcast
+          </button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -100,13 +186,18 @@ export default function BroadcastsPage() {
                     <p className="text-xs text-slate-500 mt-1">
                       {b.templateName ? `Template: ${b.templateName}` : 'Text message'} ·{' '}
                       {new Date(b.createdAt).toLocaleDateString('en-IN')}
+                      {b.scheduledAt && (
+                        <span className="ml-2 inline-flex items-center gap-1 text-blue-600">
+                          <Clock size={10} /> Scheduled {format(new Date(b.scheduledAt), 'd MMM yyyy, h:mm a')}
+                        </span>
+                      )}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {b.status === 'DRAFT' && (
                       <>
                         <button
-                          onClick={() => void handleStart(b.id, 'the matched audience')}
+                          onClick={() => void handleStart(b.id)}
                           disabled={start.isPending}
                           className="inline-flex items-center gap-1 text-xs bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
                         >
@@ -120,10 +211,18 @@ export default function BroadcastsPage() {
                         </button>
                       </>
                     )}
+                    {b.status === 'SENT' && sequences.length > 0 && (
+                      <button
+                        onClick={() => { setEnroll(b.id); setEnrollSeq(''); }}
+                        className="inline-flex items-center gap-1 text-xs border border-primary/30 bg-primary/5 text-primary px-3 py-1.5 rounded-lg hover:bg-primary/10 transition-colors"
+                      >
+                        <GitMerge size={12} /> Follow up
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {b.status !== 'DRAFT' && (
+                {b.status !== 'DRAFT' && b.status !== 'SCHEDULED' && (
                   <div className="mt-3">
                     <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
                       <span>
@@ -149,55 +248,57 @@ export default function BroadcastsPage() {
 }
 
 function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
-  const create = useCreateBroadcast();
-  const preview = usePreviewAudience();
+  const modalRef = useFocusTrap(onClose);
+  const create   = useCreateBroadcast();
+  const preview  = usePreviewAudience();
+  const { data: templates = [] } = useBroadcastTemplates();
 
-  const [name, setName] = useState('');
-  const [mode, setMode] = useState<'template' | 'text'>('template');
-  const [templateName, setTemplateName] = useState('');
-  const [params, setParams] = useState('');
-  const [bodyText, setBodyText] = useState('');
-  const [filter, setFilter] = useState<AudienceFilter>({});
-  const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [name, setName]             = useState('');
+  const [mode, setMode]             = useState<'template' | 'text'>('template');
+  const [templateName, setTplName]  = useState('');
+  const [params, setParams]         = useState('');
+  const [bodyText, setBodyText]     = useState('');
+  const [scheduledAt, setScheduled] = useState('');
+  const [filter, setFilter]         = useState<AudienceFilter>({});
+  const [previewCount, setPreview]  = useState<number | null>(null);
+  const [showTpl, setShowTpl] = useState(false);
 
   function setF(key: keyof AudienceFilter, value: string) {
     setFilter((f) => {
       const next = { ...f };
-      if (value) next[key] = value;
+      if (value) (next as Record<string, string>)[key] = value;
       else delete next[key];
       return next;
     });
-    setPreviewCount(null);
+    setPreview(null);
+  }
+
+  function applyTemplate(tpl: BroadcastTemplate) {
+    setName(tpl.name);
+    setTplName(tpl.templateName);
+    setMode('template');
+    setFilter(tpl.defaultAudienceFilter as AudienceFilter);
+    setPreview(null);
+    setShowTpl(false);
   }
 
   async function runPreview() {
     try {
       const res = await preview.mutateAsync(filter);
-      setPreviewCount(res.count);
+      setPreview(res.count);
     } catch {
       toast.error('Preview failed');
     }
   }
 
   async function handleSave() {
-    if (!name.trim()) {
-      toast.error('Name is required');
-      return;
-    }
-    if (mode === 'template' && !templateName.trim()) {
-      toast.error('Template name is required');
-      return;
-    }
-    if (mode === 'text' && !bodyText.trim()) {
-      toast.error('Message text is required');
-      return;
-    }
+    if (!name.trim()) { toast.error('Name is required'); return; }
+    if (mode === 'template' && !templateName.trim()) { toast.error('Template name is required'); return; }
+    if (mode === 'text' && !bodyText.trim()) { toast.error('Message text is required'); return; }
 
     const templateParams: Record<string, string> = {};
     if (mode === 'template' && params.trim()) {
-      params.split(',').forEach((p, i) => {
-        templateParams[String(i + 1)] = p.trim();
-      });
+      params.split(',').forEach((p, i) => { templateParams[String(i + 1)] = p.trim(); });
     }
 
     try {
@@ -207,24 +308,56 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
         ...(mode === 'template'
           ? { templateName: templateName.trim(), templateParams }
           : { bodyText: bodyText.trim() }),
+        ...(scheduledAt && { scheduledAt: new Date(scheduledAt).toISOString() }),
       });
-      toast.success('Broadcast draft created');
+      toast.success(scheduledAt ? 'Broadcast scheduled' : 'Broadcast draft created');
       onClose();
-    } catch {
-      toast.error('Failed to create broadcast');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to create broadcast'));
     }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="New WhatsApp Broadcast"
+        className="bg-white rounded-xl shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto"
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-slate-900">New WhatsApp Broadcast</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-600">
             <X size={18} />
           </button>
         </div>
+
         <div className="p-5 space-y-4">
+          {/* Template library quick-select */}
+          <div>
+            <button
+              onClick={() => setShowTpl((v) => !v)}
+              className="inline-flex items-center gap-1.5 text-xs text-primary border border-primary/30 bg-primary/5 px-3 py-1.5 rounded-lg hover:bg-primary/10 transition-colors"
+            >
+              <Sparkles size={12} /> {showTpl ? 'Hide' : 'Use a solar template'}
+            </button>
+            {showTpl && templates.length > 0 && (
+              <div className="mt-2 grid grid-cols-1 gap-2">
+                {templates.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    onClick={() => applyTemplate(tpl)}
+                    className="text-left rounded-xl border border-border px-3 py-2.5 hover:border-primary/40 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="text-sm font-medium text-slate-800">{tpl.name}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{tpl.description}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <Field label="Broadcast name">
             <input
               value={name}
@@ -256,8 +389,8 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
               <Field label="Template name">
                 <input
                   value={templateName}
-                  onChange={(e) => setTemplateName(e.target.value)}
-                  placeholder="welcome_catalogue_v1"
+                  onChange={(e) => setTplName(e.target.value)}
+                  placeholder="amc_renewal_reminder"
                   className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </Field>
@@ -285,8 +418,19 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
             </Field>
           )}
 
+          {/* Scheduled send */}
+          <Field label="Schedule send (optional — leave blank to save as draft)">
+            <input
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(e) => setScheduled(e.target.value)}
+              className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </Field>
+
+          {/* Audience filter */}
           <div className="border-t border-border pt-4">
-            <p className="text-xs font-semibold text-slate-600 mb-2">Audience filter</p>
+            <p className="text-xs font-semibold text-slate-600 mb-3">Audience filter</p>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Stage">
                 <select
@@ -296,9 +440,7 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
                 >
                   <option value="">Any stage</option>
                   {LEAD_STAGES.map((s) => (
-                    <option key={s} value={s}>
-                      {s.replace(/_/g, ' ')}
-                    </option>
+                    <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
                   ))}
                 </select>
               </Field>
@@ -310,9 +452,7 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
                 >
                   <option value="">Any source</option>
                   {SOURCE_TYPES.map((s) => (
-                    <option key={s} value={s}>
-                      {s.replace(/_/g, ' ')}
-                    </option>
+                    <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
                   ))}
                 </select>
               </Field>
@@ -333,6 +473,48 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
                 />
               </Field>
             </div>
+
+            {/* Solar-specific filters */}
+            <p className="text-[11px] font-semibold text-slate-500 mt-3 mb-2 uppercase tracking-wide">Solar segments</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="AMC window">
+                <select
+                  value={filter.amcWindow ?? ''}
+                  onChange={(e) => setF('amcWindow', e.target.value)}
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+                >
+                  <option value="">Any</option>
+                  {AMC_WINDOWS.map((w) => (
+                    <option key={w.value} value={w.value}>{w.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Project stage">
+                <select
+                  value={filter.projectStage ?? ''}
+                  onChange={(e) => setF('projectStage', e.target.value)}
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+                >
+                  <option value="">Any</option>
+                  {PROJECT_STAGES.map((s) => (
+                    <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Subsidy status">
+                <select
+                  value={filter.subsidyStatus ?? ''}
+                  onChange={(e) => setF('subsidyStatus', e.target.value)}
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+                >
+                  <option value="">Any</option>
+                  {SUBSIDY_STATUS.map((s) => (
+                    <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+
             <div className="flex items-center gap-3 mt-3">
               <button
                 onClick={() => void runPreview()}
@@ -350,6 +532,7 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         </div>
+
         <div className="flex justify-end gap-3 px-5 py-4 border-t border-border">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700">
             Cancel
@@ -360,7 +543,7 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             {create.isPending && <Loader2 size={14} className="animate-spin" />}
-            Save as Draft
+            {scheduledAt ? 'Schedule Broadcast' : 'Save as Draft'}
           </button>
         </div>
       </div>

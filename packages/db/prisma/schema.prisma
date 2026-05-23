@@ -28,6 +28,14 @@ enum FranchiseTier {
   GOLD
 }
 
+// Job function within a franchise — separate from UserRole (system permission level)
+enum FranchiseAgentRole {
+  OWNER
+  SALES
+  SURVEY
+  FOLLOWUP
+}
+
 enum UserRole {
   ADMIN
   EMPLOYEE
@@ -65,6 +73,11 @@ enum ActivityType {
   ASSIGNMENT
   QUOTATION_SENT
   APPOINTMENT_BOOKED
+  APPOINTMENT_CONFIRMED
+  APPOINTMENT_COMPLETED
+  APPOINTMENT_NO_SHOW
+  APPOINTMENT_CANCELLED
+  APPOINTMENT_RESCHEDULED
   EMAIL
   DUPLICATE_SUBMISSION
 }
@@ -172,8 +185,9 @@ model Tenant {
   status          TenantStatus   @default(ONBOARDING)
   tier            FranchiseTier?
   territory       Json?
-  commissionSlabs Json?          @map("commission_slabs")
-  contactName     String?        @map("contact_name")
+  commissionSlabs  Json?          @map("commission_slabs")
+  agentSplitConfig Json?          @map("agent_split_config")
+  contactName      String?        @map("contact_name")
   contactEmail    String?        @map("contact_email")
   contactPhone    String?        @map("contact_phone")
   gstNumber       String?        @map("gst_number")
@@ -189,12 +203,15 @@ model Tenant {
   calls          Call[]
   appointments   Appointment[]
   quotations     Quotation[]
-  commissions    Commission[]
-  payouts        Payout[]
+  commissions      Commission[]
+  commissionSplits CommissionSplit[]
+  franchiseInvites FranchiseInvite[]
+  payouts          Payout[]
   tickets        Ticket[]
   routingRules   RoutingRule[]
   voiceConfigs   VoiceAgentConfig[]
   voiceSettings  VoiceAgentSettings?
+  whatsappConfig WhatsappConfig?
   waSessions     WaSession[]
   referrals      Referral[]
   reviews        Review[]
@@ -208,7 +225,10 @@ model Tenant {
   broadcasts     Broadcast[]
   sequences      Sequence[]
   serviceTickets ServiceTicket[]
+  amcContracts   AmcContract[]
   savedReports   SavedReport[]
+  webhookEndpoints WebhookEndpoint[]
+  notifications    Notification[]
 
   @@map("tenants")
 }
@@ -222,16 +242,19 @@ model User {
   twoFactorSecret String?   @map("two_factor_secret")
   name            String
   role            UserRole
+  agentRole       FranchiseAgentRole? @map("agent_role")
   teamId          String?   @db.Uuid @map("team_id")
   isActive        Boolean   @default(true) @map("is_active")
   lastLoginAt     DateTime? @map("last_login_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  tenant     Tenant      @relation(fields: [tenantId], references: [id])
-  team       Team?       @relation(fields: [teamId], references: [id])
-  sessions   Session[]
-  savedViews SavedView[]
+  tenant           Tenant              @relation(fields: [tenantId], references: [id])
+  team             Team?               @relation(fields: [teamId], references: [id])
+  sessions         Session[]
+  savedViews       SavedView[]
+  commissionSplits CommissionSplit[]
+  notifications    Notification[]
 
   @@index([tenantId])
   @@index([email])
@@ -358,6 +381,7 @@ model Lead {
   reviews        Review[]
   project        Project?
   serviceTickets ServiceTicket[]
+  amcContracts   AmcContract[]
 
   @@index([tenantId, stage, receivedAt])
   @@index([tenantId, phone])
@@ -455,6 +479,24 @@ model VoiceAgentConfig {
   @@map("voice_agent_configs")
 }
 
+model WhatsappConfig {
+  id                 String    @id @default(uuid()) @db.Uuid
+  tenantId           String    @unique @db.Uuid @map("tenant_id")
+  phoneNumberId      String    @map("phone_number_id")
+  businessAccountId  String    @map("business_account_id")
+  accessToken        String    @map("access_token")
+  webhookVerifyToken String    @default(dbgenerated("gen_random_uuid()::text")) @map("webhook_verify_token")
+  displayName        String?   @map("display_name")
+  isConnected        Boolean   @default(false) @map("is_connected")
+  connectedAt        DateTime? @map("connected_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("whatsapp_configs")
+}
+
 model VoiceAgentSettings {
   id                 String   @id @default(uuid()) @db.Uuid
   tenantId           String   @unique @db.Uuid @map("tenant_id")
@@ -499,6 +541,16 @@ model Appointment {
   preChecklist       Json?             @map("pre_checklist")
   postNotes          String?           @map("post_notes")
   createdByCallId    String?           @db.Uuid @map("created_by_call_id")
+  confirmedAt        DateTime?         @map("confirmed_at")
+  completedAt        DateTime?         @map("completed_at")
+  cancelReason       String?           @map("cancel_reason")
+  noShowAt           DateTime?         @map("no_show_at")
+  checklistSentAt    DateTime?         @map("checklist_sent_at")
+  waConfirmMsgId     String?           @map("wa_confirm_msg_id")
+  surveyPhotoKeys    String[]          @default([]) @map("survey_photo_keys")
+  estimatedKw        Decimal?          @db.Decimal(6, 2) @map("estimated_kw")
+  roofCondition      String?           @map("roof_condition")
+  completionToken    String?           @unique @map("completion_token")
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
 
@@ -507,6 +559,7 @@ model Appointment {
 
   @@index([tenantId, scheduledAt])
   @@index([assignedEngineerId, scheduledAt])
+  @@index([completionToken])
   @@map("appointments")
 }
 
@@ -558,8 +611,9 @@ model Commission {
   payoutId         String?          @db.Uuid @map("payout_id")
   createdAt        DateTime         @default(now()) @map("created_at")
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id])
-  payout Payout? @relation(fields: [payoutId], references: [id])
+  tenant       Tenant           @relation(fields: [tenantId], references: [id])
+  payout       Payout?          @relation(fields: [payoutId], references: [id])
+  agentSplits  CommissionSplit[]
 
   @@index([tenantId, status])
   @@map("commissions")
@@ -579,6 +633,47 @@ model Payout {
 
   @@index([tenantId])
   @@map("payouts")
+}
+
+// ─── Commission Splits & Franchise Invites ────────────────────────────────────
+
+model CommissionSplit {
+  id           String             @id @default(uuid()) @db.Uuid
+  commissionId String             @db.Uuid @map("commission_id")
+  userId       String             @db.Uuid @map("user_id")
+  tenantId     String             @db.Uuid @map("tenant_id")
+  agentRole    FranchiseAgentRole @map("agent_role")
+  splitPercent Decimal            @map("split_percent")
+  amountInr    Decimal            @map("amount_inr")
+  paidAt       DateTime?          @map("paid_at")
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  commission Commission @relation(fields: [commissionId], references: [id])
+  user       User       @relation(fields: [userId], references: [id])
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+
+  @@index([commissionId])
+  @@index([userId])
+  @@index([tenantId])
+  @@map("commission_splits")
+}
+
+model FranchiseInvite {
+  id         String             @id @default(uuid()) @db.Uuid
+  tenantId   String             @db.Uuid @map("tenant_id")
+  email      String
+  name       String
+  agentRole  FranchiseAgentRole @map("agent_role")
+  token      String             @unique
+  expiresAt  DateTime           @map("expires_at")
+  acceptedAt DateTime?          @map("accepted_at")
+  createdAt  DateTime           @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([token])
+  @@map("franchise_invites")
 }
 
 // ─── Support ──────────────────────────────────────────────────────────────────
@@ -818,6 +913,56 @@ enum ProjectStage {
   HANDED_OVER
 }
 
+enum SubsidyScheme {
+  NONE
+  PM_SURYA_GHAR
+  STATE_TEDA
+  STATE_OTHER
+}
+
+enum SubsidyStatus {
+  NOT_APPLIED
+  APPLIED
+  DISCOM_INSPECTION_SCHEDULED
+  DISCOM_APPROVED
+  PORTAL_UPLOAD_DONE
+  CREDITED
+}
+
+enum NetMeteringStatus {
+  NOT_APPLIED
+  SLD_SUBMITTED
+  LOAD_SANCTION_APPLIED
+  INSPECTION_DONE
+  METER_CHANGED
+  GRID_SYNCED
+  ACTIVE
+}
+
+enum ProjectDocumentCategory {
+  QUOTATION
+  WORK_ORDER
+  MEASUREMENT_SHEET
+  DESIGN_LAYOUT
+  PURCHASE_ORDER
+  COMMISSIONING_CERT
+  NET_METERING_APPROVAL
+  SUBSIDY_APPROVAL
+  WARRANTY_CARD
+  HANDOVER_CERT
+  OTHER
+}
+
+enum ProjectPaymentType {
+  ADVANCE
+  MATERIALS
+  INSTALLATION
+  COMPLETION
+  SUBSIDY
+  AMC
+  OTHER
+}
+
 enum BroadcastStatus {
   DRAFT
   SCHEDULED
@@ -859,6 +1004,12 @@ enum ServiceTicketType {
   GENERAL
 }
 
+enum AmcStatus {
+  ACTIVE
+  RENEWED
+  CANCELLED
+}
+
 model Project {
   id                  String       @id @default(uuid()) @db.Uuid
   tenantId            String       @db.Uuid @map("tenant_id")
@@ -876,18 +1027,91 @@ model Project {
   installStartedAt    DateTime?    @map("install_started_at")
   commissionedAt      DateTime?    @map("commissioned_at")
   handedOverAt        DateTime?    @map("handed_over_at")
-  assignedEngineerId  String?      @db.Uuid @map("assigned_engineer_id")
-  photos              Json         @default("[]")
-  notes               String?      @db.Text
-  createdAt           DateTime     @default(now()) @map("created_at")
-  updatedAt           DateTime     @updatedAt @map("updated_at")
+  assignedEngineerId      String?           @db.Uuid @map("assigned_engineer_id")
+  photos                  Json              @default("[]")
+  notes                   String?           @db.Text
+  // SLA
+  expectedCompletionAt    DateTime?         @map("expected_completion_at")
+  // Stage checklists: { "SURVEY": { "measure_roof": true }, ... }
+  stageChecklists         Json              @default("{}") @map("stage_checklists")
+  generationLog           Json              @default("[]") @map("generation_log")
+  // Subsidy
+  subsidyScheme           SubsidyScheme     @default(NONE) @map("subsidy_scheme")
+  subsidyStatus           SubsidyStatus?    @map("subsidy_status")
+  subsidyAppRef           String?           @db.VarChar(100) @map("subsidy_app_ref")
+  subsidyExpectedAmtInr   Decimal?          @db.Decimal(12,2) @map("subsidy_expected_amt_inr")
+  subsidyAppliedAt        DateTime?         @map("subsidy_applied_at")
+  subsidyInspectionAt     DateTime?         @map("subsidy_inspection_at")
+  subsidyApprovedAt       DateTime?         @map("subsidy_approved_at")
+  subsidyPortalUploadAt   DateTime?         @map("subsidy_portal_upload_at")
+  subsidyCreditedAt       DateTime?         @map("subsidy_credited_at")
+  subsidyCreditedAmtInr   Decimal?          @db.Decimal(12,2) @map("subsidy_credited_amt_inr")
+  // Net metering / DISCOM
+  netMeteringStatus       NetMeteringStatus? @map("net_metering_status")
+  netMeteringAppRef       String?           @db.VarChar(100) @map("net_metering_app_ref")
+  netMeteringMeterNumber  String?           @db.VarChar(50) @map("net_metering_meter_number")
+  netMeteringInspectorName String?          @db.VarChar(100) @map("net_metering_inspector_name")
+  netMeteringSldAt        DateTime?         @map("net_metering_sld_at")
+  netMeteringLoadAt       DateTime?         @map("net_metering_load_at")
+  netMeteringInspectionAt DateTime?         @map("net_metering_inspection_at")
+  netMeteringMeterAt      DateTime?         @map("net_metering_meter_at")
+  netMeteringGridSyncAt   DateTime?         @map("net_metering_grid_sync_at")
+  netMeteringFirstExportAt DateTime?        @map("net_metering_first_export_at")
+  // Warranty & AMC
+  panelWarrantyYears      Int               @default(25) @map("panel_warranty_years")
+  inverterWarrantyYears   Int               @default(5) @map("inverter_warranty_years")
+  installWarrantyYears    Int               @default(1) @map("install_warranty_years")
+  warrantyStartDate       DateTime?         @map("warranty_start_date")
+  amcExpiresAt            DateTime?         @map("amc_expires_at")
+  createdAt               DateTime          @default(now()) @map("created_at")
+  updatedAt               DateTime          @updatedAt @map("updated_at")
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id])
-  lead           Lead            @relation(fields: [leadId], references: [id])
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  lead           Lead              @relation(fields: [leadId], references: [id])
   serviceTickets ServiceTicket[]
+  amcContracts   AmcContract[]
+  documents      ProjectDocument[]
+  payments       ProjectPayment[]
 
   @@index([tenantId, stage])
   @@map("projects")
+}
+
+model ProjectDocument {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  tenantId            String                  @db.Uuid @map("tenant_id")
+  projectId           String                  @db.Uuid @map("project_id")
+  category            ProjectDocumentCategory
+  name                String                  @db.VarChar(200)
+  s3Key               String                  @map("s3_key") @db.VarChar(500)
+  sizeBytes           Int?                    @map("size_bytes")
+  mimeType            String?                 @map("mime_type") @db.VarChar(100)
+  uploadedByUserId    String                  @db.Uuid @map("uploaded_by_user_id")
+  createdAt           DateTime                @default(now()) @map("created_at")
+
+  project             Project                 @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@map("project_documents")
+}
+
+model ProjectPayment {
+  id                  String             @id @default(uuid()) @db.Uuid
+  tenantId            String             @db.Uuid @map("tenant_id")
+  projectId           String             @db.Uuid @map("project_id")
+  type                ProjectPaymentType
+  amountInr           Decimal            @db.Decimal(12,2) @map("amount_inr")
+  receivedAt          DateTime           @map("received_at")
+  method              String?            @db.VarChar(30)
+  reference           String?            @db.VarChar(100)
+  notes               String?            @db.Text
+  recordedByUserId    String             @db.Uuid @map("recorded_by_user_id")
+  createdAt           DateTime           @default(now()) @map("created_at")
+
+  project             Project            @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@map("project_payments")
 }
 
 model Broadcast {
@@ -998,6 +1222,7 @@ model ServiceTicket {
   scheduledVisitAt   DateTime?         @map("scheduled_visit_at")
   assignedEngineerId String?           @db.Uuid @map("assigned_engineer_id")
   resolvedAt         DateTime?         @map("resolved_at")
+  activityLog        Json              @default("[]") @map("activity_log")
   createdByUserId    String?           @db.Uuid @map("created_by_user_id")
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
@@ -1010,6 +1235,31 @@ model ServiceTicket {
   @@index([projectId])
   @@index([scheduledVisitAt])
   @@map("service_tickets")
+}
+
+model AmcContract {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @db.Uuid @map("tenant_id")
+  projectId       String    @db.Uuid @map("project_id")
+  leadId          String    @db.Uuid @map("lead_id")
+  planYears       Int       @default(1) @map("plan_years")
+  startDate       DateTime  @map("start_date")
+  endDate         DateTime  @map("end_date")
+  valueInr        Decimal?  @db.Decimal(12,2) @map("value_inr")
+  status          AmcStatus @default(ACTIVE)
+  notes           String?   @db.Text
+  createdByUserId String?   @db.Uuid @map("created_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+  lead    Lead    @relation(fields: [leadId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([tenantId, endDate])
+  @@index([projectId])
+  @@map("amc_contracts")
 }
 
 // ─── Phase D: Intelligence & Insights ────────────────────────────────────────
@@ -1028,4 +1278,61 @@ model SavedReport {
 
   @@index([tenantId])
   @@map("saved_reports")
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid @map("tenant_id")
+  userId    String   @db.Uuid @map("user_id")
+  type      String
+  title     String
+  body      String?
+  linkHref  String?  @map("link_href")
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, isRead, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// ─── Outbound Webhooks ────────────────────────────────────────────────────────
+
+model WebhookEndpoint {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid @map("tenant_id")
+  url         String
+  secret      String
+  description String?
+  events      String[]
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant             @relation(fields: [tenantId], references: [id])
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId, isActive])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id          String   @id @default(uuid()) @db.Uuid
+  endpointId  String   @db.Uuid @map("endpoint_id")
+  event       String
+  payload     Json
+  statusCode  Int?     @map("status_code")
+  responseMs  Int?     @map("response_ms")
+  success     Boolean  @default(false)
+  error       String?
+  attemptedAt DateTime @default(now()) @map("attempted_at")
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId, attemptedAt])
+  @@map("webhook_deliveries")
 }

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { prisma, Prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
+import crypto from 'node:crypto';
 
 const createFranchiseSchema = z.object({
   name: z.string().min(2).max(200),
@@ -23,10 +24,47 @@ const patchFranchiseSchema = z.object({
   contactPhone: z.string().optional(),
   gstNumber: z.string().optional(),
   commissionSlabs: z.record(z.unknown()).optional(),
+  agentSplitConfig: z.record(z.number().min(0).max(100)).optional(),
   bankAccount: z.record(z.unknown()).optional(),
 });
 
 export const franchiseRoutes: FastifyPluginAsync = async (app) => {
+  // GET /franchise/summary — network-wide KPIs (total active, pending commissions, etc.)
+  app.get('/summary', async (req, reply) => {
+    if (!can(req.auth.role, 'franchise.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const [byStatus, pendingComm] = await Promise.all([
+      prisma.tenant.groupBy({
+        by: ['status'],
+        where: { type: 'FRANCHISE', deletedAt: null },
+        _count: true,
+      }),
+      req.withTenant(async (tx) =>
+        tx.commission.aggregate({
+          where: { status: 'PENDING_APPROVAL' },
+          _sum: { netPayableInr: true },
+          _count: true,
+        }),
+      ),
+    ]);
+
+    const counts = Object.fromEntries(byStatus.map((r) => [r.status, r._count]));
+
+    return reply.send({
+      data: {
+        total:      byStatus.reduce((s, r) => s + r._count, 0),
+        active:     counts['ACTIVE']     ?? 0,
+        onboarding: counts['ONBOARDING'] ?? 0,
+        suspended:  counts['SUSPENDED']  ?? 0,
+        probation:  counts['PROBATION']  ?? 0,
+        pendingCommissionCount: pendingComm._count,
+        pendingCommissionInr:   pendingComm._sum.netPayableInr?.toString() ?? '0',
+      },
+    });
+  });
+
   // GET /franchise — list all franchise tenants
   app.get('/', async (req, reply) => {
     if (!can(req.auth.role, 'franchise.read')) {
@@ -58,7 +96,8 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       where: { id, type: 'FRANCHISE' },
       select: {
         id: true, name: true, status: true, tier: true, territory: true,
-        commissionSlabs: true, contactName: true, contactEmail: true,
+        commissionSlabs: true, agentSplitConfig: true,
+        contactName: true, contactEmail: true,
         contactPhone: true, gstNumber: true, bankAccount: true, createdAt: true,
         _count: { select: { users: true, leads: true, commissions: true } },
       },
@@ -169,6 +208,267 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     });
     req.log.info({ userId: req.auth.userId, franchiseId: id }, 'franchise.terminated');
     return reply.send({ data: { success: true, status: 'TERMINATED' } });
+  });
+
+  // GET /franchise/leaderboard — city-by-city rankings (period: month | quarter | year)
+  app.get('/leaderboard', async (req, reply) => {
+    if (!can(req.auth.role, 'franchise.leaderboard')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const query = req.query as { period?: 'month' | 'quarter' | 'year' };
+    const now   = new Date();
+    const since = new Date(now);
+
+    if (query.period === 'year') {
+      since.setFullYear(now.getFullYear(), 0, 1);
+      since.setHours(0, 0, 0, 0);
+    } else if (query.period === 'quarter') {
+      const qStart = Math.floor(now.getMonth() / 3) * 3;
+      since.setMonth(qStart, 1);
+      since.setHours(0, 0, 0, 0);
+    } else {
+      since.setDate(1);
+      since.setHours(0, 0, 0, 0);
+    }
+
+    const franchises = await prisma.tenant.findMany({
+      where: { type: 'FRANCHISE', deletedAt: null },
+      select: {
+        id: true, name: true, tier: true, status: true, territory: true,
+        _count: { select: { users: true } },
+      },
+    });
+
+    const franchiseIds = franchises.map((f) => f.id);
+
+    const [leadStats, convertedStats, commissionStats] = await req.withTenant(async (tx) =>
+      Promise.all([
+        tx.lead.groupBy({
+          by: ['tenantId'],
+          where: { tenantId: { in: franchiseIds }, receivedAt: { gte: since } },
+          _count: { id: true },
+        }),
+        tx.lead.groupBy({
+          by: ['tenantId'],
+          where: { tenantId: { in: franchiseIds }, stage: 'CONVERTED', stageChangedAt: { gte: since } },
+          _count: { id: true },
+        }),
+        tx.commission.groupBy({
+          by: ['tenantId'],
+          where: { tenantId: { in: franchiseIds }, status: { in: ['APPROVED', 'PAID'] }, createdAt: { gte: since } },
+          _sum: { netPayableInr: true },
+        }),
+      ]),
+    );
+
+    const leadMap      = new Map(leadStats.map((s) => [s.tenantId, s._count.id]));
+    const convertedMap = new Map(convertedStats.map((s) => [s.tenantId, s._count.id]));
+    const commMap      = new Map(commissionStats.map((s) => [s.tenantId, Number(s._sum.netPayableInr ?? 0)]));
+
+    const ranked = franchises
+      .map((f) => {
+        const leads     = leadMap.get(f.id) ?? 0;
+        const converted = convertedMap.get(f.id) ?? 0;
+        const territory = f.territory as Record<string, unknown> | null;
+        return {
+          id:             f.id,
+          name:           f.name,
+          tier:           f.tier,
+          status:         f.status,
+          city:           (territory?.['city'] as string | undefined) ?? null,
+          state:          (territory?.['state'] as string | undefined) ?? null,
+          agentCount:     f._count.users,
+          leadsReceived:  leads,
+          dealsClosed:    converted,
+          conversionRate: leads > 0 ? Math.round((converted / leads) * 100) : 0,
+          revenueInr:     commMap.get(f.id) ?? 0,
+        };
+      })
+      .sort((a, b) => b.revenueInr - a.revenueInr || b.dealsClosed - a.dealsClosed);
+
+    return reply.send({ data: { period: query.period ?? 'month', since, franchises: ranked } });
+  });
+
+  // GET /franchise/:id/agents — list agents in a franchise with role + stats
+  app.get('/:id/agents', async (req, reply) => {
+    if (!can(req.auth.role, 'franchise.agents.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const [agents, leadStats, splitStats] = await req.withTenant(async (tx) =>
+      Promise.all([
+        tx.user.findMany({
+          where: { tenantId: id, isActive: true },
+          select: { id: true, name: true, email: true, phone: true, role: true, agentRole: true, createdAt: true },
+        }),
+        tx.lead.groupBy({
+          by: ['ownerUserId'],
+          where: { tenantId: id, ownerUserId: { not: null }, receivedAt: { gte: monthStart } },
+          _count: { id: true },
+        }),
+        tx.commissionSplit.groupBy({
+          by: ['userId'],
+          where: { tenantId: id },
+          _sum: { amountInr: true },
+          _count: { id: true },
+        }),
+      ]),
+    );
+
+    const leadMap  = new Map(leadStats.map((s) => [s.ownerUserId!, s._count.id]));
+    const splitMap = new Map(splitStats.map((s) => [s.userId, { count: s._count.id, earned: Number(s._sum.amountInr ?? 0) }]));
+
+    const enriched = agents.map((a) => ({
+      ...a,
+      leadsThisMonth: leadMap.get(a.id)  ?? 0,
+      splitsCount:    splitMap.get(a.id)?.count   ?? 0,
+      totalEarnedInr: splitMap.get(a.id)?.earned  ?? 0,
+    }));
+
+    // Also include pending invites
+    const pendingInvites = await prisma.franchiseInvite.findMany({
+      where: { tenantId: id, acceptedAt: null, expiresAt: { gte: new Date() } },
+      select: { id: true, email: true, name: true, agentRole: true, createdAt: true, expiresAt: true },
+    });
+
+    return reply.send({ data: { agents: enriched, pendingInvites } });
+  });
+
+  // POST /franchise/:id/agents/invite — invite an agent by email
+  app.post('/:id/agents/invite', async (req, reply) => {
+    if (!can(req.auth.role, 'franchise.agents.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+    const inviteSchema = z.object({
+      email:     z.string().email(),
+      name:      z.string().min(2),
+      agentRole: z.enum(['OWNER', 'SALES', 'SURVEY', 'FOLLOWUP']),
+    });
+
+    const parsed = inviteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
+    }
+
+    const franchise = await prisma.tenant.findUnique({ where: { id, type: 'FRANCHISE' }, select: { name: true } });
+    if (!franchise) {
+      return reply.code(404).send({ error: { code: 'franchise.not_found', message: 'Franchise not found' } });
+    }
+
+    const { email, name, agentRole } = parsed.data;
+    const token     = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // Revoke any existing pending invite for this email+franchise
+    await prisma.franchiseInvite.deleteMany({ where: { tenantId: id, email, acceptedAt: null } });
+
+    const invite = await prisma.franchiseInvite.create({
+      data: { tenantId: id, email, name, agentRole, token, expiresAt },
+    });
+
+    req.log.info({ userId: req.auth.userId, franchiseId: id, email, agentRole }, 'franchise.agent.invited');
+    return reply.code(201).send({ data: { invite, acceptUrl: `/onboard/agent/${token}` } });
+  });
+
+  // PATCH /franchise/:id/agents/:userId — update agent role or deactivate
+  app.patch('/:id/agents/:userId', async (req, reply) => {
+    if (!can(req.auth.role, 'franchise.agents.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id, userId } = req.params as { id: string; userId: string };
+    const patchSchema = z.object({
+      agentRole: z.enum(['OWNER', 'SALES', 'SURVEY', 'FOLLOWUP']).optional(),
+      isActive:  z.boolean().optional(),
+    });
+
+    const parsed = patchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: userId, tenantId: id },
+      data: {
+        ...(parsed.data.agentRole !== undefined && { agentRole: parsed.data.agentRole }),
+        ...(parsed.data.isActive  !== undefined && { isActive: parsed.data.isActive }),
+      },
+      select: { id: true, name: true, email: true, role: true, agentRole: true, isActive: true },
+    });
+
+    req.log.info({ userId: req.auth.userId, franchiseId: id, targetUserId: userId }, 'franchise.agent.updated');
+    return reply.send({ data: user });
+  });
+
+  // GET /franchise/agents/accept/:token — accept an agent invite (returns invite details for UI)
+  app.get('/agents/accept/:token', async (req, reply) => {
+    const { token } = req.params as { token: string };
+
+    const invite = await prisma.franchiseInvite.findUnique({
+      where: { token },
+      include: { tenant: { select: { name: true, territory: true } } },
+    });
+
+    if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
+      return reply.code(404).send({ error: { code: 'invite.invalid', message: 'Invite is invalid or expired' } });
+    }
+
+    return reply.send({
+      data: {
+        franchiseName: invite.tenant.name,
+        territory:     invite.tenant.territory,
+        email:         invite.email,
+        name:          invite.name,
+        agentRole:     invite.agentRole,
+        expiresAt:     invite.expiresAt,
+      },
+    });
+  });
+
+  // POST /franchise/agents/accept/:token — complete acceptance (create user account)
+  app.post('/agents/accept/:token', async (req, reply) => {
+    const { token } = req.params as { token: string };
+    const acceptSchema = z.object({ password: z.string().min(8) });
+
+    const parsed = acceptSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Password must be at least 8 characters' } });
+    }
+
+    const invite = await prisma.franchiseInvite.findUnique({ where: { token } });
+    if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
+      return reply.code(404).send({ error: { code: 'invite.invalid', message: 'Invite is invalid or expired' } });
+    }
+
+    const { createHash } = await import('node:crypto');
+    const passwordHash = createHash('sha256').update(parsed.data.password).digest('hex');
+
+    const userRole = invite.agentRole === 'OWNER' ? 'FRANCHISE_OWNER' as const : 'FRANCHISE_USER' as const;
+
+    const user = await prisma.user.create({
+      data: {
+        tenantId:     invite.tenantId,
+        email:        invite.email,
+        name:         invite.name,
+        agentRole:    invite.agentRole,
+        role:         userRole,
+        passwordHash,
+      },
+      select: { id: true, name: true, email: true, role: true, agentRole: true },
+    });
+
+    await prisma.franchiseInvite.update({ where: { id: invite.id }, data: { acceptedAt: new Date() } });
+
+    req.log.info({ franchiseId: invite.tenantId, userId: user.id }, 'franchise.agent.accepted');
+    return reply.code(201).send({ data: user });
   });
 
   // GET /franchise/:id/stats — performance metrics

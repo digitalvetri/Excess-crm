@@ -2,8 +2,7 @@
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useCallback } from 'react';
-import type { Route } from 'next';
-import { Search, Filter } from 'lucide-react';
+import { Search } from 'lucide-react';
 
 const STAGES = [
   { value: '', label: 'All stages' },
@@ -26,6 +25,8 @@ const SOURCES = [
   { value: 'MANUAL', label: 'Manual' },
 ];
 
+const SELECT_CLS = 'text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white min-w-0 w-full sm:w-auto';
+
 export function LeadsFilters() {
   const router = useRouter();
   const pathname = usePathname();
@@ -34,20 +35,18 @@ export function LeadsFilters() {
   const setFilter = useCallback(
     (key: string, value: string) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
-      router.push(`${pathname}?${params.toString()}` as Route);
+      if (value) params.set(key, value);
+      else params.delete(key);
+      router.push(`${pathname}?${params.toString()}`);
     },
     [router, pathname, searchParams],
   );
 
   return (
-    <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-3">
-      <div className="relative flex-1 min-w-40">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+    <div className="bg-white border border-border rounded-xl px-4 py-3 space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
+      {/* Search — full width on mobile */}
+      <div className="relative w-full sm:flex-1 sm:min-w-40">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
         <input
           type="text"
           placeholder="Search name, phone..."
@@ -57,36 +56,39 @@ export function LeadsFilters() {
         />
       </div>
 
-      <select
-        value={searchParams.get('stage') ?? ''}
-        onChange={(e) => setFilter('stage', e.target.value)}
-        className="text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-      >
-        {STAGES.map((s) => (
-          <option key={s.value} value={s.value}>{s.label}</option>
-        ))}
-      </select>
+      {/* Filters row on mobile: 2 columns */}
+      <div className="grid grid-cols-2 gap-2 sm:contents">
+        <select
+          value={searchParams.get('stage') ?? ''}
+          onChange={(e) => setFilter('stage', e.target.value)}
+          className={SELECT_CLS}
+        >
+          {STAGES.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
 
-      <select
-        value={searchParams.get('sourceType') ?? ''}
-        onChange={(e) => setFilter('sourceType', e.target.value)}
-        className="text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-      >
-        {SOURCES.map((s) => (
-          <option key={s.value} value={s.value}>{s.label}</option>
-        ))}
-      </select>
+        <select
+          value={searchParams.get('sourceType') ?? ''}
+          onChange={(e) => setFilter('sourceType', e.target.value)}
+          className={SELECT_CLS}
+        >
+          {SOURCES.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
 
-      <select
-        value={searchParams.get('sort') ?? 'createdAt'}
-        onChange={(e) => setFilter('sort', e.target.value)}
-        className="text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-      >
-        <option value="createdAt">Newest first</option>
-        <option value="stageChangedAt">Stage changed</option>
-        <option value="aiScore">AI score</option>
-        <option value="name">Name A–Z</option>
-      </select>
+        <select
+          value={searchParams.get('sort') ?? 'createdAt'}
+          onChange={(e) => setFilter('sort', e.target.value)}
+          className={`${SELECT_CLS} col-span-2 sm:col-span-1`}
+        >
+          <option value="createdAt">Newest first</option>
+          <option value="stageChangedAt">Stage changed</option>
+          <option value="aiScore">AI score</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </div>
     </div>
   );
 }

@@ -27,8 +27,9 @@ export function TopSources() {
           No source data available
         </div>
       ) : (
-        <div className="flex items-center gap-5">
-          <div className="relative h-[150px] w-[150px] shrink-0">
+        <div className="flex flex-col items-center gap-4">
+          {/* Donut chart — centred, constrained so it never overflows */}
+          <div className="relative h-[120px] w-[120px] shrink-0">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -37,8 +38,8 @@ export function TopSources() {
                   nameKey="sourceType"
                   cx="50%"
                   cy="50%"
-                  innerRadius={48}
-                  outerRadius={72}
+                  innerRadius={36}
+                  outerRadius={56}
                   paddingAngle={2}
                   stroke="none"
                 >
@@ -49,24 +50,26 @@ export function TopSources() {
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold text-slate-800">{total.toLocaleString()}</span>
-              <span className="text-[11px] text-slate-400">Total</span>
+              <span className="text-xl font-bold text-slate-800">{total.toLocaleString()}</span>
+              <span className="text-[10px] text-slate-400">Total</span>
             </div>
           </div>
 
-          <div className="flex-1 space-y-2.5">
+          {/* Legend — full width, stacked */}
+          <div className="w-full space-y-2">
             {slices.map((s, i) => {
               const pct = total > 0 ? Math.round((s.count / total) * 100) : 0;
               return (
-                <div key={s.sourceType} className="flex items-center gap-2 text-sm">
+                <div key={s.sourceType} className="flex items-center gap-2">
                   <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    className="h-2 w-2 shrink-0 rounded-full"
                     style={{ backgroundColor: COLORS[i % COLORS.length] }}
                   />
-                  <span className="flex-1 truncate text-slate-600">
+                  <span className="flex-1 truncate text-xs text-slate-600">
                     {s.sourceType.replace(/_/g, ' ')}
                   </span>
-                  <span className="text-xs font-medium text-slate-400">{pct}%</span>
+                  <span className="shrink-0 text-xs font-semibold text-slate-500">{pct}%</span>
+                  <span className="shrink-0 text-xs text-slate-400 tabular-nums">{s.count}</span>
                 </div>
               );
             })}

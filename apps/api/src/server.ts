@@ -20,7 +20,7 @@ import { whatsappWebhookRoutes } from './routes/webhooks/whatsapp.js';
 import { vapiWebhookRoutes } from './routes/webhooks/vapi.js';
 import { exotelWebhookRoutes } from './routes/webhooks/exotel.js';
 import { voiceAgentRoutes } from './routes/voice-agent.js';
-import { appointmentsRoutes } from './routes/appointments.js';
+import { appointmentsRoutes, surveyCompletionRoutes } from './routes/appointments.js';
 import { franchiseRoutes } from './routes/franchise.js';
 import { commissionsRoutes } from './routes/commissions.js';
 import { payoutsRoutes } from './routes/payouts.js';
@@ -41,10 +41,14 @@ import { slaRulesRoutes } from './routes/sla-rules.js';
 import { stageGatesRoutes } from './routes/stage-gates.js';
 import { projectsRoutes } from './routes/projects.js';
 import { serviceTicketsRoutes } from './routes/service-tickets.js';
+import { amcContractsRoutes } from './routes/amc-contracts.js';
 import { broadcastsRoutes } from './routes/broadcasts.js';
 import { sequencesRoutes } from './routes/sequences.js';
 import { portalRoutes } from './routes/portal.js';
 import { reportBuilderRoutes } from './routes/report-builder.js';
+import { engagementRoutes } from './routes/engagement.js';
+import { settingsWebhooksRoutes } from './routes/settings-webhooks.js';
+import { notificationsRoutes } from './routes/notifications.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -79,6 +83,7 @@ export async function buildServer() {
   await app.register(exotelWebhookRoutes, { prefix: '/webhooks' });
   await app.register(voiceAgentRoutes, { prefix: '/voice-agent' });
   await app.register(appointmentsRoutes, { prefix: '/appointments' });
+  await app.register(surveyCompletionRoutes, { prefix: '/survey' });
   await app.register(franchiseRoutes, { prefix: '/franchise' });
   await app.register(commissionsRoutes, { prefix: '/commissions' });
   await app.register(payoutsRoutes, { prefix: '/payouts' });
@@ -89,6 +94,7 @@ export async function buildServer() {
   await app.register(leaderboardRoutes, { prefix: '/leaderboard' });
   await app.register(reviewsRoutes, { prefix: '/reviews' });
   await app.register(walletRoutes, { prefix: '/wallet' });
+  await app.register(engagementRoutes, { prefix: '/engagement' });
   await app.register(reportsRoutes, { prefix: '/reports' });
   await app.register(teamsRoutes, { prefix: '/teams' });
   await app.register(routingRulesRoutes, { prefix: '/routing-rules' });
@@ -99,10 +105,14 @@ export async function buildServer() {
   await app.register(stageGatesRoutes, { prefix: '/stage-gates' });
   await app.register(projectsRoutes, { prefix: '/projects' });
   await app.register(serviceTicketsRoutes, { prefix: '/service-tickets' });
+  await app.register(amcContractsRoutes, { prefix: '/amc-contracts' });
   await app.register(broadcastsRoutes, { prefix: '/broadcasts' });
   await app.register(sequencesRoutes, { prefix: '/sequences' });
   await app.register(portalRoutes, { prefix: '/portal' });
   await app.register(reportBuilderRoutes, { prefix: '/report-builder' });
+
+  await app.register(settingsWebhooksRoutes, { prefix: '/settings/webhooks' });
+  await app.register(notificationsRoutes, { prefix: '/notifications' });
 
   app.setErrorHandler((error, _req, reply) => {
     app.log.error(error);

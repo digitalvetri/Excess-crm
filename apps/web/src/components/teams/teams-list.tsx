@@ -1,12 +1,72 @@
 'use client';
 
 import { useState } from 'react';
-import { Users, ChevronRight, UserPlus, Trash2 } from 'lucide-react';
-import { useTeams, useTeam, useUsers, useAddTeamMember, useRemoveTeamMember } from '@/hooks/use-teams';
+import { Users, ChevronRight, UserPlus, Trash2, Plus, X, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { useTeams, useTeam, useUsers, useAddTeamMember, useRemoveTeamMember, useCreateTeam } from '@/hooks/use-teams';
+
+function CreateTeamModal({ onClose }: { onClose: () => void }) {
+  const [name, setName] = useState('');
+  const create = useCreateTeam();
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    try {
+      await create.mutateAsync({ name: name.trim() });
+      toast.success(`Team "${name.trim()}" created`);
+      onClose();
+    } catch {
+      toast.error('Failed to create team');
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-white rounded-xl border border-border shadow-xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-slate-800">Create Team</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Team Name</label>
+            <input
+              autoFocus
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. North Zone Sales"
+              className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              disabled={!name.trim() || create.isPending}
+              className="flex-1 py-2 bg-primary text-white text-sm font-medium rounded-lg disabled:opacity-50 hover:bg-primary/90 transition-colors"
+            >
+              {create.isPending ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
+              Create Team
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2 border border-border text-slate-600 text-sm rounded-lg hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 export function TeamsList() {
   const { data: teams, isLoading } = useTeams();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   if (isLoading) {
     return (
@@ -22,39 +82,62 @@ export function TeamsList() {
 
   if (teamList.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-border p-12 text-center">
-        <Users className="mx-auto mb-3 text-slate-300" size={32} />
-        <p className="text-slate-500 text-sm">No teams yet. Create a team to start routing leads.</p>
-      </div>
+      <>
+        {showCreate && <CreateTeamModal onClose={() => setShowCreate(false)} />}
+        <div className="bg-white rounded-xl border border-border p-12 sm:p-16 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100">
+            <Users className="text-slate-400" size={28} />
+          </div>
+          <h3 className="text-sm font-semibold text-slate-700 mb-1">No teams yet</h3>
+          <p className="text-xs text-slate-400 mb-5 max-w-xs mx-auto">
+            Create teams to group agents and set up automatic lead routing rules.
+          </p>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={14} /> Create First Team
+          </button>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="space-y-3">
-        {teamList.map((team) => (
-          <button
-            key={team.id}
-            onClick={() => setSelectedTeamId(team.id === selectedTeamId ? null : team.id)}
-            className={`w-full text-left bg-white rounded-xl border p-5 hover:border-primary/40 transition-colors ${team.id === selectedTeamId ? 'border-primary' : 'border-border'}`}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-800">{team.name}</p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {team._count.members} members · {team._count.leads} leads
-                </p>
+    <>
+      {showCreate && <CreateTeamModal onClose={() => setShowCreate(false)} />}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-3">
+          {teamList.map((team) => (
+            <button
+              key={team.id}
+              onClick={() => setSelectedTeamId(team.id === selectedTeamId ? null : team.id)}
+              className={`w-full text-left bg-white rounded-xl border p-5 hover:border-primary/40 transition-colors ${team.id === selectedTeamId ? 'border-primary' : 'border-border'}`}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">{team.name}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {team._count.members} members · {team._count.leads} leads
+                  </p>
+                </div>
+                <ChevronRight size={16} className={`text-slate-400 transition-transform ${team.id === selectedTeamId ? 'rotate-90' : ''}`} />
               </div>
-              <ChevronRight size={16} className={`text-slate-400 transition-transform ${team.id === selectedTeamId ? 'rotate-90' : ''}`} />
-            </div>
+            </button>
+          ))}
+          <button
+            onClick={() => setShowCreate(true)}
+            className="w-full flex items-center justify-center gap-2 py-3 border border-dashed border-slate-300 rounded-xl text-sm text-slate-500 hover:border-primary hover:text-primary transition-colors"
+          >
+            <Plus size={14} /> Create Team
           </button>
-        ))}
-      </div>
+        </div>
 
-      {selectedTeamId && (
-        <TeamDetail teamId={selectedTeamId} />
-      )}
-    </div>
+        {selectedTeamId && (
+          <TeamDetail teamId={selectedTeamId} />
+        )}
+      </div>
+    </>
   );
 }
 
@@ -77,11 +160,10 @@ function TeamDetail({ teamId }: { teamId: string }) {
         <p className="text-xs text-slate-500 mt-0.5">{team.members.length} members</p>
       </div>
 
-      {/* Members list */}
       <div>
         <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Members</p>
         {team.members.length === 0 ? (
-          <p className="text-xs text-slate-400">No members yet.</p>
+          <p className="text-xs text-slate-400">No members yet. Add users below.</p>
         ) : (
           <div className="space-y-2">
             {team.members.map((member) => (
@@ -104,7 +186,6 @@ function TeamDetail({ teamId }: { teamId: string }) {
         )}
       </div>
 
-      {/* Add member */}
       {availableUsers.length > 0 && (
         <div>
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Add Member</p>
@@ -132,7 +213,6 @@ function TeamDetail({ teamId }: { teamId: string }) {
         </div>
       )}
 
-      {/* Routing rules */}
       {team.routingRules.length > 0 && (
         <div>
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Routing Rules</p>

@@ -2,6 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { FastifyPluginAsync } from 'fastify';
 import type { LeadSourceType, LeadStage, ActivityType } from '@excess/db';
 import { can } from '@excess/shared';
+import { fireWebhooks } from '../lib/fire-webhook.js';
+import { notifyUser } from '../lib/notify-user.js';
+import { prisma } from '@excess/db';
 import { enrollLeadInSequences } from '../lib/sequences.js';
 import {
   updateLeadSchema,
@@ -47,6 +50,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       city,
       sort = 'createdAt',
       order = 'desc',
+      commsOptedOut,
     } = parsed.data;
 
     const canReadAll = can(req.auth.role, 'leads.read.all');
@@ -77,6 +81,8 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
               }
             : {}),
           ...(cursor && { id: { lt: cursor } }),
+          ...(commsOptedOut === 'true'  && { commsOptedOutAt: { not: null } }),
+          ...(commsOptedOut === 'false' && { commsOptedOutAt: null }),
         },
         take: limit + 1,
         orderBy: { [sort]: order },
@@ -155,6 +161,44 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
         callsYesterday: stats.callsYesterday,
       },
     });
+  });
+
+  // GET /leads/export — CSV download (max 5000)
+  app.get('/export', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const canReadAll = can(req.auth.role, 'leads.read.all');
+    const leads = await req.withTenant((tx) =>
+      tx.lead.findMany({
+        where: {
+          tenantId: req.auth.tenantId,
+          ...(!canReadAll && { ownerUserId: req.auth.userId }),
+        },
+        select: {
+          id: true, name: true, phone: true, email: true, city: true, state: true,
+          pincode: true, stage: true, sourceType: true, aiScore: true, tags: true,
+          ownerUserId: true, isDuplicate: true, createdAt: true, stageChangedAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+      }),
+    );
+
+    const header = ['ID','Name','Phone','Email','City','State','Pincode','Stage','Source','AI Score','Tags','Duplicate','Created At','Stage Changed At'];
+    const rows = leads.map((l) => [
+      l.id, l.name, l.phone, l.email ?? '', l.city ?? '', l.state ?? '', l.pincode ?? '',
+      l.stage, l.sourceType, l.aiScore != null ? String(l.aiScore) : '',
+      l.tags.join(';'), l.isDuplicate ? 'yes' : 'no',
+      new Date(l.createdAt).toISOString(), new Date(l.stageChangedAt).toISOString(),
+    ]);
+    const csv = [header, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    void reply.header('Content-Type', 'text/csv; charset=utf-8');
+    void reply.header('Content-Disposition', `attachment; filename="leads-${new Date().toISOString().slice(0,10)}.csv"`);
+    return reply.send(csv);
   });
 
   // GET /leads/:id — single lead with activities
@@ -379,6 +423,19 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id, stage }, 'lead.updated');
+    if (stage) {
+      void fireWebhooks(prisma, req.auth.tenantId, 'lead.stage_changed', { leadId: id, stage });
+      if (stage === 'CONVERTED') {
+        void notifyUser(prisma, {
+          tenantId: req.auth.tenantId,
+          userId: req.auth.userId,
+          type: 'lead.converted',
+          title: 'Lead converted!',
+          body: `Lead ${id} has been marked as converted.`,
+          linkHref: `/leads/${id}`,
+        });
+      }
+    }
 
     return reply.send({ data: lead });
   });
@@ -416,6 +473,17 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id }, 'lead.assigned');
+    void fireWebhooks(prisma, req.auth.tenantId, 'lead.assigned', { leadId: id, userId: parsed.data.userId });
+    if (parsed.data.userId && parsed.data.userId !== req.auth.userId) {
+      void notifyUser(prisma, {
+        tenantId: req.auth.tenantId,
+        userId: parsed.data.userId,
+        type: 'lead.assigned',
+        title: 'Lead assigned to you',
+        body: `A lead has been assigned to you by ${req.auth.userId === req.auth.userId ? 'an admin' : 'your team'}.`,
+        linkHref: `/leads/${id}`,
+      });
+    }
     return reply.send({ data: lead });
   });
 
@@ -446,6 +514,26 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
           data: { ownerUserId: value },
         }),
       );
+    } else if (action === 'tag') {
+      const newTags = value.split(',').map((t: string) => t.trim()).filter(Boolean);
+      if (newTags.length > 0) {
+        const existing = await req.withTenant((tx) =>
+          tx.lead.findMany({
+            where: { id: { in: ids }, tenantId: req.auth.tenantId },
+            select: { id: true, tags: true },
+          }),
+        );
+        await req.withTenant((tx) =>
+          Promise.all(
+            existing.map((l) =>
+              tx.lead.update({
+                where: { id: l.id },
+                data: { tags: [...new Set([...l.tags, ...newTags])] },
+              }),
+            ),
+          ),
+        );
+      }
     }
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, count: ids.length, action }, 'leads.bulk_action');
@@ -482,6 +570,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       rawData: { createdBy: req.auth.userId },
     });
 
+    void fireWebhooks(prisma, req.auth.tenantId, 'lead.created', { sourceType: 'MANUAL', name, phone });
     return reply.code(202).send({ data: { queued: true } });
   });
 
@@ -504,6 +593,28 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     );
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id }, 'lead.tags_updated');
     return reply.send({ data: lead });
+  });
+
+  // POST /leads/:id/reopt-in — clear commsOptedOutAt so lead can receive comms again
+  app.post('/:id/reopt-in', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { id } = req.params as { id: string };
+    const existing = await req.withTenant((tx) =>
+      tx.lead.findUnique({ where: { id }, select: { id: true, commsOptedOutAt: true } }),
+    );
+    if (!existing) {
+      return reply.code(404).send({ error: { code: 'leads.not_found', message: 'Lead not found' } });
+    }
+    if (!existing.commsOptedOutAt) {
+      return reply.code(409).send({ error: { code: 'leads.not_opted_out', message: 'Lead is not opted out' } });
+    }
+    await req.withTenant((tx) =>
+      tx.lead.update({ where: { id }, data: { commsOptedOutAt: null } }),
+    );
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id }, 'lead.reopt_in');
+    return reply.send({ data: { id, commsOptedOutAt: null } });
   });
 
   // GET /leads/:id/duplicates
@@ -716,5 +827,42 @@ Respond in English. Be brief and actionable.`;
     await req.withTenant((tx) => tx.savedView.delete({ where: { id: viewId } }));
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, viewId }, 'saved_view.deleted');
     return reply.code(204).send();
+  });
+
+  // POST /leads/:id/email — send email to lead
+  app.post('/:id/email', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { id } = req.params as { id: string };
+    const { subject, body } = req.body as { subject?: string; body?: string };
+    if (!subject?.trim() || !body?.trim()) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Subject and body are required' } });
+    }
+    const lead = await req.withTenant((tx) =>
+      tx.lead.findUnique({ where: { id }, select: { id: true, name: true, email: true } }),
+    );
+    if (!lead) return reply.code(404).send({ error: { code: 'leads.not_found', message: 'Lead not found' } });
+    if (!lead.email) return reply.code(422).send({ error: { code: 'leads.no_email', message: 'Lead has no email address' } });
+    await app.queues.emailSend.add('email-send', {
+      tenantId: req.auth.tenantId,
+      to: lead.email,
+      subject: subject.trim(),
+      template: 'CUSTOM_EMAIL',
+      vars: { body: body.trim(), leadName: lead.name },
+    });
+    await req.withTenant((tx) =>
+      tx.leadActivity.create({
+        data: {
+          leadId: id,
+          tenantId: req.auth.tenantId,
+          actorUserId: req.auth.userId,
+          type: 'EMAIL',
+          payload: { subject: subject.trim(), to: lead.email } as object,
+        },
+      }),
+    );
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id }, 'lead.email_sent');
+    return reply.send({ data: { sent: true } });
   });
 };

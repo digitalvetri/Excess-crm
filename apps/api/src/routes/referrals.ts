@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 
@@ -16,7 +17,32 @@ const rewardReferralSchema = z.object({
 });
 
 export const referralsRoutes: FastifyPluginAsync = async (app) => {
-  // GET /referrals — list referrals for tenant, optional ?status= filter
+  // GET /referrals/summary — counts by status + total reward paid
+  app.get('/summary', async (req, reply) => {
+    if (!can(req.auth.role, 'referrals.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const [byStatus, rewardSum] = await req.withTenant(async (tx) =>
+      Promise.all([
+        tx.referral.groupBy({ by: ['status'], _count: true }),
+        tx.referral.aggregate({ where: { status: 'REWARDED' }, _sum: { rewardInr: true } }),
+      ]),
+    );
+
+    const counts = Object.fromEntries(byStatus.map((r) => [r.status, r._count]));
+    return reply.send({
+      data: {
+        total:     byStatus.reduce((s, r) => s + r._count, 0),
+        pending:   counts['PENDING']   ?? 0,
+        converted: counts['CONVERTED'] ?? 0,
+        rewarded:  counts['REWARDED']  ?? 0,
+        totalRewardInr: rewardSum._sum.rewardInr?.toString() ?? '0',
+      },
+    });
+  });
+
+  // GET /referrals — list referrals with referrer lead name enrichment
   app.get('/', async (req, reply) => {
     if (!can(req.auth.role, 'referrals.read')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
@@ -26,19 +52,28 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
 
     const referrals = await req.withTenant(async (tx) =>
       tx.referral.findMany({
-        where: {
-          ...(query.status && { status: query.status as never }),
-        },
+        where: { ...(query.status && { status: query.status as never }) },
         orderBy: { createdAt: 'desc' },
-        include: {
-          referredLead: {
-            select: { name: true, phone: true, stage: true },
-          },
-        },
+        include: { referredLead: { select: { name: true, phone: true, stage: true } } },
       }),
     );
 
-    return reply.send({ data: referrals });
+    // Enrich with referrer name (referrerId is a lead UUID)
+    const referrerIds = [...new Set(referrals.map((r) => r.referrerId))];
+    const referrerLeads = referrerIds.length > 0
+      ? await prisma.lead.findMany({
+          where: { id: { in: referrerIds } },
+          select: { id: true, name: true, phone: true },
+        })
+      : [];
+    const referrerMap = new Map(referrerLeads.map((l) => [l.id, l]));
+
+    const enriched = referrals.map((r) => ({
+      ...r,
+      referrer: referrerMap.get(r.referrerId) ?? null,
+    }));
+
+    return reply.send({ data: enriched });
   });
 
   // POST /referrals — create a referral

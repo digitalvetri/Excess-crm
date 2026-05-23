@@ -23,7 +23,7 @@ interface AppointmentsListProps {
 }
 
 export function AppointmentsList({ leadId }: AppointmentsListProps) {
-  const { data, isLoading } = useAppointments(leadId);
+  const { data, isLoading } = useAppointments({ leadId });
 
   if (isLoading) {
     return (

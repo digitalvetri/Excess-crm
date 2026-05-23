@@ -84,19 +84,22 @@ export default function ReportsPage() {
           <div className="space-y-4">
             {/* KPI cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white rounded-xl border border-border p-5">
-                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Total Calls (Month)</p>
-                <p className="text-3xl font-bold text-slate-900">{callAnalytics.data.totalCalls.toLocaleString()}</p>
+              <div className="bg-white rounded-xl border border-border border-l-4 border-l-primary p-5 hover:shadow-sm transition-shadow">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Total Calls (Month)</p>
+                <p className="text-3xl font-bold text-slate-900 tabular-nums">{callAnalytics.data.totalCalls.toLocaleString()}</p>
+                <p className="text-xs text-slate-400 mt-1">AI voice agent dials</p>
               </div>
-              <div className="bg-white rounded-xl border border-border p-5">
-                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Connect Rate</p>
-                <p className="text-3xl font-bold text-primary">{callAnalytics.data.connectRate}%</p>
+              <div className="bg-white rounded-xl border border-border border-l-4 border-l-success p-5 hover:shadow-sm transition-shadow">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Connect Rate</p>
+                <p className="text-3xl font-bold text-success tabular-nums">{callAnalytics.data.connectRate}%</p>
+                <p className="text-xs text-slate-400 mt-1">answered calls</p>
               </div>
-              <div className="bg-white rounded-xl border border-border p-5">
-                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Avg Duration</p>
-                <p className="text-3xl font-bold text-slate-900">
+              <div className="bg-white rounded-xl border border-border border-l-4 border-l-sky-500 p-5 hover:shadow-sm transition-shadow">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Avg Duration</p>
+                <p className="text-3xl font-bold text-slate-900 tabular-nums">
                   {Math.floor(callAnalytics.data.avgDurationSec / 60)}m {callAnalytics.data.avgDurationSec % 60}s
                 </p>
+                <p className="text-xs text-slate-400 mt-1">per connected call</p>
               </div>
             </div>
 
@@ -127,7 +130,7 @@ export default function ReportsPage() {
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={callAnalytics.data.byHour} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v: number) => `${v}h`} />
+                      <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v: number) => v === 0 ? '12a' : v < 12 ? `${v}a` : v === 12 ? '12p' : `${v - 12}p`} />
                       <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
                       <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} formatter={(v) => [v, 'calls']} />
                       <Bar dataKey="count" fill="#F39C12" radius={[3, 3, 0, 0]} />

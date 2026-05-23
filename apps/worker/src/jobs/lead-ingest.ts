@@ -4,6 +4,33 @@ import type { LeadSourceType } from '@excess/db';
 import { queues } from '../queues.js';
 import { assignLead } from '../lib/assignment-engine.js';
 
+/**
+ * If the originating tenant is HQ and the lead has a pincode, look up which
+ * franchise territory covers it. Returns the franchise tenantId on match,
+ * or the original tenantId when no match is found.
+ */
+async function resolveLeadTenant(hqTenantId: string, pincode: string | undefined): Promise<string> {
+  if (!pincode) return hqTenantId;
+
+  const hqTenant = await prisma.tenant.findUnique({
+    where: { id: hqTenantId },
+    select: { type: true },
+  });
+  if (hqTenant?.type !== 'HQ') return hqTenantId;
+
+  const franchises = await prisma.tenant.findMany({
+    where: { type: 'FRANCHISE', status: 'ACTIVE', deletedAt: null },
+    select: { id: true, territory: true },
+  });
+
+  for (const f of franchises) {
+    const territory = f.territory as { pinCodes?: string[] } | null;
+    if (territory?.pinCodes?.includes(pincode)) return f.id;
+  }
+
+  return hqTenantId;
+}
+
 export interface LeadIngestPayload {
   sourceType: LeadSourceType;
   sourceId?: string;
@@ -32,8 +59,14 @@ function isBusinessHours(): boolean {
 }
 
 export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<void> {
-  const { tenantId, sourceType, sourceId, externalId, name, phone, email, city, pincode,
+  const { tenantId: rawTenantId, sourceType, sourceId, externalId, name, phone, email, city, pincode,
     utmSource, utmMedium, utmCampaign, utmContent, utmTerm, rawData } = job.data;
+
+  // Route to franchise tenant if pincode matches a territory
+  const tenantId = await resolveLeadTenant(rawTenantId, pincode);
+  if (tenantId !== rawTenantId) {
+    await job.log(`Territory routing: pincode=${pincode} matched franchise tenant=${tenantId}`);
+  }
 
   // dnd_list has no RLS — safe to query directly
   const dnd = await prisma.dndList.findFirst({ where: { phone } });

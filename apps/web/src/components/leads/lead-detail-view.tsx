@@ -29,11 +29,13 @@ import {
   Copy,
   GitMerge,
   Link2,
+  Send,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMergeLeads } from '@/hooks/use-leads';
+import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMergeLeads, useSendLeadEmail } from '@/hooks/use-leads';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { useMessages, useSendMessage } from '@/hooks/use-whatsapp';
 import { StageBadge } from './stage-badge';
 import { AppointmentsList } from '@/components/appointments/appointments-list';
 import { AssignLeadPanel } from './assign-lead-panel';
@@ -412,6 +414,10 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
   const [editingStage, setEditingStage] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [addingNote, setAddingNote] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const sendEmail = useSendLeadEmail(id);
 
   if (isLoading) {
     return (
@@ -493,6 +499,8 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
         return `Appointment scheduled`;
       case 'WHATSAPP':
         return `WhatsApp message: ${String(p['text'] ?? '').slice(0, 80)}`;
+      case 'EMAIL':
+        return `Email sent: "${String(p['subject'] ?? '')}" → ${String(p['to'] ?? '')}`;
       default:
         return act.type.replace(/_/g, ' ').toLowerCase();
     }
@@ -576,12 +584,20 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
           <div className="bg-white rounded-xl border border-border">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h2 className="font-semibold text-slate-800">Activity</h2>
-              <button
-                onClick={() => setAddingNote(!addingNote)}
-                className="text-sm text-primary hover:underline font-medium"
-              >
-                + Add note
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => { setEmailOpen(!emailOpen); setAddingNote(false); }}
+                  className="flex items-center gap-1 text-sm text-violet-600 hover:underline font-medium"
+                >
+                  <Mail size={13} /> Email
+                </button>
+                <button
+                  onClick={() => { setAddingNote(!addingNote); setEmailOpen(false); }}
+                  className="text-sm text-primary hover:underline font-medium"
+                >
+                  + Add note
+                </button>
+              </div>
             </div>
 
             {addingNote && (
@@ -604,6 +620,48 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
                     className="flex items-center gap-1.5 text-sm bg-primary text-white px-3 py-1.5 rounded-lg disabled:opacity-50 hover:bg-primary/90"
                   >
                     <Check size={14} /> Save note
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {emailOpen && (
+              <div className="px-5 py-4 border-b border-border bg-violet-50/40">
+                <p className="text-xs font-semibold text-violet-700 mb-3 flex items-center gap-1.5">
+                  <Mail size={13} /> Compose Email → {lead.email ?? 'No email on file'}
+                </p>
+                {!lead.email && (
+                  <p className="text-xs text-danger mb-2">This lead has no email address. Add one first.</p>
+                )}
+                <input
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder="Subject..."
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white mb-2"
+                />
+                <textarea
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  placeholder="Email body..."
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                  rows={4}
+                />
+                <div className="flex gap-2 mt-2 justify-end">
+                  <button onClick={() => { setEmailOpen(false); setEmailSubject(''); setEmailBody(''); }} className="text-sm text-slate-500 hover:text-slate-700">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!emailSubject.trim() || !emailBody.trim()) return;
+                      sendEmail.mutate({ subject: emailSubject, body: emailBody }, {
+                        onSuccess: () => { toast.success('Email sent'); setEmailOpen(false); setEmailSubject(''); setEmailBody(''); },
+                        onError: () => toast.error('Failed to send email'),
+                      });
+                    }}
+                    disabled={!emailSubject.trim() || !emailBody.trim() || !lead.email || sendEmail.isPending}
+                    className="flex items-center gap-1.5 text-sm bg-violet-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50 hover:bg-violet-700"
+                  >
+                    {sendEmail.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Send Email
                   </button>
                 </div>
               </div>
@@ -635,6 +693,9 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
               })}
             </div>
           </div>
+
+          {/* WhatsApp inline thread */}
+          <WhatsAppThread leadId={id} leadName={lead.name} leadPhone={lead.phone} />
         </div>
 
         {/* ── Right sidebar ── */}
@@ -727,6 +788,82 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
 
           {/* AI Summary */}
           <LeadSummaryCard leadId={lead.id} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WhatsAppThread({ leadId, leadName, leadPhone }: { leadId: string; leadName: string; leadPhone: string }) {
+  const [draft, setDraft] = useState('');
+  const [sendErr, setSendErr] = useState<string | null>(null);
+  const { messages, loading } = useMessages(leadId);
+  const { send, loading: sending } = useSendMessage();
+
+  const waMessages = messages
+    .filter((m) => m.type === 'WHATSAPP')
+    .slice(-10);
+
+  async function handleSend() {
+    if (!draft.trim()) return;
+    setSendErr(null);
+    try {
+      await send(leadId, draft.trim());
+      setDraft('');
+    } catch (err: unknown) {
+      setSendErr(err instanceof Error ? err.message : 'Failed to send');
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-border">
+      <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+        <MessageSquare size={15} className="text-emerald-500" />
+        <h2 className="font-semibold text-slate-800">WhatsApp — {leadName}</h2>
+        <span className="text-xs text-slate-400 ml-auto">{leadPhone}</span>
+      </div>
+
+      <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
+        {loading && waMessages.length === 0 && (
+          <p className="text-xs text-slate-400 text-center py-4">Loading messages…</p>
+        )}
+        {!loading && waMessages.length === 0 && (
+          <p className="text-xs text-slate-400 text-center py-4">No WhatsApp messages yet. Send the first one below.</p>
+        )}
+        {waMessages.map((msg) => {
+            const text = (msg.payload.message as string | undefined) ?? (msg.payload.template as string | undefined) ?? '[message]';
+            const isOutbound = (msg.payload.direction as string | undefined) === 'outbound' || (!msg.payload.direction && msg.actorIsAi);
+            return (
+              <div key={msg.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[75%] px-3 py-1.5 rounded-xl text-sm ${isOutbound ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                  <p className="text-sm leading-snug">{text}</p>
+                  <p className={`text-[10px] mt-0.5 ${isOutbound ? 'text-blue-100' : 'text-slate-400'}`}>
+                    {format(new Date(msg.createdAt), 'h:mm a')}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+
+      <div className="px-4 py-3 border-t border-border space-y-2">
+        {sendErr && <p className="text-xs text-danger">{sendErr}</p>}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend(); } }}
+            placeholder="Send a WhatsApp message…"
+            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+          <button
+            onClick={() => void handleSend()}
+            disabled={sending || !draft.trim()}
+            className="px-3 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60"
+          >
+            {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          </button>
         </div>
       </div>
     </div>

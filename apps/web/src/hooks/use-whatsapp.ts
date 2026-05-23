@@ -1,7 +1,52 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+
+export interface WhatsappConfig {
+  phoneNumberId:      string;
+  businessAccountId:  string;
+  displayName:        string | null;
+  webhookVerifyToken: string;
+  webhookUrl:         string;
+  isConnected:        boolean;
+  connectedAt:        string | null;
+  hasToken:           boolean;
+}
+
+export interface WhatsappConfigInput {
+  phoneNumberId:     string;
+  businessAccountId: string;
+  accessToken:       string;
+  displayName?:      string | undefined;
+}
+
+export function useWhatsappConfig() {
+  return useQuery({
+    queryKey: ['whatsapp-config'],
+    queryFn: () =>
+      api.get<{ data: WhatsappConfig | null }>('/whatsapp/config').then((r) => r.data.data),
+    staleTime: 60_000,
+  });
+}
+
+export function useSaveWhatsappConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: WhatsappConfigInput) =>
+      api.put<{ data: WhatsappConfig }>('/whatsapp/config', data).then((r) => r.data.data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['whatsapp-config'] }),
+  });
+}
+
+export function useDisconnectWhatsapp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete('/whatsapp/config').then((r) => r.data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['whatsapp-config'] }),
+  });
+}
 
 export interface WaConversation {
   id: string;
@@ -25,6 +70,7 @@ export function useConversations() {
   const [conversations, setConversations] = useState<WaConversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,20 +97,30 @@ export function useConversations() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tick]);
 
-  return { conversations, loading, error };
+  const refetch = useCallback(() => setTick((n) => n + 1), []);
+
+  return { conversations, loading, error, refetch };
 }
 
 export function useMessages(leadId: string | null) {
   const [messages, setMessages] = useState<WaMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const prevLeadId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!leadId) {
       setMessages([]);
       return;
+    }
+
+    // Reset messages when switching conversations
+    if (prevLeadId.current !== leadId) {
+      setMessages([]);
+      prevLeadId.current = leadId;
     }
 
     let cancelled = false;
@@ -91,9 +147,11 @@ export function useMessages(leadId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [leadId]);
+  }, [leadId, tick]);
 
-  return { messages, loading, error };
+  const refetch = useCallback(() => setTick((n) => n + 1), []);
+
+  return { messages, loading, error, refetch };
 }
 
 export function useSendMessage() {

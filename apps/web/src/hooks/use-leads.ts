@@ -173,6 +173,17 @@ export function useDeleteSavedView() {
   });
 }
 
+export function useSendLeadEmail(leadId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { subject: string; body: string }) =>
+      api.post(`/leads/${leadId}/email`, data).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['leads', leadId] });
+    },
+  });
+}
+
 export interface SavedView {
   id: string;
   name: string;

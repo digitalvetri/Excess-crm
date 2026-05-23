@@ -15,10 +15,13 @@ import { processCsvImport } from './jobs/csv-import.js';
 import { processBroadcastSend } from './jobs/broadcast-send.js';
 import { startSlaEscalationScheduler } from './jobs/sla-escalation.js';
 import { startServiceVisitReminderScheduler } from './jobs/service-visit-reminder.js';
+import { startAmcExpiryReminderScheduler } from './jobs/amc-expiry-reminder.js';
 import { startNpsSolicitationScheduler } from './jobs/nps-solicitation.js';
 import { startSequenceRunner } from './jobs/sequence-runner.js';
 import { startConversationIntelScheduler } from './jobs/conversation-intel.js';
 import { startLeadScoringScheduler } from './jobs/lead-scoring.js';
+import { startBroadcastScheduler } from './jobs/broadcast-scheduler.js';
+import { startReengagementScheduler } from './jobs/reengagement-scheduler.js';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
@@ -52,10 +55,13 @@ startFollowUpScheduler();
 startDailyScheduler();
 startSlaEscalationScheduler();
 startServiceVisitReminderScheduler();
+startAmcExpiryReminderScheduler();
 startNpsSolicitationScheduler();
 startSequenceRunner();
 startConversationIntelScheduler();
 startLeadScoringScheduler();
+startBroadcastScheduler();
+startReengagementScheduler();
 
 log.info('Worker started — listening on: lead-ingest, voice-dial, call-webhook, human-handoff, commission-calc, whatsapp-send, email-send, pdf-render + follow-up scheduler + daily-compliance-scheduler');
 

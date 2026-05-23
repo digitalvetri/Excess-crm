@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
 
 @theme {
   --color-primary: #0B7A3D;
@@ -10,7 +11,17 @@
   --color-warning: #E67E22;
   --color-surface: #F4F7F4;
   --color-border: #E3E8E4;
-  --font-sans: "Inter", system-ui, sans-serif;
+  --font-sans: var(--font-sans, "Inter", system-ui, sans-serif);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -18,20 +29,146 @@ body {
   color: #1E293B;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  line-height: 1.5;
 }
 
-/* Slim, unobtrusive scrollbars */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
+/* ── Scrollbars ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb {
-  background-color: #CBD5CE;
+  background-color: #C8D5CA;
   border-radius: 9999px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background-color: #A9B5AC;
+::-webkit-scrollbar-thumb:hover { background-color: #A8B9AB; }
+::-webkit-scrollbar-track { background-color: transparent; }
+
+/* ── Focus rings ────────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
-::-webkit-scrollbar-track {
-  background-color: transparent;
+
+/* ── Form elements ──────────────────────────────────────────────────────────── */
+input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
 }
+
+input[type="checkbox"], input[type="radio"] {
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+/* ── Typography helpers ─────────────────────────────────────────────────────── */
+.text-balance { text-wrap: balance; }
+
+/* ── Transitions ────────────────────────────────────────────────────────────── */
+button, a {
+  transition-property: color, background-color, border-color, box-shadow, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Card base ──────────────────────────────────────────────────────────────── */
+.card {
+  background: white;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-border);
+}
+
+/* ── Page header ────────────────────────────────────────────────────────────── */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+/* ── Badge base ─────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* ── Table responsive wrapper ───────────────────────────────────────────────── */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Mobile-only visibility ─────────────────────────────────────────────────── */
+@media (max-width: 639px) {
+  .hide-mobile { display: none !important; }
+}
+
+/* ── Animated gradient for skeletons ───────────────────────────────────────── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #f1f5f1 25%, #e8ede8 50%, #f1f5f1 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 0.5rem;
+}
+
+/* ── Safe area for mobile ───────────────────────────────────────────────────── */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+}
+
+/* ── Recharts responsive ────────────────────────────────────────────────────── */
+.recharts-wrapper { overflow: hidden; }
+
+/* ── Print ──────────────────────────────────────────────────────────────────── */
+@media print {
+  aside, header, footer { display: none !important; }
+  main { padding: 0 !important; }
+}
+
+/* ── Dark Mode ──────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --color-surface: #0F1712;
+  --color-border: #2A3B2D;
+
+  color-scheme: dark;
+}
+
+[data-theme="dark"] body {
+  background-color: #0F1712;
+  color: #E2F0E5;
+}
+
+[data-theme="dark"] .bg-white { background-color: #1A2620 !important; }
+[data-theme="dark"] .bg-slate-50 { background-color: #141F17 !important; }
+[data-theme="dark"] .bg-slate-100 { background-color: #1E2D22 !important; }
+[data-theme="dark"] .border-border { border-color: #2A3B2D !important; }
+[data-theme="dark"] .text-slate-800,
+[data-theme="dark"] .text-slate-900 { color: #E2F0E5 !important; }
+[data-theme="dark"] .text-slate-700 { color: #C9DDCC !important; }
+[data-theme="dark"] .text-slate-600 { color: #A8BEA9 !important; }
+[data-theme="dark"] .text-slate-500 { color: #7A9A7D !important; }
+[data-theme="dark"] .text-slate-400 { color: #5A7A5D !important; }
+[data-theme="dark"] .shadow-sm { box-shadow: 0 1px 2px rgba(0,0,0,0.4) !important; }
+[data-theme="dark"] .shadow-xl { box-shadow: 0 20px 25px rgba(0,0,0,0.6) !important; }
+[data-theme="dark"] select,
+[data-theme="dark"] input,
+[data-theme="dark"] textarea {
+  background-color: #1A2620;
+  color: #E2F0E5;
+  border-color: #2A3B2D;
+}
+[data-theme="dark"] .hover\:bg-slate-50:hover { background-color: #1E2D22 !important; }
+[data-theme="dark"] .hover\:bg-white:hover { background-color: #2A3B2D !important; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background-color: #2A3B2D; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background-color: #3A4D3D; }

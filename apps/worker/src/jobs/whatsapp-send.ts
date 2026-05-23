@@ -16,11 +16,19 @@ export interface WhatsappSendPayload {
 export async function processWhatsappSend(job: Job<WhatsappSendPayload>): Promise<void> {
   const { tenantId, leadId, phone, template, vars } = job.data;
 
-  const phoneNumberId = process.env['WHATSAPP_PHONE_NUMBER_ID'];
-  const accessToken = process.env['WHATSAPP_ACCESS_TOKEN'];
+  // Prefer per-tenant credentials from DB; fall back to env vars
+  const dbConfig = await withSystemContext(prisma, tenantId, (tx) =>
+    tx.whatsappConfig.findUnique({
+      where:  { tenantId },
+      select: { phoneNumberId: true, accessToken: true, isConnected: true },
+    }),
+  );
+
+  const phoneNumberId = (dbConfig?.isConnected && dbConfig.phoneNumberId) || process.env['WHATSAPP_PHONE_NUMBER_ID'];
+  const accessToken   = (dbConfig?.isConnected && dbConfig.accessToken)   || process.env['WHATSAPP_ACCESS_TOKEN'];
 
   if (!phoneNumberId || !accessToken) {
-    throw new Error('Missing WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN');
+    throw new Error('WhatsApp not connected — set credentials in Settings → WhatsApp or env vars');
   }
 
   const url = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;

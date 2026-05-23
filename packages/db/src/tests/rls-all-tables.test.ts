@@ -419,7 +419,79 @@ describe('RLS: coach_cache', () => {
   });
 });
 
-// ── 16. raw SQL leak check across high-risk tables ────────────────────────────
+// ── 16. service_tickets ───────────────────────────────────────────────────────
+
+describe('RLS: service_tickets', () => {
+  it('franchise A sees only own rows', async () => {
+    const rows = await withTenantContext(prisma, FRANCHISE_A, (tx) =>
+      tx.serviceTicket.findMany(),
+    );
+    await assertOwnTenantOnly(FRANCHISE_A, rows);
+  });
+
+  it('franchise B sees only own rows', async () => {
+    const rows = await withTenantContext(prisma, FRANCHISE_B, (tx) =>
+      tx.serviceTicket.findMany(),
+    );
+    await assertOwnTenantOnly(FRANCHISE_B, rows);
+  });
+
+  it('admin sees all rows', async () => {
+    const rows = await withTenantContext(prisma, ADMIN_CTX, (tx) =>
+      tx.serviceTicket.findMany(),
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it('franchise A cannot fetch franchise B service ticket by ID', async () => {
+    const row = await withTenantContext(prisma, ADMIN_CTX, (tx) =>
+      tx.serviceTicket.findFirst({ where: { tenantId: FRANCHISE_B.tenantId } }),
+    );
+    if (!row) return;
+    const result = await withTenantContext(prisma, FRANCHISE_A, (tx) =>
+      tx.serviceTicket.findUnique({ where: { id: row.id } }),
+    );
+    expect(result).toBeNull();
+  });
+});
+
+// ── 17. amc_contracts ─────────────────────────────────────────────────────────
+
+describe('RLS: amc_contracts', () => {
+  it('franchise A sees only own rows', async () => {
+    const rows = await withTenantContext(prisma, FRANCHISE_A, (tx) =>
+      tx.amcContract.findMany(),
+    );
+    await assertOwnTenantOnly(FRANCHISE_A, rows);
+  });
+
+  it('franchise B sees only own rows', async () => {
+    const rows = await withTenantContext(prisma, FRANCHISE_B, (tx) =>
+      tx.amcContract.findMany(),
+    );
+    await assertOwnTenantOnly(FRANCHISE_B, rows);
+  });
+
+  it('admin sees all rows', async () => {
+    const rows = await withTenantContext(prisma, ADMIN_CTX, (tx) =>
+      tx.amcContract.findMany(),
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it('franchise A cannot fetch franchise B AMC contract by ID', async () => {
+    const row = await withTenantContext(prisma, ADMIN_CTX, (tx) =>
+      tx.amcContract.findFirst({ where: { tenantId: FRANCHISE_B.tenantId } }),
+    );
+    if (!row) return;
+    const result = await withTenantContext(prisma, FRANCHISE_A, (tx) =>
+      tx.amcContract.findUnique({ where: { id: row.id } }),
+    );
+    expect(result).toBeNull();
+  });
+});
+
+// ── 18. raw SQL leak check across high-risk tables ────────────────────────────
 
 describe('RLS: raw SQL cross-tenant leak (high-risk tables)', () => {
   const tables = [
@@ -429,6 +501,8 @@ describe('RLS: raw SQL cross-tenant leak (high-risk tables)', () => {
     'quotations',
     'commissions',
     'appointments',
+    'service_tickets',
+    'amc_contracts',
   ] as const;
 
   for (const table of tables) {

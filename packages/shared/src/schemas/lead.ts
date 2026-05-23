@@ -61,10 +61,11 @@ export const leadFiltersSchema = z.object({
   order: z.enum(['asc', 'desc']).default('desc'),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(200).default(25),
+  commsOptedOut: z.enum(['true', 'false']).optional(),
 });
 
 export const bulkLeadActionSchema = z.object({
-  action: z.enum(['stage', 'assign']),
+  action: z.enum(['stage', 'assign', 'tag']),
   ids: z.array(z.string().uuid()).min(1).max(500),
   value: z.string(),
 });

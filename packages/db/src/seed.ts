@@ -65,6 +65,20 @@ async function main(): Promise<void> {
     },
   });
 
+  // Employee user (HQ staff)
+  await prisma.user.upsert({
+    where: { email: 'employee@excessindia.com' },
+    update: {},
+    create: {
+      tenantId: hq.id,
+      email: 'employee@excessindia.com',
+      name: 'Demo Employee',
+      role: 'EMPLOYEE',
+      passwordHash: await seedHash('ExcessEmp2024!'),
+      isActive: true,
+    },
+  });
+
   // Franchise owner user
   await prisma.user.upsert({
     where: { email: 'franchise@demo.excess.in' },
@@ -75,6 +89,20 @@ async function main(): Promise<void> {
       name: 'Demo Franchise Owner',
       role: 'FRANCHISE_OWNER',
       passwordHash: await seedHash('FranchiseDemo2024!'),
+      isActive: true,
+    },
+  });
+
+  // Franchise staff user
+  await prisma.user.upsert({
+    where: { email: 'staff@demo.excess.in' },
+    update: {},
+    create: {
+      tenantId: franchise.id,
+      email: 'staff@demo.excess.in',
+      name: 'Demo Franchise Staff',
+      role: 'FRANCHISE_USER',
+      passwordHash: await seedHash('FranchiseStaff2024!'),
       isActive: true,
     },
   });

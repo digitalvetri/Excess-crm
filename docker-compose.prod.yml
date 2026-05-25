@@ -44,6 +44,8 @@ services:
       dockerfile: apps/web/Dockerfile
     restart: always
     env_file: .env
+    environment:
+      PORT: 3000
     depends_on:
       - api
 

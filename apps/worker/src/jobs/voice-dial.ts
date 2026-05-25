@@ -29,6 +29,265 @@ const PERSONA_TO_ENV_KEY = {
 
 type PersonaKey = keyof typeof PERSONA_TO_ENV_KEY;
 
+interface SavedVoiceConfig {
+  firstMessage?: string;
+  language?: string;
+  sttProvider?: string;
+  llmProvider?: string;
+  ttsProvider?: string;
+  voiceId?: string;
+  responseTiming?: string;
+  voiceSpeed?: number;
+  allowInterruptions?: boolean;
+  maxDurationSec?: number;
+  idleTimeoutSec?: number;
+  idleTurns?: number;
+  callTransfer?: { enabled: boolean; number: string };
+}
+
+// ─── Tool definitions per persona ─────────────────────────────────────────────
+// All tools point to our /webhooks/vapi endpoint. Vapi calls it for function-calls.
+
+function buildTools(personaKey: PersonaKey, webhookUrl: string): unknown[] {
+  const server = { url: webhookUrl, ...(env.VAPI_WEBHOOK_SECRET && { secret: env.VAPI_WEBHOOK_SECRET }) };
+
+  const getLeadInfo = {
+    type: 'function',
+    function: {
+      name: 'getLeadInfo',
+      description: 'Fetch lead details at the start of the call',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+    server,
+  };
+
+  const updateLeadStage = {
+    type: 'function',
+    function: {
+      name: 'updateLeadStage',
+      description: 'Update the lead stage based on the call outcome',
+      parameters: {
+        type: 'object',
+        properties: {
+          stage: {
+            type: 'string',
+            enum: ['QUALIFIED', 'NOT_ANSWERED', 'INVALID', 'WRONG_ENQUIRY', 'FOLLOW_UP', 'CONVERTED'],
+          },
+          scheduledAt: { type: 'string', description: 'ISO 8601 datetime if scheduling a follow-up' },
+        },
+        required: ['stage'],
+      },
+    },
+    server,
+  };
+
+  const scheduleFollowUp = {
+    type: 'function',
+    function: {
+      name: 'scheduleFollowUp',
+      description: 'Schedule a follow-up call at a time the customer requested',
+      parameters: {
+        type: 'object',
+        properties: {
+          scheduledAt: { type: 'string', description: 'ISO 8601 datetime e.g. 2024-06-15T10:00:00+05:30' },
+        },
+        required: ['scheduledAt'],
+      },
+    },
+    server,
+  };
+
+  const getProductInfo = {
+    type: 'function',
+    function: {
+      name: 'getProductInfo',
+      description: 'Get solar product catalogue info for a category',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', enum: ['residential', 'commercial', 'industrial', 'offgrid'] },
+        },
+        required: ['category'],
+      },
+    },
+    server,
+  };
+
+  const scheduleAppointment = {
+    type: 'function',
+    function: {
+      name: 'scheduleAppointment',
+      description: 'Book a site survey appointment',
+      parameters: {
+        type: 'object',
+        properties: {
+          scheduledAt: { type: 'string' },
+          siteAddress: { type: 'string' },
+          surveyType: { type: 'string', enum: ['ROOFTOP_RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'OFFGRID'] },
+        },
+        required: ['scheduledAt', 'siteAddress', 'surveyType'],
+      },
+    },
+    server,
+  };
+
+  const getFollowUpContext = {
+    type: 'function',
+    function: {
+      name: 'getFollowUpContext',
+      description: 'Get previous call history and activities for the lead',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+    server,
+  };
+
+  const updateConversionStatus = {
+    type: 'function',
+    function: {
+      name: 'updateConversionStatus',
+      description: 'Mark final outcome — CONVERTED, INVALID, or RESCHEDULED',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['CONVERTED', 'INVALID', 'RESCHEDULED'] },
+        },
+        required: ['status'],
+      },
+    },
+    server,
+  };
+
+  const rescheduleFollowUp = {
+    type: 'function',
+    function: {
+      name: 'rescheduleFollowUp',
+      description: 'Reschedule a follow-up call',
+      parameters: {
+        type: 'object',
+        properties: {
+          scheduledAt: { type: 'string' },
+        },
+        required: ['scheduledAt'],
+      },
+    },
+    server,
+  };
+
+  switch (personaKey) {
+    case 'RESHMA_VERIFY':
+      return [getLeadInfo, updateLeadStage, scheduleFollowUp, getProductInfo];
+    case 'KARTHIK_SALES':
+      return [getLeadInfo, updateLeadStage, scheduleAppointment, getProductInfo, scheduleFollowUp];
+    case 'RESHMA_FOLLOWUP':
+      return [getLeadInfo, getFollowUpContext, updateConversionStatus, rescheduleFollowUp, scheduleFollowUp];
+  }
+}
+
+// ─── Build Vapi transcriber from saved STT config ─────────────────────────────
+
+function buildTranscriber(sttProvider: string, language: string): Record<string, unknown> {
+  const lang = language === 'ta' ? 'ta-IN' : language === 'en' ? 'en-IN' : 'ta-IN';
+
+  switch (sttProvider) {
+    case 'sarvam':
+      return { provider: 'sarvam', model: 'sarvam-2b', language: lang };
+    case 'deepgram':
+      return { provider: 'deepgram', model: 'nova-3-general', language: lang === 'ta-IN' ? 'ta' : 'en-IN' };
+    case 'google':
+      return { provider: 'google', model: 'latest_long', language: lang };
+    default:
+      return { provider: 'sarvam', model: 'sarvam-2b', language: 'ta-IN' };
+  }
+}
+
+// ─── Build Vapi model from saved LLM config ───────────────────────────────────
+
+function buildModel(
+  llmProvider: string,
+  systemPrompt: string,
+  tools: unknown[],
+): Record<string, unknown> {
+  const parts = llmProvider.split('/');
+  const provider = parts.length === 2 ? parts[0] : 'google';
+  const model = parts.length === 2 ? (parts[1] ?? 'gemini-2.5-flash-preview-04-17') : llmProvider;
+
+  const providerMap: Record<string, string> = {
+    google: 'google',
+    openai: 'openai',
+    anthropic: 'anthropic',
+  };
+
+  return {
+    provider: (provider ? providerMap[provider] : undefined) ?? 'google',
+    model,
+    messages: [{ role: 'system', content: systemPrompt }],
+    tools,
+  };
+}
+
+// ─── Build Vapi voice from saved TTS config ───────────────────────────────────
+
+function buildVoice(ttsProvider: string, voiceId: string, speed: number): Record<string, unknown> {
+  switch (ttsProvider) {
+    case 'elevenlabs':
+      return {
+        provider: '11labs',
+        voiceId,
+        speed,
+        stability: 0.5,
+        similarityBoost: 0.75,
+        style: 0.0,
+        useSpeakerBoost: true,
+      };
+    case 'azure':
+      return { provider: 'azure', voiceId, speed };
+    default:
+      return { provider: '11labs', voiceId, speed, stability: 0.5, similarityBoost: 0.75 };
+  }
+}
+
+// ─── Build full inline Vapi assistant from DB config ─────────────────────────
+
+function buildAssistantPayload(
+  personaKey: PersonaKey,
+  systemPrompt: string,
+  vc: SavedVoiceConfig,
+): Record<string, unknown> {
+  const webhookUrl = `${env.API_URL}/api/v1/webhooks/vapi`;
+  const tools = buildTools(personaKey, webhookUrl);
+
+  const sttProvider = vc.sttProvider ?? 'sarvam';
+  const llmProvider = vc.llmProvider ?? 'google/gemini-2.5-flash-preview-04-17';
+  const ttsProvider = vc.ttsProvider ?? 'elevenlabs';
+
+  const defaultVoiceId = personaKey === 'KARTHIK_SALES' ? 'edapadi' : 'mk-tamil-v1';
+  const voiceId = vc.voiceId && vc.voiceId !== 'custom' ? vc.voiceId : defaultVoiceId;
+  const voiceSpeed = vc.voiceSpeed ?? 1.0;
+  const language = vc.language ?? 'ta';
+
+  const endpointingMs =
+    vc.responseTiming === 'low_latency' ? 100 :
+    vc.responseTiming === 'conservative' ? 500 :
+    300;
+
+  return {
+    transcriber: buildTranscriber(sttProvider, language),
+    model: buildModel(llmProvider, systemPrompt, tools),
+    voice: buildVoice(ttsProvider, voiceId, voiceSpeed),
+    ...(vc.firstMessage && { firstMessage: vc.firstMessage }),
+    silenceTimeoutSeconds: vc.idleTimeoutSec ?? 15,
+    maxDurationSeconds: vc.maxDurationSec ?? 300,
+    backgroundDenoisingEnabled: true,
+    endpointing: endpointingMs,
+    clientMessages: ['transcript', 'hang', 'function-call', 'speech-update'],
+    serverMessages: ['end-of-call-report', 'status-update', 'hang', 'function-call'],
+    serverUrl: webhookUrl,
+    ...(env.VAPI_WEBHOOK_SECRET && { serverUrlSecret: env.VAPI_WEBHOOK_SECRET }),
+  };
+}
+
+// ─── Main worker ──────────────────────────────────────────────────────────────
+
 export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void> {
   const { leadId, tenantId, personaId } = job.data;
 
@@ -48,26 +307,24 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
     return;
   }
 
-  const personaKey = personaId as PersonaKey;
-  const personaConfig = PERSONA_TO_ENV_KEY[personaKey];
-  const assistantId = personaConfig?.assistantId;
-  const phoneNumberId = personaConfig?.phoneNumberId;
-
-  if (!assistantId || !phoneNumberId) {
-    throw new Error(`Missing VAPI config for persona=${personaId}`);
-  }
-
   if (!env.VAPI_API_KEY) {
     throw new Error('VAPI_API_KEY is not set');
   }
 
-  // Respect global AI dial kill-switch
   if (!env.ENABLE_AI_DIAL) {
     await job.log('AI dialing disabled (ENABLE_AI_DIAL=false), skipping');
     return;
   }
 
-  // Fetch per-tenant settings (A/B config + daily cap)
+  const personaKey = personaId as PersonaKey;
+  const personaEnv = PERSONA_TO_ENV_KEY[personaKey];
+  const phoneNumberId = personaEnv?.phoneNumberId;
+
+  if (!phoneNumberId) {
+    throw new Error(`VAPI_PHONE_NUMBER_ID not configured for persona=${personaId}`);
+  }
+
+  // Fetch per-tenant settings (daily cap)
   const settings = await withSystemContext(prisma, tenantId, (tx) =>
     tx.voiceAgentSettings.findUnique({
       where: { tenantId },
@@ -90,24 +347,51 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
     return;
   }
 
-  // Prompt A/B test — split to a B-variant assistant by per-persona percentage
+  // Fetch active persona config from DB — this is the source of truth for prompts + AI settings
+  const activeConfig = await withSystemContext(prisma, tenantId, (tx) =>
+    tx.voiceAgentConfig.findFirst({
+      where: { tenantId, personaId: personaKey, isActive: true },
+      select: { systemPrompt: true, voiceConfig: true },
+    }),
+  );
+
+  // A/B variant tracking (only applies when using env-based assistantId)
   let abVariant: string | null = null;
-  let chosenAssistantId: string = assistantId;
   const abConfig = (settings?.abTestConfig ?? {}) as Record<string, number>;
-  const splitPercent = Number(abConfig[personaId] ?? 0);
-  if (splitPercent > 0 && personaConfig.assistantIdB) {
-    const useB = Math.random() * 100 < splitPercent;
-    abVariant = useB ? 'B' : 'A';
-    if (useB) chosenAssistantId = personaConfig.assistantIdB;
+
+  // Build the Vapi call payload
+  let callBody: Record<string, unknown>;
+
+  if (activeConfig) {
+    // Active config in DB → build fully inline assistant (our settings are the source of truth)
+    const vc = (activeConfig.voiceConfig ?? {}) as SavedVoiceConfig;
+    const assistant = buildAssistantPayload(personaKey, activeConfig.systemPrompt, vc);
+
+    callBody = { assistant, customer: { number: lead.phone, name: lead.name }, phoneNumberId };
+    await job.log(`Using DB config for persona=${personaId} (stt=${vc.sttProvider ?? 'sarvam'}, llm=${vc.llmProvider ?? 'gemini-2.5-flash'}, tts=${vc.ttsProvider ?? 'elevenlabs'}, voice=${vc.voiceId ?? 'mk-tamil-v1'})`);
+  } else {
+    // No DB config → fall back to pre-built Vapi assistant ID from env
+    const assistantId = personaEnv?.assistantId;
+    if (!assistantId) {
+      throw new Error(`No active config and no VAPI_ASSISTANT_ID for persona=${personaId} — configure the agent in Voice Agent Settings first`);
+    }
+
+    // Apply A/B split on env-based fallback
+    let chosenAssistantId = assistantId;
+    const splitPercent = Number(abConfig[personaId] ?? 0);
+    if (splitPercent > 0 && personaEnv.assistantIdB) {
+      const useB = Math.random() * 100 < splitPercent;
+      abVariant = useB ? 'B' : 'A';
+      if (useB) chosenAssistantId = personaEnv.assistantIdB;
+    }
+
+    callBody = { assistantId: chosenAssistantId, customer: { number: lead.phone, name: lead.name }, phoneNumberId };
+    await job.log(`Using env assistantId=${chosenAssistantId}${abVariant ? ` variant=${abVariant}` : ''}`);
   }
 
   const { data } = await axios.post(
     'https://api.vapi.ai/call/phone',
-    {
-      assistantId: chosenAssistantId,
-      customer: { number: lead.phone, name: lead.name },
-      phoneNumberId,
-    },
+    callBody,
     {
       headers: { Authorization: `Bearer ${env.VAPI_API_KEY}` },
       timeout: 10_000,
@@ -131,5 +415,5 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
     }),
   );
 
-  await job.log(`Call initiated vapiCallId=${data.id}${abVariant ? ` variant=${abVariant}` : ''}`);
+  await job.log(`Call initiated vapiCallId=${data.id}`);
 }

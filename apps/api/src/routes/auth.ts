@@ -4,6 +4,7 @@ import speakeasy from 'speakeasy';
 import qrcode from 'qrcode';
 import { nanoid } from 'nanoid';
 import { prisma } from '@excess/db';
+import { env } from '@excess/config';
 import {
   loginSchema,
   totpVerifySchema,
@@ -103,20 +104,25 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }),
     ]);
 
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    const cookieDomain = isProduction ? env.COOKIE_DOMAIN : undefined;
+
     reply.setCookie('excess_session', token, {
       httpOnly: true,
-      secure: process.env['NODE_ENV'] === 'production',
+      secure: isProduction,
       sameSite: 'lax',
       path: '/',
+      domain: cookieDomain,
       expires: expiresAt,
     });
 
     // Non-httpOnly cookie so Next.js middleware can read the role for route protection
     reply.setCookie('excess_role', user.role, {
       httpOnly: false,
-      secure: process.env['NODE_ENV'] === 'production',
+      secure: isProduction,
       sameSite: 'lax',
       path: '/',
+      domain: cookieDomain,
       expires: expiresAt,
     });
 
@@ -166,8 +172,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.post('/logout', async (req, reply) => {
     const token = req.cookies['excess_session'];
     if (token) await prisma.session.deleteMany({ where: { token } });
-    reply.clearCookie('excess_session', { path: '/' });
-    reply.clearCookie('excess_role', { path: '/' });
+    const cookieDomain = process.env['NODE_ENV'] === 'production' ? env.COOKIE_DOMAIN : undefined;
+    reply.clearCookie('excess_session', { path: '/', domain: cookieDomain });
+    reply.clearCookie('excess_role', { path: '/', domain: cookieDomain });
     return reply.send({ data: { success: true } });
   });
 

@@ -80,13 +80,14 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
-    // Franchise users see only their own leads — standalone, not grouped
     id: 'franchise-leads',
     label: 'My Leads',
     icon: Users,
     roles: ['FRANCHISE_OWNER', 'FRANCHISE_USER'],
     items: [
-      { href: '/leads', label: 'My Leads', icon: Users },
+      { href: '/leads',       label: 'My Leads',    icon: Users },
+      { href: '/referrals',   label: 'Referrals',   icon: UserPlus, roles: ['FRANCHISE_USER'] },
+      { href: '/leaderboard', label: 'Leaderboard', icon: Trophy,   roles: ['FRANCHISE_USER'] },
     ],
   },
   {
@@ -121,17 +122,6 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: 'network',
-    label: 'Network',
-    icon: Trophy,
-    // All roles — items filtered individually below
-    items: [
-      { href: '/referrals',   label: 'Referrals',   icon: UserPlus,  roles: ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] },
-      { href: '/leaderboard', label: 'Leaderboard', icon: Trophy,    roles: ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER'] },
-      { href: '/reviews',     label: 'Reviews',     icon: Star,      roles: ['ADMIN', 'EMPLOYEE'] },
-    ],
-  },
-  {
     id: 'earnings',
     label: 'My Earnings',
     icon: DollarSign,
@@ -139,6 +129,8 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/commissions', label: 'Commissions', icon: DollarSign },
       { href: '/wallet',      label: 'Wallet',      icon: Wallet },
+      { href: '/referrals',   label: 'Referrals',   icon: UserPlus },
+      { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
     ],
   },
   {
@@ -159,7 +151,19 @@ const GROUPS: NavGroup[] = [
     icon: Network,
     roles: ['ADMIN', 'EMPLOYEE'],
     items: [
-      { href: '/engagement', label: 'Engagement Hub', icon: Network },
+      { href: '/engagement',  label: 'Engagement Hub', icon: Network },
+      { href: '/referrals',   label: 'Referrals',      icon: UserPlus },
+      { href: '/leaderboard', label: 'Leaderboard',    icon: Trophy },
+      { href: '/reviews',     label: 'Reviews',        icon: Star },
+    ],
+  },
+  {
+    id: 'people',
+    label: 'People',
+    icon: Users,
+    roles: ['ADMIN'],
+    items: [
+      { href: '/settings/users', label: 'User Management', icon: Users },
     ],
   },
   {

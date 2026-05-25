@@ -61,15 +61,38 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
     throw new Error('VAPI_API_KEY is not set');
   }
 
-  // Prompt A/B test — split to a B-variant assistant by per-persona percentage
-  let abVariant: string | null = null;
-  let chosenAssistantId: string = assistantId;
+  // Respect global AI dial kill-switch
+  if (!env.ENABLE_AI_DIAL) {
+    await job.log('AI dialing disabled (ENABLE_AI_DIAL=false), skipping');
+    return;
+  }
+
+  // Fetch per-tenant settings (A/B config + daily cap)
   const settings = await withSystemContext(prisma, tenantId, (tx) =>
     tx.voiceAgentSettings.findUnique({
       where: { tenantId },
-      select: { abTestConfig: true },
+      select: { abTestConfig: true, dailyCallCap: true },
     }),
   );
+
+  // Daily call cap — count outbound calls since midnight IST
+  const dailyCap = settings?.dailyCallCap ?? env.DAILY_AI_CALL_CAP;
+  const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+  const nowIst = new Date(Date.now() + istOffsetMs);
+  const midnightIstUtc = new Date(
+    Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate()) - istOffsetMs,
+  );
+  const todayCount = await withSystemContext(prisma, tenantId, (tx) =>
+    tx.call.count({ where: { tenantId, initiatedAt: { gte: midnightIstUtc } } }),
+  );
+  if (todayCount >= dailyCap) {
+    await job.log(`Daily cap ${dailyCap} reached (${todayCount} calls today), skipping`);
+    return;
+  }
+
+  // Prompt A/B test — split to a B-variant assistant by per-persona percentage
+  let abVariant: string | null = null;
+  let chosenAssistantId: string = assistantId;
   const abConfig = (settings?.abTestConfig ?? {}) as Record<string, number>;
   const splitPercent = Number(abConfig[personaId] ?? 0);
   if (splitPercent > 0 && personaConfig.assistantIdB) {

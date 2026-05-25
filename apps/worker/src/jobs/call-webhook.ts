@@ -214,6 +214,7 @@ function deriveStageFromCallOutcome(
   const outcome = (structured['outcome'] as string | undefined) ?? '';
 
   if (outcome === 'qualified') return 'QUALIFIED';
+  if (outcome === 'converted') return 'CONVERTED';
   if (outcome === 'follow_up') return 'FOLLOW_UP';
   if (outcome === 'invalid') return 'INVALID';
   if (outcome === 'wrong_enquiry') return 'WRONG_ENQUIRY';

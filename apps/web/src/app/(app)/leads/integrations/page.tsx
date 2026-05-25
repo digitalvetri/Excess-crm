@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -17,6 +17,9 @@ import {
   Zap,
   BarChart3,
   Facebook,
+  ArrowLeft,
+  ArrowRight,
+  Link2Off,
 } from 'lucide-react';
 import {
   useIntegrations,
@@ -25,6 +28,10 @@ import {
   useDeleteIntegration,
   useVerifyIntegration,
   useSyncIntegration,
+  useMetaOAuthUrl,
+  useMetaPages,
+  useMetaPageForms,
+  useMetaConnect,
   type IntegrationSource,
   type IntegrationType,
 } from '@/hooks/use-integrations';
@@ -401,177 +408,290 @@ function IndiaMartPanel({ source }: { source: IntegrationSource | undefined }) {
   );
 }
 
-// ─── Meta config panel ────────────────────────────────────────────────────────
+// ─── Facebook OAuth wizard panel ──────────────────────────────────────────────
 
-const META_FIELD_MAP_KEYS = [
-  { field: 'full_name', label: 'Full Name' },
-  { field: 'phone_number', label: 'Phone Number' },
-  { field: 'email', label: 'Email' },
-  { field: 'city', label: 'City' },
-  { field: 'pincode', label: 'Pincode' },
-];
+function FacebookPanel({ source }: { source: IntegrationSource | undefined }) {
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [selectedFormId, setSelectedFormId] = useState<string>('all');
+  const [selectedFormName, setSelectedFormName] = useState<string | null>(null);
+  const [inWizard, setInWizard] = useState(false);
 
-function MetaPanel({ source }: { source: IntegrationSource | undefined }) {
-  const [token, setToken] = useState('');
-  const [showToken, setShowToken] = useState(false);
-  const [fieldMapping, setFieldMapping] = useState<Record<string, string>>(
-    source?.config.fieldMapping ?? {},
-  );
+  const isConnected = source?.isActive && !!source.config.pageId;
+  const hasPending = source?.config.hasPendingPages;
 
-  const create = useCreateIntegration();
-  const update = useUpdateIntegration();
-  const verify = useVerifyIntegration();
+  const step: 'connect' | 'pick-page' | 'pick-form' | 'connected' = (() => {
+    if (isConnected) return 'connected';
+    if (hasPending && (inWizard || selectedPageId)) return 'pick-form';
+    if (hasPending) return 'pick-page';
+    return 'connect';
+  })();
+
+  const oauthUrl = useMetaOAuthUrl();
+  const pages = useMetaPages(step === 'pick-page' || step === 'pick-form');
+  const forms = useMetaPageForms(selectedPageId);
+  const connect = useMetaConnect();
   const del = useDeleteIntegration();
 
-  const webhookUrl = `${process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:8000'}/webhooks/meta`;
-
-  async function save() {
-    const config: Record<string, unknown> = { fieldMapping };
-    if (token) config['pageAccessToken'] = token;
-
-    if (source) {
-      await update.mutateAsync({ id: source.id, data: { config } });
-      toast.success('Meta integration updated');
-    } else {
-      if (!token) {
-        toast.error('Page Access Token is required');
-        return;
-      }
-      await create.mutateAsync({ type: 'META', label: 'Meta Lead Ads', config: { pageAccessToken: token, fieldMapping } });
-      toast.success('Meta integration configured');
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fb = params.get('fb');
+    if (fb === 'error') toast.error('Facebook connection failed. Please try again.');
+    if (fb === 'cancelled') toast.info('Facebook connection was cancelled.');
+    if (fb) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('fb');
+      window.history.replaceState({}, '', url.toString());
     }
-    setToken('');
-  }
+  }, []);
 
-  async function handleVerify() {
-    if (!source) return;
+  async function handleConnect() {
     try {
-      const res = await verify.mutateAsync(source.id);
-      toast.success(res.message ?? 'Connected successfully');
+      const url = await oauthUrl.mutateAsync();
+      window.location.href = url;
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
-      toast.error(msg ?? 'Verification failed');
+      toast.error(msg ?? 'Could not start Facebook connection. Try again.');
     }
   }
 
-  return (
-    <div className="space-y-5">
-      {/* Webhook URL */}
-      <div>
-        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1.5">
-          Meta Webhook URL
-        </label>
-        <div className="flex items-center gap-2">
-          <input
-            readOnly
-            value={webhookUrl}
-            className="flex-1 text-sm border border-border rounded-lg px-3 py-2 bg-slate-50 font-mono text-slate-700"
-          />
+  function handlePageSelect(pageId: string) {
+    setSelectedPageId(pageId);
+    setSelectedFormId('all');
+    setSelectedFormName(null);
+    setInWizard(true);
+  }
+
+  async function handleFinish() {
+    if (!source || !selectedPageId) return;
+    try {
+      const result = await connect.mutateAsync({
+        sourceId: source.id,
+        pageId: selectedPageId,
+        ...(selectedFormId !== 'all' && { formId: selectedFormId }),
+        ...(selectedFormId !== 'all' && selectedFormName && { formName: selectedFormName }),
+      });
+      toast.success(result.message);
+      setInWizard(false);
+      setSelectedPageId(null);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      toast.error(msg ?? 'Connection failed. Please try again.');
+    }
+  }
+
+  // ── Step: connected ──────────────────────────────────────────────────────
+  if (step === 'connected') {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
+          <CheckCircle2 size={20} className="text-success shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Connected to Facebook</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Page: <span className="font-medium text-slate-700">{source!.config.pageName}</span>
+            </p>
+            <p className="text-xs text-slate-500">
+              Capturing:{' '}
+              <span className="font-medium text-slate-700">
+                {source!.config.formName ?? (source!.config.formId ? source!.config.formId : 'All lead forms')}
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 text-xs text-slate-500">
+          <span className="font-medium text-slate-700 text-sm">{source!._count.leads.toLocaleString()}</span>
+          Meta leads captured
+        </div>
+
+        <div className="pt-2 border-t border-border flex items-center gap-3">
           <button
-            onClick={() => copyToClipboard(webhookUrl, 'Webhook URL copied')}
-            className="p-2 rounded-lg border border-border hover:bg-slate-50 text-slate-500 transition-colors"
+            onClick={() => {
+              if (confirm('Disconnect Facebook integration? Leads will stop coming in.')) {
+                del.mutate(source!.id, { onSuccess: () => toast.success('Disconnected from Facebook') });
+              }
+            }}
+            className="flex items-center gap-1.5 text-sm text-danger hover:underline"
           >
-            <Copy size={15} />
+            <Link2Off size={14} /> Disconnect
+          </button>
+          <button
+            onClick={handleConnect}
+            disabled={oauthUrl.isPending}
+            className="ml-auto text-sm text-slate-500 hover:text-slate-700 hover:underline"
+          >
+            {oauthUrl.isPending ? <Loader2 size={13} className="animate-spin inline mr-1" /> : null}
+            Reconnect with different account
           </button>
         </div>
-        <p className="text-xs text-slate-500 mt-1">
-          Add this as the callback URL in your Meta App → Webhooks → leads subscription.
-        </p>
       </div>
+    );
+  }
 
-      {/* Page Access Token */}
-      <div>
-        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1.5">
-          {source?.config.hasToken ? 'Update Page Access Token' : 'Page Access Token'}
-        </label>
-        {source?.config.hasToken && (
-          <div className="mb-2 space-y-0.5">
-            <p className="text-xs text-success font-medium flex items-center gap-1">
-              <CheckCircle2 size={13} /> Token is configured
-            </p>
-            {source.config.pageName && (
-              <p className="text-xs text-slate-500">Connected to: <span className="font-medium text-slate-700">{source.config.pageName}</span></p>
+  // ── Step: pick-page ──────────────────────────────────────────────────────
+  if (step === 'pick-page') {
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">Select a Facebook Page</p>
+          <p className="text-xs text-slate-500 mt-0.5">Which page is running your Lead Ads?</p>
+        </div>
+
+        {pages.isLoading ? (
+          <div className="space-y-2">
+            {[1, 2].map((i) => <div key={i} className="h-12 bg-slate-100 rounded-lg animate-pulse" />)}
+          </div>
+        ) : pages.isError ? (
+          <p className="text-sm text-danger">Could not load pages. Try reconnecting.</p>
+        ) : (
+          <div className="space-y-2">
+            {(pages.data?.pages ?? []).map((page) => (
+              <button
+                key={page.id}
+                onClick={() => handlePageSelect(page.id)}
+                className="w-full flex items-center gap-3 px-4 py-3 bg-white border border-border rounded-lg hover:border-primary hover:bg-blue-50/50 transition-colors text-left"
+              >
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                  <Facebook size={16} className="text-blue-700" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">{page.name}</p>
+                  {page.category && <p className="text-xs text-slate-400">{page.category}</p>}
+                </div>
+                <ArrowRight size={16} className="text-slate-400 shrink-0" />
+              </button>
+            ))}
+            {(pages.data?.pages ?? []).length === 0 && (
+              <p className="text-sm text-slate-500 py-2">No pages found. Make sure you manage at least one Facebook Page.</p>
             )}
           </div>
         )}
-        <div className="relative">
-          <input
-            type={showToken ? 'text' : 'password'}
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder={source?.config.hasToken ? 'Enter new token to replace...' : 'Paste your Page Access Token...'}
-            className="w-full text-sm border border-border rounded-lg px-3 py-2 pr-9 focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+
+        <div className="pt-2 border-t border-border">
           <button
-            type="button"
-            onClick={() => setShowToken(!showToken)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            onClick={handleConnect}
+            disabled={oauthUrl.isPending}
+            className="text-sm text-slate-500 hover:text-slate-700 hover:underline"
           >
-            {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
+            {oauthUrl.isPending ? <Loader2 size={13} className="animate-spin inline mr-1" /> : null}
+            Connect with a different account
           </button>
         </div>
-        <p className="text-xs text-slate-500 mt-1">
-          Generate a never-expiring token from Facebook Developer Console → Your App → Tools → Graph API Explorer.
-        </p>
       </div>
+    );
+  }
 
-      {/* Field Mapping */}
-      <div>
-        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
-          Field Mapping <span className="font-normal text-slate-400 normal-case">(map your form fields to CRM fields)</span>
-        </label>
-        <div className="space-y-2">
-          {META_FIELD_MAP_KEYS.map(({ field, label }) => (
-            <div key={field} className="flex items-center gap-3">
-              <span className="text-sm text-slate-600 w-28 shrink-0">{label}</span>
-              <span className="text-slate-300">→</span>
+  // ── Step: pick-form ──────────────────────────────────────────────────────
+  if (step === 'pick-form') {
+    const selectedPageName = pages.data?.pages.find((p) => p.id === selectedPageId)?.name ?? selectedPageId;
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">
+            Select a Lead Form
+            <span className="font-normal text-slate-400 ml-1">— {selectedPageName}</span>
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Choose a specific form, or capture leads from all forms on this page.
+          </p>
+        </div>
+
+        {forms.isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => <div key={i} className="h-10 bg-slate-100 rounded-lg animate-pulse" />)}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {/* All forms option */}
+            <label className="flex items-center gap-3 px-4 py-3 bg-white border rounded-lg cursor-pointer transition-colors border-primary bg-blue-50/40">
               <input
-                type="text"
-                value={fieldMapping[field] ?? ''}
-                onChange={(e) => setFieldMapping({ ...fieldMapping, [field]: e.target.value })}
-                placeholder={`Your form's ${field} field name`}
-                className="flex-1 text-sm border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary"
+                type="radio"
+                name="form"
+                value="all"
+                checked={selectedFormId === 'all'}
+                onChange={() => { setSelectedFormId('all'); setSelectedFormName(null); }}
+                className="accent-primary"
               />
-            </div>
-          ))}
+              <div>
+                <p className="text-sm font-medium text-slate-800">All lead forms</p>
+                <p className="text-xs text-slate-400">Capture every lead from this page</p>
+              </div>
+            </label>
+
+            {(forms.data ?? []).map((form) => (
+              <label
+                key={form.id}
+                className={`flex items-center gap-3 px-4 py-3 bg-white border rounded-lg cursor-pointer transition-colors ${
+                  selectedFormId === form.id ? 'border-primary bg-blue-50/40' : 'border-border hover:border-slate-300'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="form"
+                  value={form.id}
+                  checked={selectedFormId === form.id}
+                  onChange={() => { setSelectedFormId(form.id); setSelectedFormName(form.name); }}
+                  className="accent-primary"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">{form.name}</p>
+                  {form.status && <p className="text-xs text-slate-400 capitalize">{form.status.toLowerCase()}</p>}
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 pt-2 border-t border-border">
+          <button
+            onClick={() => { setSelectedPageId(null); setInWizard(false); }}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm text-slate-600 border border-border rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            <ArrowLeft size={14} /> Back
+          </button>
+          <button
+            onClick={handleFinish}
+            disabled={connect.isPending}
+            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg disabled:opacity-50 hover:bg-primary/90 transition-colors"
+          >
+            {connect.isPending ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+            Connect
+          </button>
         </div>
       </div>
+    );
+  }
 
-      {/* Actions */}
-      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border">
+  // ── Step: connect ────────────────────────────────────────────────────────
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col items-center text-center gap-3 py-4">
+        <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center">
+          <Facebook size={28} className="text-blue-700" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-slate-800">Connect your Facebook Pages</p>
+          <p className="text-xs text-slate-500 mt-1 max-w-xs">
+            Authorize Excess CRM to access your Facebook Pages. You&apos;ll pick which page and lead form to use in the next steps.
+          </p>
+        </div>
         <button
-          onClick={save}
-          disabled={create.isPending || update.isPending}
-          className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg disabled:opacity-50 hover:bg-primary/90 transition-colors"
+          onClick={handleConnect}
+          disabled={oauthUrl.isPending}
+          className="flex items-center gap-2 px-5 py-2.5 bg-[#1877F2] text-white text-sm font-semibold rounded-lg hover:bg-[#166FE5] disabled:opacity-60 transition-colors"
         >
-          {create.isPending || update.isPending ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
-          {source ? 'Save Settings' : 'Save Integration'}
+          {oauthUrl.isPending ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Facebook size={16} />
+          )}
+          Continue with Facebook
         </button>
-
-        {source && (
-          <button
-            onClick={handleVerify}
-            disabled={verify.isPending}
-            className="px-4 py-2 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition-colors"
-          >
-            {verify.isPending ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
-            Verify Token
-          </button>
-        )}
-
-        {source && (
-          <button
-            onClick={() => {
-              if (confirm('Deactivate Meta integration?')) {
-                del.mutate(source.id, { onSuccess: () => toast.success('Integration deactivated') });
-              }
-            }}
-            className="ml-auto text-sm text-danger hover:underline"
-          >
-            Deactivate
-          </button>
-        )}
       </div>
+      <p className="text-xs text-center text-slate-400">
+        You&apos;ll be redirected to Facebook to authorize access. No ad spend is required.
+      </p>
     </div>
   );
 }
@@ -589,9 +709,10 @@ function IntegrationCard({
   const Icon = defn.icon;
 
   const connected = !!source?.isActive;
+  const configuring = !connected && defn.type === 'META' && !!(source?.config as { hasPendingPages?: boolean })?.hasPendingPages;
 
   return (
-    <div className={`bg-white rounded-xl border ${connected ? 'border-border' : 'border-border'} overflow-hidden`}>
+    <div className="bg-white rounded-xl border border-border overflow-hidden">
       {/* Card header */}
       <button
         className="w-full flex items-start gap-4 p-5 text-left hover:bg-slate-50/50 transition-colors"
@@ -607,6 +728,10 @@ function IntegrationCard({
             {connected ? (
               <span className="flex items-center gap-1 text-xs font-medium text-success">
                 <CheckCircle2 size={12} /> Active
+              </span>
+            ) : configuring ? (
+              <span className="flex items-center gap-1 text-xs font-medium text-amber-600">
+                <Loader2 size={12} className="animate-spin" /> Setup in progress
               </span>
             ) : (
               <span className="flex items-center gap-1 text-xs font-medium text-slate-400">
@@ -635,7 +760,7 @@ function IntegrationCard({
         <div className="border-t border-border bg-slate-50/30 p-5">
           {defn.type === 'JUSTDIAL' && <JustDialPanel source={source} />}
           {defn.type === 'INDIAMART' && <IndiaMartPanel source={source} />}
-          {defn.type === 'META' && <MetaPanel source={source} />}
+          {defn.type === 'META' && <FacebookPanel source={source} />}
         </div>
       )}
     </div>
@@ -647,7 +772,10 @@ function IntegrationCard({
 export default function IntegrationsPage() {
   const { data: sources, isLoading } = useIntegrations();
 
-  const getSource = (type: IntegrationType) => sources?.find((s) => s.type === type && s.isActive);
+  const getSource = (type: IntegrationType) => {
+    if (type === 'META') return sources?.find((s) => s.type === type);
+    return sources?.find((s) => s.type === type && s.isActive);
+  };
 
   const totalLeads = sources?.reduce((sum, s) => sum + s._count.leads, 0) ?? 0;
   const activeCount = sources?.filter((s) => s.isActive).length ?? 0;

@@ -105,14 +105,14 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     ]);
 
     const isProduction = process.env['NODE_ENV'] === 'production';
-    const cookieDomain = isProduction ? env.COOKIE_DOMAIN : undefined;
+    const domainOpt = isProduction ? { domain: env.COOKIE_DOMAIN } : {};
 
     reply.setCookie('excess_session', token, {
       httpOnly: true,
       secure: isProduction,
       sameSite: 'lax',
       path: '/',
-      domain: cookieDomain,
+      ...domainOpt,
       expires: expiresAt,
     });
 
@@ -122,7 +122,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       secure: isProduction,
       sameSite: 'lax',
       path: '/',
-      domain: cookieDomain,
+      ...domainOpt,
       expires: expiresAt,
     });
 
@@ -172,9 +172,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.post('/logout', async (req, reply) => {
     const token = req.cookies['excess_session'];
     if (token) await prisma.session.deleteMany({ where: { token } });
-    const cookieDomain = process.env['NODE_ENV'] === 'production' ? env.COOKIE_DOMAIN : undefined;
-    reply.clearCookie('excess_session', { path: '/', domain: cookieDomain });
-    reply.clearCookie('excess_role', { path: '/', domain: cookieDomain });
+    const domainOpt = process.env['NODE_ENV'] === 'production' ? { domain: env.COOKIE_DOMAIN } : {};
+    reply.clearCookie('excess_session', { path: '/', ...domainOpt });
+    reply.clearCookie('excess_role', { path: '/', ...domainOpt });
     return reply.send({ data: { success: true } });
   });
 

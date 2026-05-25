@@ -77,7 +77,9 @@ export const metaWebhookRoutes: FastifyPluginAsync = async (app) => {
         );
         const source = sources.find((s) => {
           const cfg = s.config as Record<string, unknown>;
-          return cfg['pageId'] === v.page_id;
+          if (cfg['pageId'] !== v.page_id) return false;
+          if (cfg['formId'] && cfg['formId'] !== v.form_id) return false;
+          return true;
         });
         if (!source) continue;
 

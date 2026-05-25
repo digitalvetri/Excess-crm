@@ -23,7 +23,10 @@ export interface IntegrationSource {
     // Meta
     pageId?: string | null;
     pageName?: string | null;
+    formId?: string | null;
+    formName?: string | null;
     hasToken?: boolean;
+    hasPendingPages?: boolean;
     fieldMapping?: Record<string, string>;
   };
   _count: { leads: number };
@@ -37,6 +40,18 @@ interface VerifyResult {
     pageId?: string;
     pageName?: string;
   };
+}
+
+export interface MetaPage {
+  id: string;
+  name: string;
+  category?: string;
+}
+
+export interface MetaForm {
+  id: string;
+  name: string;
+  status?: string;
 }
 
 export function useIntegrations() {
@@ -85,5 +100,53 @@ export function useSyncIntegration() {
   return useMutation({
     mutationFn: (id: string) => api.post(`/integrations/${id}/sync`).then((r) => r.data),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['integrations'] }),
+  });
+}
+
+export function useMetaOAuthUrl() {
+  return useMutation({
+    mutationFn: () =>
+      api.get<{ data: { url: string } }>('/integrations/meta/oauth-url').then((r) => r.data.data.url),
+  });
+}
+
+export function useMetaPages(enabled: boolean) {
+  return useQuery({
+    queryKey: ['meta-pages'],
+    queryFn: () =>
+      api
+        .get<{ data: { pages: MetaPage[]; sourceId: string } }>('/integrations/meta/pages')
+        .then((r) => r.data.data),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useMetaPageForms(pageId: string | null) {
+  return useQuery({
+    queryKey: ['meta-page-forms', pageId],
+    queryFn: () =>
+      api
+        .get<{ data: { forms: MetaForm[] } }>(`/integrations/meta/pages/${pageId}/forms`)
+        .then((r) => r.data.data.forms),
+    enabled: !!pageId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useMetaConnect() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { sourceId: string; pageId: string; formId?: string; formName?: string }) =>
+      api
+        .post<{ data: { connected: boolean; pageName: string; subscribed: boolean; message: string } }>(
+          '/integrations/meta/connect',
+          data,
+        )
+        .then((r) => r.data.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['integrations'] });
+      void qc.invalidateQueries({ queryKey: ['meta-pages'] });
+    },
   });
 }

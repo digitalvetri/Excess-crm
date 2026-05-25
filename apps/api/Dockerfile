@@ -1,4 +1,5 @@
 FROM node:20-alpine
+RUN apk add --no-cache openssl
 RUN corepack enable pnpm && npm install -g tsx
 WORKDIR /app
 COPY . .

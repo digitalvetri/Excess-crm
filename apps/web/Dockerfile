@@ -1,21 +1,11 @@
 FROM node:20-alpine AS base
 RUN corepack enable pnpm
 
-FROM base AS deps
-WORKDIR /app
-COPY pnpm-workspace.yaml ./
-COPY package.json pnpm-lock.yaml* ./
-COPY packages/shared/package.json packages/shared/
-COPY packages/ui/package.json packages/ui/
-COPY apps/web/package.json apps/web/
-RUN pnpm install --frozen-lockfile
-
 FROM base AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages ./packages
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @excess/web run build
 
 FROM node:20-alpine AS runner

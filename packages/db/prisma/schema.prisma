@@ -472,6 +472,7 @@ model VoiceAgentConfig {
   activatedAt     DateTime? @map("activated_at")
   createdByUserId String?   @db.Uuid @map("created_by_user_id")
   createdAt       DateTime  @default(now()) @map("created_at")
+  voiceConfig     Json?     @map("voice_config")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 

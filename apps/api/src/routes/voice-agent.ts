@@ -169,6 +169,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
           isActive: true,
           activatedAt: true,
           createdAt: true,
+          voiceConfig: true,
         },
       }),
     );
@@ -229,10 +230,27 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
+    const voiceConfigSchema = z.object({
+      firstMessage: z.string().max(2000).optional(),
+      language: z.string().optional(),
+      sttProvider: z.string().optional(),
+      llmProvider: z.string().optional(),
+      ttsProvider: z.string().optional(),
+      voiceId: z.string().optional(),
+      responseTiming: z.enum(['low_latency', 'balanced', 'conservative']).optional(),
+      voiceSpeed: z.number().min(0.5).max(2.0).optional(),
+      allowInterruptions: z.boolean().optional(),
+      maxDurationSec: z.number().int().min(30).max(1800).optional(),
+      idleTimeoutSec: z.number().int().min(5).max(120).optional(),
+      idleTurns: z.number().int().min(1).max(20).optional(),
+      callTransfer: z.object({ enabled: z.boolean(), number: z.string() }).optional(),
+    });
+
     const parsed = z
       .object({
         personaId: z.enum(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP']),
         systemPrompt: z.string().min(10).max(20000),
+        voiceConfig: voiceConfigSchema.optional(),
       })
       .safeParse(req.body);
 
@@ -240,7 +258,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
     }
 
-    const { personaId, systemPrompt } = parsed.data;
+    const { personaId, systemPrompt, voiceConfig } = parsed.data;
 
     const config = await req.withTenant(async (tx) => {
       const latest = await tx.voiceAgentConfig.findFirst({
@@ -257,6 +275,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
           version: (latest?.version ?? 0) + 1,
           isActive: false,
           createdByUserId: req.auth.userId,
+          ...(voiceConfig !== undefined && { voiceConfig: voiceConfig as object }),
         },
       });
     });

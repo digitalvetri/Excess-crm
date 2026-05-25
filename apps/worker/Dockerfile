@@ -1,19 +1,10 @@
-FROM node:20-alpine AS base
-RUN corepack enable pnpm
-
-FROM base AS builder
+FROM node:20-alpine
+RUN corepack enable pnpm && npm install -g tsx
 WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @excess/db run db:generate
-RUN pnpm --filter @excess/worker run build
-
-FROM node:20-alpine AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-RUN addgroup -S app && adduser -S app -G app
-COPY --from=builder --chown=app:app /app/apps/worker/dist ./dist
-COPY --from=builder --chown=app:app /app/node_modules ./node_modules
-COPY --from=builder --chown=app:app /app/packages ./packages
+RUN addgroup -S app && adduser -S app -G app && chown -R app:app /app
 USER app
-CMD ["node", "dist/server.js"]
+ENV NODE_ENV=production
+CMD ["tsx", "apps/worker/src/server.ts"]

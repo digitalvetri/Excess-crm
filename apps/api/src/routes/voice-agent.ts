@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { can } from '@excess/shared';
 import { z } from 'zod';
+import { env } from '@excess/config';
 
 const upsertSettingsSchema = z.object({
   dailyCallCap: z.number().int().min(1).max(10000).optional(),
@@ -343,5 +344,209 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, persona }, 'voice_agent.manual_dial');
     return reply.code(202).send({ data: { queued: true } });
+  });
+
+  // GET /voice-agent/queue-stats — health of all voice-related BullMQ queues
+  app.get('/queue-stats', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const [voiceDial, callWebhook, humanHandoff] = await Promise.all([
+      app.queues.voiceDial.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed'),
+      app.queues.callWebhook.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed'),
+      app.queues.humanHandoff.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed'),
+    ]);
+
+    return reply.send({
+      data: {
+        voiceDial,
+        callWebhook,
+        humanHandoff,
+      },
+    });
+  });
+
+  // GET /voice-agent/test-payload/:personaId — preview the exact Vapi payload without making a call
+  app.get('/test-payload/:personaId', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { personaId } = req.params as { personaId: string };
+    const validPersonas = ['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP'];
+    if (!validPersonas.includes(personaId)) {
+      return reply.code(400).send({ error: { code: 'invalid_persona', message: 'Invalid personaId' } });
+    }
+
+    const activeConfig = await req.withTenant((tx) =>
+      tx.voiceAgentConfig.findFirst({
+        where: { tenantId: req.auth.tenantId, personaId, isActive: true },
+        select: { id: true, version: true, systemPrompt: true, voiceConfig: true, activatedAt: true },
+      }),
+    );
+
+    if (!activeConfig) {
+      return reply.send({ data: { hasConfig: false, payload: null } });
+    }
+
+    const vc = (activeConfig.voiceConfig ?? {}) as Record<string, unknown>;
+    const webhookUrl = `${env.API_URL}/api/v1/webhooks/vapi`;
+
+    const sttProvider = (vc['sttProvider'] as string | undefined) ?? 'sarvam';
+    const llmProvider = (vc['llmProvider'] as string | undefined) ?? 'google/gemini-2.5-flash';
+    const ttsProvider = (vc['ttsProvider'] as string | undefined) ?? 'elevenlabs';
+    const voiceId = (vc['voiceId'] as string | undefined) ?? (personaId === 'KARTHIK_SALES' ? 'edapadi' : 'mk-tamil-v1');
+    const voiceSpeed = (vc['voiceSpeed'] as number | undefined) ?? 1.0;
+    const language = (vc['language'] as string | undefined) ?? 'ta';
+    const firstMessage = vc['firstMessage'] as string | undefined;
+    const responseTiming = (vc['responseTiming'] as string | undefined) ?? 'balanced';
+    const maxDurationSec = (vc['maxDurationSec'] as number | undefined) ?? 300;
+    const idleTimeoutSec = (vc['idleTimeoutSec'] as number | undefined) ?? 15;
+
+    const lang = language === 'ta' ? 'ta-IN' : 'en-IN';
+    const endpointingMs = responseTiming === 'low_latency' ? 100 : responseTiming === 'conservative' ? 500 : 300;
+
+    const transcriber =
+      sttProvider === 'sarvam' ? { provider: 'sarvam', model: 'sarvam-2b', language: lang } :
+      sttProvider === 'deepgram' ? { provider: 'deepgram', model: 'nova-3-general', language: lang === 'ta-IN' ? 'ta' : 'en-IN' } :
+      { provider: 'google', model: 'latest_long', language: lang };
+
+    const llmParts = llmProvider.split('/');
+    const modelProvider = llmParts.length === 2 ? llmParts[0] : 'google';
+    const modelName = llmParts.length === 2 ? llmParts[1] : llmProvider;
+
+    const payload = {
+      assistant: {
+        transcriber,
+        model: {
+          provider: modelProvider,
+          model: modelName,
+          messages: [{ role: 'system', content: activeConfig.systemPrompt }],
+          tools: `[${personaId} tools — ${personaId === 'RESHMA_VERIFY' ? 'getLeadInfo, updateLeadStage, scheduleFollowUp, getProductInfo' : personaId === 'KARTHIK_SALES' ? 'getLeadInfo, updateLeadStage, scheduleAppointment, getProductInfo, scheduleFollowUp' : 'getLeadInfo, getFollowUpContext, updateConversionStatus, rescheduleFollowUp, scheduleFollowUp'} → ${webhookUrl}]`,
+        },
+        voice: {
+          provider: ttsProvider === 'elevenlabs' ? '11labs' : ttsProvider,
+          voiceId,
+          speed: voiceSpeed,
+          stability: 0.5,
+          similarityBoost: 0.75,
+        },
+        ...(firstMessage && { firstMessage }),
+        silenceTimeoutSeconds: idleTimeoutSec,
+        maxDurationSeconds: maxDurationSec,
+        endpointing: endpointingMs,
+        serverUrl: webhookUrl,
+      },
+      customer: { number: '<lead.phone>', name: '<lead.name>' },
+      phoneNumberId: '<VAPI_PHONE_NUMBER_ID>',
+    };
+
+    return reply.send({
+      data: {
+        hasConfig: true,
+        configId: activeConfig.id,
+        version: activeConfig.version,
+        activatedAt: activeConfig.activatedAt,
+        payload,
+      },
+    });
+  });
+
+  // POST /voice-agent/test-dial — fire a real Vapi call to a test number
+  app.post('/test-dial', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.configure')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const parsed = z.object({
+      phone: z.string().min(10).max(15),
+      name: z.string().default('Test Lead'),
+      personaId: z.enum(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP']),
+    }).safeParse(req.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
+    }
+
+    const { phone, name, personaId } = parsed.data;
+
+    const lead = await req.withTenant((tx) =>
+      tx.lead.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          name,
+          phone,
+          phoneRaw: phone,
+          sourceType: 'MANUAL',
+          stage: 'NEW',
+          language: 'Tamil',
+          factSheet: { isTestLead: true } as object,
+        },
+        select: { id: true },
+      }),
+    );
+
+    const job = await app.queues.voiceDial.add(
+      'voice-dial',
+      { leadId: lead.id, tenantId: req.auth.tenantId, personaId },
+      { priority: 1 },
+    );
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: lead.id, personaId, phone }, 'voice_agent.test_dial');
+    return reply.code(202).send({ data: { queued: true, leadId: lead.id, jobId: job.id } });
+  });
+
+  // GET /voice-agent/recent-calls — last 20 calls with job logs
+  app.get('/recent-calls', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const calls = await req.withTenant((tx) =>
+      tx.call.findMany({
+        where: { tenantId: req.auth.tenantId, direction: 'OUTBOUND' },
+        orderBy: { initiatedAt: 'desc' },
+        take: 20,
+        select: {
+          id: true,
+          vapiCallId: true,
+          persona: true,
+          status: true,
+          durationSec: true,
+          initiatedAt: true,
+          connectedAt: true,
+          endedAt: true,
+          endReason: true,
+          abVariant: true,
+          lead: { select: { name: true, phone: true, stage: true } },
+          llmAnalysis: true,
+        },
+      }),
+    );
+
+    return reply.send({ data: calls });
+  });
+
+  // GET /voice-agent/recent-calls/:callId/transcript — full transcript for a call
+  app.get('/recent-calls/:callId/transcript', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { callId } = req.params as { callId: string };
+
+    const call = await req.withTenant((tx) =>
+      tx.call.findUnique({
+        where: { id: callId },
+        select: { id: true, transcript: true, llmAnalysis: true, vapiCallId: true, persona: true },
+      }),
+    );
+
+    if (!call) {
+      return reply.code(404).send({ error: { code: 'call.not_found', message: 'Call not found' } });
+    }
+
+    return reply.send({ data: call });
   });
 };

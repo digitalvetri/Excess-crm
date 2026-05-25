@@ -2,12 +2,13 @@ import { Suspense } from 'react';
 import { VoiceAgentSettingsForm } from '@/components/voice-agent/settings-form';
 import { PersonaCards } from '@/components/voice-agent/persona-cards';
 import { VoiceAbTesting } from '@/components/voice-agent/voice-ab-testing';
+import { VoiceAgentTesting } from '@/components/voice-agent/voice-agent-testing';
 
 export const metadata = { title: 'Voice Agent Settings — Excess CRM' };
 
 export default function VoiceAgentSettingsPage() {
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-8 max-w-5xl">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Voice Agent Settings</h1>
         <p className="text-sm text-slate-500 mt-1">Configure AI calling behaviour and persona settings.</p>
@@ -22,6 +23,8 @@ export default function VoiceAgentSettingsPage() {
       </Suspense>
 
       <VoiceAbTesting />
+
+      <VoiceAgentTesting />
     </div>
   );
 }

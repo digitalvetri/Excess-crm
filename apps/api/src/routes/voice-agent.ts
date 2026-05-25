@@ -223,6 +223,82 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  // POST /voice-agent/configs — save a new prompt version for a persona
+  app.post('/configs', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.configure')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const parsed = z
+      .object({
+        personaId: z.enum(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP']),
+        systemPrompt: z.string().min(10).max(20000),
+      })
+      .safeParse(req.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
+    }
+
+    const { personaId, systemPrompt } = parsed.data;
+
+    const config = await req.withTenant(async (tx) => {
+      const latest = await tx.voiceAgentConfig.findFirst({
+        where: { tenantId: req.auth.tenantId, personaId },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+
+      return tx.voiceAgentConfig.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          personaId,
+          systemPrompt,
+          version: (latest?.version ?? 0) + 1,
+          isActive: false,
+          createdByUserId: req.auth.userId,
+        },
+      });
+    });
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, personaId, version: config.version }, 'voice_agent.config_created');
+    return reply.code(201).send({ data: config });
+  });
+
+  // POST /voice-agent/configs/:id/activate — activate a specific version
+  app.post('/configs/:id/activate', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.configure')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+
+    const target = await req.withTenant((tx) =>
+      tx.voiceAgentConfig.findUnique({
+        where: { id },
+        select: { id: true, personaId: true, tenantId: true },
+      }),
+    );
+
+    if (!target || target.tenantId !== req.auth.tenantId) {
+      return reply.code(404).send({ error: { code: 'config.not_found', message: 'Config not found' } });
+    }
+
+    await req.withTenant(async (tx) => {
+      await tx.voiceAgentConfig.updateMany({
+        where: { tenantId: req.auth.tenantId, personaId: target.personaId },
+        data: { isActive: false, activatedAt: null },
+      });
+      await tx.voiceAgentConfig.update({
+        where: { id },
+        data: { isActive: true, activatedAt: new Date() },
+      });
+    });
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, configId: id, personaId: target.personaId }, 'voice_agent.config_activated');
+    return reply.send({ data: { activated: true } });
+  });
+
   // POST /voice-agent/dial/:leadId — manual force-dial
   app.post('/dial/:leadId', async (req, reply) => {
     if (!can(req.auth.role, 'leads.dial.force')) {

@@ -155,6 +155,7 @@ export const integrationsRoutes: FastifyPluginAsync = async (app) => {
       state,
       scope: 'pages_show_list,pages_read_engagement,leads_retrieval',
       response_type: 'code',
+      auth_type: 'rerequest',
     });
 
     return reply.send({ data: { url: `https://www.facebook.com/v19.0/dialog/oauth?${params.toString()}` } });

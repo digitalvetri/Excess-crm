@@ -14,7 +14,7 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
+  app-redis:
     image: redis:7-alpine
     restart: always
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
@@ -40,7 +40,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      app-redis:
         condition: service_healthy
 
   web:
@@ -71,7 +71,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      app-redis:
         condition: service_healthy
 
 networks:

@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
-export default function OldVoiceAgentSettingsPage() {
+export default function VoiceAgentIndexPage() {
   redirect('/voice-agent/personas');
 }

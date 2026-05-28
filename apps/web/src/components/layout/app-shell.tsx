@@ -122,6 +122,18 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: 'voice-agent',
+    label: 'Voice Agent',
+    icon: Bot,
+    roles: ['ADMIN'],
+    items: [
+      { href: '/voice-agent/personas',   label: 'Personas',    icon: PhoneCall },
+      { href: '/voice-agent/monitor',    label: 'Monitor',     icon: Radio },
+      { href: '/voice-agent/ab-testing', label: 'A/B Testing', icon: Shuffle },
+      { href: '/voice-agent/settings',   label: 'Settings',    icon: Settings },
+    ],
+  },
+  {
     id: 'earnings',
     label: 'My Earnings',
     icon: DollarSign,
@@ -172,7 +184,6 @@ const GROUPS: NavGroup[] = [
     icon: Settings,
     roles: ['ADMIN'],
     items: [
-      { href: '/settings/voice-agent',      label: 'Voice Agent',       icon: Bot },
       { href: '/settings/sla-rules',        label: 'SLA Rules',         icon: Timer },
       { href: '/settings/assignment-rules', label: 'Assignment Rules',  icon: Shuffle },
       { href: '/settings/stage-gates',      label: 'Stage Gates',       icon: Shield },

@@ -1,7 +1,18 @@
 import type { FastifyPluginAsync } from 'fastify';
+import multipart from '@fastify/multipart';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 import { env } from '@excess/config';
+
+interface ElevenLabsVoice {
+  voice_id: string;
+  name: string;
+  category: string;
+  preview_url: string | null;
+  labels: Record<string, string>;
+  description: string | null;
+  samples: Array<{ sample_id: string; file_name: string }> | null;
+}
 
 const upsertSettingsSchema = z.object({
   dailyCallCap: z.number().int().min(1).max(10000).optional(),
@@ -14,6 +25,7 @@ const upsertSettingsSchema = z.object({
 });
 
 export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
+  await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 25 } });
   // GET /voice-agent/settings
   app.get('/settings', async (req, reply) => {
     if (!can(req.auth.role, 'voice_agent.read')) {
@@ -548,5 +560,102 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     }
 
     return reply.send({ data: call });
+  });
+
+  // GET /voice-agent/voices — list voices from ElevenLabs (cloned + premade)
+  app.get('/voices', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    if (!env.ELEVENLABS_API_KEY) {
+      return reply.code(503).send({ error: { code: 'not_configured', message: 'ElevenLabs API key not configured' } });
+    }
+
+    const res = await fetch('https://api.elevenlabs.io/v1/voices', {
+      headers: { 'xi-api-key': env.ELEVENLABS_API_KEY },
+    });
+
+    if (!res.ok) {
+      req.log.warn({ tenantId: req.auth.tenantId, status: res.status }, 'elevenlabs.list_voices_failed');
+      return reply.code(502).send({ error: { code: 'upstream_error', message: 'Failed to fetch voices from ElevenLabs' } });
+    }
+
+    const body = await res.json() as { voices: ElevenLabsVoice[] };
+    return reply.send({ data: body.voices });
+  });
+
+  // POST /voice-agent/voices — clone a voice from uploaded audio samples
+  app.post('/voices', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.configure')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    if (!env.ELEVENLABS_API_KEY) {
+      return reply.code(503).send({ error: { code: 'not_configured', message: 'ElevenLabs API key not configured' } });
+    }
+
+    const form = new FormData();
+    let hasFile = false;
+
+    for await (const part of req.parts()) {
+      if (part.type === 'file') {
+        const chunks: Buffer[] = [];
+        for await (const chunk of part.file) {
+          chunks.push(chunk);
+        }
+        form.append('files', new Blob([Buffer.concat(chunks)], { type: part.mimetype }), part.filename);
+        hasFile = true;
+      } else {
+        form.append(part.fieldname, part.value as string);
+      }
+    }
+
+    if (!hasFile) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'At least one audio file is required' } });
+    }
+
+    const res = await fetch('https://api.elevenlabs.io/v1/voices/add', {
+      method: 'POST',
+      headers: { 'xi-api-key': env.ELEVENLABS_API_KEY },
+      body: form,
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => null) as { detail?: { message?: string } } | null;
+      req.log.warn({ tenantId: req.auth.tenantId, status: res.status, detail: errBody }, 'elevenlabs.create_voice_failed');
+      const msg = errBody?.detail?.message ?? 'Failed to create voice on ElevenLabs';
+      return reply.code(502).send({ error: { code: 'upstream_error', message: msg } });
+    }
+
+    const created = await res.json() as { voice_id: string };
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, voiceId: created.voice_id }, 'voice_agent.voice_cloned');
+    return reply.code(201).send({ data: { voiceId: created.voice_id } });
+  });
+
+  // DELETE /voice-agent/voices/:voiceId — delete a cloned voice
+  app.delete('/voices/:voiceId', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.configure')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    if (!env.ELEVENLABS_API_KEY) {
+      return reply.code(503).send({ error: { code: 'not_configured', message: 'ElevenLabs API key not configured' } });
+    }
+
+    const { voiceId } = req.params as { voiceId: string };
+
+    const res = await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
+      method: 'DELETE',
+      headers: { 'xi-api-key': env.ELEVENLABS_API_KEY },
+    });
+
+    if (!res.ok) {
+      req.log.warn({ tenantId: req.auth.tenantId, voiceId, status: res.status }, 'elevenlabs.delete_voice_failed');
+      return reply.code(502).send({ error: { code: 'upstream_error', message: 'Failed to delete voice from ElevenLabs' } });
+    }
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, voiceId }, 'voice_agent.voice_deleted');
+    return reply.send({ data: { deleted: true } });
   });
 };

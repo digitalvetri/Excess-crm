@@ -1,0 +1,17 @@
+port: 7880
+bind_addresses:
+  - ""
+rtc:
+  port_range_start: 50000
+  port_range_end: 60000
+  tcp_port: 7881
+  use_external_ip: true
+room:
+  enable_remote_unmute: false
+  max_participants: 20
+  empty_timeout: 60
+  departure_timeout: 30
+  auto_create_rooms: true
+logging:
+  json: true
+  level: info

@@ -44,6 +44,18 @@ const envSchema = z.object({
   ELEVENLABS_VOICE_ID_RESHMA: z.string().optional(),
   ELEVENLABS_VOICE_ID_KARTHIK: z.string().optional(),
 
+  LIVEKIT_URL: z.string().default('ws://localhost:7880'),
+  LIVEKIT_API_KEY: z.string().optional(),
+  LIVEKIT_API_SECRET: z.string().optional(),
+  LIVEKIT_SIP_TRUNK_ID: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
+  SARVAM_API_KEY: z.string().optional(),
+  AGENT_WEBHOOK_SECRET: z.string().min(16).optional(),
+  ENABLE_LIVEKIT: z
+    .string()
+    .transform((v) => v === 'true')
+    .default('false'),
+
   ANTHROPIC_API_KEY: z.string().optional(),
 
   META_APP_ID: z.string().optional(),

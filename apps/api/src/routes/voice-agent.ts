@@ -1,8 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
 import multipart from '@fastify/multipart';
+import crypto from 'crypto';
+import { RoomServiceClient, AccessToken } from 'livekit-server-sdk';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 import { env } from '@excess/config';
+import { prisma, withSystemContext } from '@excess/db';
 
 interface ElevenLabsVoice {
   voice_id: string;
@@ -631,6 +634,442 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     const created = await res.json() as { voice_id: string };
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, voiceId: created.voice_id }, 'voice_agent.voice_cloned');
     return reply.code(201).send({ data: { voiceId: created.voice_id } });
+  });
+
+  // ─── LiveKit endpoints ─────────────────────────────────────────────────────
+
+  // POST /voice-agent/agent-function — called by Python LiveKit agent for function calls
+  // Not protected by session auth — uses x-agent-secret shared secret instead
+  app.post('/agent-function', { config: { public: true } }, async (req, reply) => {
+    const agentSecret = req.headers['x-agent-secret'] as string | undefined;
+    if (!env.AGENT_WEBHOOK_SECRET) {
+      return reply.code(503).send({ error: { code: 'not_configured', message: 'AGENT_WEBHOOK_SECRET not set' } });
+    }
+    if (!agentSecret) {
+      return reply.code(401).send({ error: { code: 'unauthenticated', message: 'x-agent-secret header required' } });
+    }
+    // Constant-time comparison to prevent timing attacks
+    const expectedBuf = Buffer.from(env.AGENT_WEBHOOK_SECRET);
+    const actualBuf = Buffer.from(agentSecret);
+    const secretsMatch =
+      expectedBuf.length === actualBuf.length &&
+      crypto.timingSafeEqual(expectedBuf, actualBuf);
+    if (!secretsMatch) {
+      req.log.warn('agent-function: invalid x-agent-secret');
+      return reply.code(401).send({ error: { code: 'unauthenticated', message: 'Invalid agent secret' } });
+    }
+
+    const bodySchema = z.object({
+      callId: z.string().min(1),
+      tenantId: z.string().min(1),
+      leadId: z.string().min(1),
+      action: z.string().min(1),
+      payload: z.record(z.unknown()).optional().default({}),
+    });
+    const parsed = bodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
+    }
+
+    const { callId, tenantId, leadId, action, payload: actionPayload } = parsed.data;
+
+    const PRODUCT_CATALOG: Record<string, unknown> = {
+      residential: {
+        capacities: ['1kW', '2kW', '3kW', '5kW', '10kW'],
+        pricePerKw: 55000,
+        subsidyScheme: 'PM Surya Ghar — up to ₹78,000 subsidy for 3kW',
+        warranty: { panel: '25 years', inverter: '5 years', installation: '1 year' },
+        avgMonthlyBillOffset: '80–100%',
+        roiYears: 4.5,
+        notes: 'Best for homes with bill > ₹2,000/month',
+      },
+      commercial: {
+        capacities: ['10kW', '25kW', '50kW', '100kW', '250kW'],
+        pricePerKw: 48000,
+        subsidyScheme: 'MNRE CAPEX subsidy — varies by state',
+        warranty: { panel: '25 years', inverter: '10 years', installation: '2 years' },
+        avgMonthlyBillOffset: '60–80%',
+        roiYears: 3.5,
+        notes: 'Accelerated depreciation benefit of 40%',
+      },
+      industrial: {
+        capacities: ['100kW', '250kW', '500kW', '1MW+'],
+        pricePerKw: 42000,
+        subsidyScheme: 'No subsidy — REC mechanism available',
+        warranty: { panel: '25 years', inverter: '10 years', installation: '3 years' },
+        avgMonthlyBillOffset: '50–70%',
+        roiYears: 3.0,
+        notes: 'Group captive and third-party sale options',
+      },
+      offgrid: {
+        capacities: ['1kW', '2kW', '5kW'],
+        pricePerKw: 75000,
+        subsidyScheme: 'PM KUSUM for agriculture — up to 60% subsidy',
+        warranty: { panel: '25 years', battery: '5 years', inverter: '3 years' },
+        avgMonthlyBillOffset: '100% (off-grid)',
+        roiYears: 6.0,
+        notes: 'Includes battery storage for 24/7 power',
+      },
+    };
+
+    try {
+      switch (action) {
+        case 'getActiveConfig': {
+          const call = await withSystemContext(prisma, tenantId, (tx) =>
+            tx.call.findUnique({
+              where: { id: callId },
+              select: { persona: true },
+            }),
+          );
+          if (!call) return reply.code(404).send({ error: { code: 'call.not_found', message: 'Call not found' } });
+
+          const config = await withSystemContext(prisma, tenantId, (tx) =>
+            tx.voiceAgentConfig.findFirst({
+              where: { tenantId, personaId: call.persona, isActive: true },
+              select: { systemPrompt: true, voiceConfig: true, personaId: true, version: true },
+            }),
+          );
+          req.log.info({ tenantId, callId, persona: call.persona }, 'agent_function.getActiveConfig');
+          return reply.send({ data: config ?? null, message: 'ok' });
+        }
+
+        case 'getLeadInfo': {
+          const lead = await withSystemContext(prisma, tenantId, (tx) =>
+            tx.lead.findUnique({
+              where: { id: leadId },
+              select: { id: true, name: true, phone: true, city: true, stage: true, factSheet: true, language: true },
+            }),
+          );
+          req.log.info({ tenantId, callId, leadId }, 'agent_function.getLeadInfo');
+          return reply.send({ data: lead ?? null, message: 'ok' });
+        }
+
+        case 'updateLeadStage': {
+          const stagePayload = actionPayload as { stage?: unknown; scheduledAt?: unknown };
+          const stageSchema = z.object({
+            stage: z.enum(['QUALIFIED', 'NOT_ANSWERED', 'INVALID', 'WRONG_ENQUIRY', 'FOLLOW_UP', 'CONVERTED']),
+            scheduledAt: z.string().optional(),
+          });
+          const stageResult = stageSchema.safeParse(stagePayload);
+          if (!stageResult.success) {
+            return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid stage payload', details: stageResult.error.flatten() } });
+          }
+          const { stage, scheduledAt } = stageResult.data;
+
+          await withSystemContext(prisma, tenantId, async (tx) => {
+            await tx.lead.update({
+              where: { id: leadId },
+              data: { stage: stage as never, stageChangedAt: new Date() },
+            });
+            await tx.leadActivity.create({
+              data: {
+                leadId,
+                tenantId,
+                actorIsAi: true,
+                type: 'STAGE_CHANGE',
+                payload: { newStage: stage, ...(scheduledAt && { scheduledAt }), source: 'livekit_agent' } as object,
+              },
+            });
+          });
+
+          req.log.info({ tenantId, callId, leadId, stage }, 'agent_function.updateLeadStage');
+          return reply.send({ data: { success: true, stage }, message: 'ok' });
+        }
+
+        case 'scheduleFollowUp': {
+          const fpPayload = actionPayload as { scheduledAt?: unknown };
+          const fpSchema = z.object({ scheduledAt: z.string() });
+          const fpResult = fpSchema.safeParse(fpPayload);
+          if (!fpResult.success) {
+            return reply.code(400).send({ error: { code: 'validation_error', message: 'scheduledAt required', details: fpResult.error.flatten() } });
+          }
+          const followUpDate = new Date(fpResult.data.scheduledAt);
+          if (isNaN(followUpDate.getTime())) {
+            return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid scheduledAt datetime' } });
+          }
+
+          await withSystemContext(prisma, tenantId, async (tx) => {
+            await tx.lead.update({
+              where: { id: leadId },
+              data: { stage: 'FOLLOW_UP', stageChangedAt: new Date() },
+            });
+            await tx.leadActivity.create({
+              data: {
+                leadId,
+                tenantId,
+                actorIsAi: true,
+                type: 'STAGE_CHANGE',
+                payload: { newStage: 'FOLLOW_UP', scheduledAt: fpResult.data.scheduledAt, source: 'livekit_agent' } as object,
+              },
+            });
+          });
+
+          const delayMs = Math.max(followUpDate.getTime() - Date.now(), 60_000);
+          await req.server.redis.publish('schedule:followup', JSON.stringify({
+            leadId,
+            tenantId,
+            personaId: 'RESHMA_FOLLOWUP',
+            delayMs,
+          }));
+
+          req.log.info({ tenantId, callId, leadId, scheduledAt: fpResult.data.scheduledAt }, 'agent_function.scheduleFollowUp');
+          return reply.send({ data: { success: true, scheduledAt: fpResult.data.scheduledAt }, message: 'ok' });
+        }
+
+        case 'getProductInfo': {
+          const piPayload = actionPayload as { category?: unknown };
+          const category = typeof piPayload.category === 'string' ? piPayload.category : '';
+          const info = PRODUCT_CATALOG[category];
+          if (!info) {
+            return reply.code(400).send({ error: { code: 'validation_error', message: `Unknown category: ${category}` } });
+          }
+          return reply.send({ data: info, message: 'ok' });
+        }
+
+        case 'scheduleAppointment': {
+          const apptPayload = actionPayload as { scheduledAt?: unknown; siteAddress?: unknown; surveyType?: unknown };
+          const apptSchema = z.object({
+            scheduledAt: z.string(),
+            siteAddress: z.string(),
+            surveyType: z.enum(['ROOFTOP_RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'OFFGRID']),
+          });
+          const apptResult = apptSchema.safeParse(apptPayload);
+          if (!apptResult.success) {
+            return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid appointment payload', details: apptResult.error.flatten() } });
+          }
+          const apptDate = new Date(apptResult.data.scheduledAt);
+          if (isNaN(apptDate.getTime())) {
+            return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid scheduledAt datetime' } });
+          }
+
+          const appointment = await withSystemContext(prisma, tenantId, async (tx) => {
+            const created = await tx.appointment.create({
+              data: {
+                tenantId,
+                leadId,
+                scheduledAt: apptDate,
+                surveyType: apptResult.data.surveyType as never,
+                siteAddress: apptResult.data.siteAddress,
+                createdByCallId: callId,
+              },
+              select: { id: true, scheduledAt: true, surveyType: true },
+            });
+            await tx.lead.update({
+              where: { id: leadId },
+              data: { stage: 'FOLLOW_UP', stageChangedAt: new Date() },
+            });
+            await tx.leadActivity.create({
+              data: {
+                leadId,
+                tenantId,
+                actorIsAi: true,
+                type: 'APPOINTMENT_BOOKED',
+                payload: { appointmentId: created.id, scheduledAt: apptResult.data.scheduledAt, siteAddress: apptResult.data.siteAddress, source: 'livekit_agent' } as object,
+              },
+            });
+            return created;
+          });
+
+          req.log.info({ tenantId, callId, leadId, appointmentId: appointment.id }, 'agent_function.scheduleAppointment');
+          return reply.send({ data: { success: true, appointmentId: appointment.id, scheduledAt: apptResult.data.scheduledAt }, message: 'ok' });
+        }
+
+        case 'getFollowUpContext': {
+          const [activities, previousCalls] = await withSystemContext(prisma, tenantId, async (tx) =>
+            Promise.all([
+              tx.leadActivity.findMany({
+                where: { leadId },
+                orderBy: { createdAt: 'desc' },
+                take: 5,
+                select: { type: true, payload: true, createdAt: true },
+              }),
+              tx.call.findMany({
+                where: { leadId },
+                orderBy: { initiatedAt: 'desc' },
+                take: 3,
+                select: { persona: true, status: true, durationSec: true, endReason: true, initiatedAt: true },
+              }),
+            ]),
+          );
+          req.log.info({ tenantId, callId, leadId }, 'agent_function.getFollowUpContext');
+          return reply.send({ data: { activities, previousCalls }, message: 'ok' });
+        }
+
+        case 'updateConversionStatus': {
+          const csPayload = actionPayload as { status?: unknown };
+          const stageMap: Record<string, string> = {
+            CONVERTED: 'CONVERTED',
+            INVALID: 'INVALID',
+            RESCHEDULED: 'FOLLOW_UP',
+          };
+          const status = typeof csPayload.status === 'string' ? csPayload.status : '';
+          const newStage = stageMap[status];
+          if (!newStage) {
+            return reply.code(400).send({ error: { code: 'validation_error', message: `Invalid status: ${status}` } });
+          }
+
+          await withSystemContext(prisma, tenantId, async (tx) => {
+            await tx.lead.update({
+              where: { id: leadId },
+              data: { stage: newStage as never, stageChangedAt: new Date() },
+            });
+            await tx.leadActivity.create({
+              data: {
+                leadId,
+                tenantId,
+                actorIsAi: true,
+                type: 'STAGE_CHANGE',
+                payload: { newStage, conversionStatus: status, source: 'livekit_agent' } as object,
+              },
+            });
+          });
+
+          req.log.info({ tenantId, callId, leadId, status, newStage }, 'agent_function.updateConversionStatus');
+          return reply.send({ data: { success: true, stage: newStage }, message: 'ok' });
+        }
+
+        case 'rescheduleFollowUp': {
+          const rfPayload = actionPayload as { scheduledAt?: unknown };
+          const rfSchema = z.object({ scheduledAt: z.string() });
+          const rfResult = rfSchema.safeParse(rfPayload);
+          if (!rfResult.success) {
+            return reply.code(400).send({ error: { code: 'validation_error', message: 'scheduledAt required', details: rfResult.error.flatten() } });
+          }
+          const reschedDate = new Date(rfResult.data.scheduledAt);
+          if (isNaN(reschedDate.getTime())) {
+            return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid scheduledAt datetime' } });
+          }
+
+          await withSystemContext(prisma, tenantId, (tx) =>
+            tx.leadActivity.create({
+              data: {
+                leadId,
+                tenantId,
+                actorIsAi: true,
+                type: 'NOTE',
+                payload: { note: `Follow-up rescheduled to ${rfResult.data.scheduledAt}`, source: 'livekit_agent' } as object,
+              },
+            }),
+          );
+
+          const rfDelayMs = Math.max(reschedDate.getTime() - Date.now(), 60_000);
+          await req.server.redis.publish('schedule:followup', JSON.stringify({
+            leadId,
+            tenantId,
+            personaId: 'RESHMA_FOLLOWUP',
+            delayMs: rfDelayMs,
+          }));
+
+          req.log.info({ tenantId, callId, leadId, scheduledAt: rfResult.data.scheduledAt }, 'agent_function.rescheduleFollowUp');
+          return reply.send({ data: { success: true, scheduledAt: rfResult.data.scheduledAt }, message: 'ok' });
+        }
+
+        case 'callEnded': {
+          const cePayload = actionPayload as { endedAt?: unknown; durationSec?: unknown; endReason?: unknown };
+          const endedAt = typeof cePayload.endedAt === 'string' ? new Date(cePayload.endedAt) : new Date();
+          const durationSec = typeof cePayload.durationSec === 'number' ? Math.round(cePayload.durationSec) : null;
+          const endReason = typeof cePayload.endReason === 'string' ? cePayload.endReason : null;
+
+          await withSystemContext(prisma, tenantId, (tx) =>
+            tx.call.update({
+              where: { id: callId },
+              data: {
+                status: 'COMPLETED',
+                endedAt,
+                ...(durationSec !== null && { durationSec }),
+                ...(endReason !== null && { endReason }),
+              },
+            }),
+          );
+
+          // If the lead is still NOT_ANSWERED, schedule a retry
+          const lead = await withSystemContext(prisma, tenantId, (tx) =>
+            tx.lead.findUnique({
+              where: { id: leadId },
+              select: { stage: true },
+            }),
+          );
+          if (lead?.stage === 'NOT_ANSWERED') {
+            const settings = await withSystemContext(prisma, tenantId, (tx) =>
+              tx.voiceAgentSettings.findUnique({
+                where: { tenantId },
+                select: { retryConfig: true },
+              }),
+            );
+            const retryConfig = (settings?.retryConfig ?? {}) as Record<string, unknown>;
+            const retryHours = typeof retryConfig['retryIntervalHours'] === 'number' ? retryConfig['retryIntervalHours'] : 2;
+            const retryDelayMs = retryHours * 60 * 60 * 1000;
+            await app.queues.voiceDial.add(
+              'voice-dial',
+              { leadId, tenantId, personaId: 'RESHMA_VERIFY' },
+              { delay: retryDelayMs },
+            );
+            req.log.info({ tenantId, callId, leadId, retryHours }, 'agent_function.callEnded.retry_scheduled');
+          }
+
+          req.log.info({ tenantId, callId, leadId, durationSec, endReason }, 'agent_function.callEnded');
+          return reply.send({ data: { success: true }, message: 'ok' });
+        }
+
+        default:
+          return reply.code(400).send({ error: { code: 'unknown_action', message: `Unknown action: ${action}` } });
+      }
+    } catch (err) {
+      req.log.error({ tenantId, callId, leadId, action, err }, 'agent_function.error');
+      return reply.code(500).send({ error: { code: 'internal_error', message: 'Internal server error' } });
+    }
+  });
+
+  // GET /voice-agent/rooms — list active LiveKit rooms
+  app.get('/rooms', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    if (!env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+      return reply.send({ data: [] });
+    }
+
+    const roomService = new RoomServiceClient(
+      env.LIVEKIT_URL,
+      env.LIVEKIT_API_KEY,
+      env.LIVEKIT_API_SECRET,
+    );
+
+    const rooms = await roomService.listRooms();
+    const mapped = rooms.map((r) => ({
+      name: r.name,
+      metadata: r.metadata ?? null,
+      numParticipants: r.numParticipants,
+      creationTime: Number(r.creationTime),
+    }));
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, count: mapped.length }, 'voice_agent.rooms.list');
+    return reply.send({ data: mapped });
+  });
+
+  // POST /voice-agent/rooms/:name/token — mint browser access token for a room (read-only observer)
+  app.post('/rooms/:name/token', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    if (!env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+      return reply.code(503).send({ error: { code: 'not_configured', message: 'LiveKit credentials not configured' } });
+    }
+
+    const { name } = req.params as { name: string };
+
+    const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
+      identity: `monitor-${req.auth.userId}`,
+      ttl: 3600,
+    });
+    at.addGrant({ roomJoin: true, room: name, canSubscribe: true, canPublish: false });
+
+    const token = await at.toJwt();
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, roomName: name }, 'voice_agent.rooms.token_minted');
+    return reply.send({ data: { token, wsUrl: env.LIVEKIT_URL } });
   });
 
   // DELETE /voice-agent/voices/:voiceId — delete a cloned voice

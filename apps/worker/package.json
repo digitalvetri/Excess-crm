@@ -18,6 +18,7 @@
     "@excess/shared": "workspace:*",
     "axios": "^1.7.9",
     "bullmq": "^5.16.0",
+    "livekit-server-sdk": "^2",
     "ioredis": "^5.4.2",
     "papaparse": "^5.5.3",
     "pdfkit": "^0.15.0",

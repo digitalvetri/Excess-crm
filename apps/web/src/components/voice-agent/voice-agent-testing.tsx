@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Phone, RefreshCw, Play, Eye, EyeOff, CheckCircle, XCircle,
   Clock, Loader2, AlertCircle, Activity, Zap, MessageSquare, ChevronDown, ChevronRight,
+  Radio, Copy, Check,
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { api } from '@/lib/api';
@@ -61,6 +62,13 @@ interface TranscriptData {
     structuredData?: Record<string, unknown>;
     successEvaluation?: string;
   } | null;
+}
+
+interface LiveRoom {
+  name: string;
+  metadata: string | null;
+  numParticipants: number;
+  creationTime: number;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -124,6 +132,103 @@ function useTestDial() {
       setTimeout(() => qc.invalidateQueries({ queryKey: ['voice-recent-calls'] }), 2000);
     },
   });
+}
+
+function useLiveRooms() {
+  return useQuery<LiveRoom[]>({
+    queryKey: ['livekit-rooms'],
+    queryFn: () =>
+      api.get<{ data: LiveRoom[] }>('/voice-agent/rooms').then((r) => r.data.data),
+    refetchInterval: 5000,
+  });
+}
+
+// ─── Live Rooms Panel ─────────────────────────────────────────────────────────
+
+function LiveRoomsPanel() {
+  const { data: rooms, isFetching, dataUpdatedAt } = useLiveRooms();
+  const qc = useQueryClient();
+  const [copiedName, setCopiedName] = useState<string | null>(null);
+
+  function copyRoomName(name: string) {
+    void navigator.clipboard.writeText(name);
+    setCopiedName(name);
+    setTimeout(() => setCopiedName(null), 2000);
+  }
+
+  const activeRooms = rooms ?? [];
+
+  return (
+    <div className="bg-white rounded-xl border border-border p-6">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <div className="flex items-center gap-2">
+            <Radio size={14} className="text-blue-500" />
+            <h3 className="text-sm font-semibold text-slate-800">Live Rooms</h3>
+            {activeRooms.length > 0 && (
+              <span className="flex items-center gap-1 text-xs text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full font-medium animate-pulse">
+                <Activity size={10} /> {activeRooms.length} active
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 mt-0.5">
+            LiveKit rooms · auto-refreshes every 5s
+            {dataUpdatedAt > 0 && ` · ${format(dataUpdatedAt, 'HH:mm:ss')}`}
+          </p>
+        </div>
+        <button
+          onClick={() => qc.invalidateQueries({ queryKey: ['livekit-rooms'] })}
+          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {!rooms ? (
+        <div className="space-y-2">
+          {[1, 2].map((i) => <div key={i} className="h-12 bg-slate-100 rounded-lg animate-pulse" />)}
+        </div>
+      ) : activeRooms.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <Radio size={24} className="text-slate-200 mb-2" />
+          <p className="text-sm text-slate-500">No active rooms</p>
+          <p className="text-xs text-slate-400 mt-1">
+            {rooms !== undefined ? 'LiveKit rooms will appear here when calls are in progress' : 'LiveKit not configured'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {activeRooms.map((room) => (
+            <div key={room.name} className="flex items-center gap-3 rounded-lg border border-slate-200 px-4 py-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-mono text-slate-700 truncate">{room.name}</p>
+                {room.metadata && (
+                  <p className="text-xs text-slate-400 truncate mt-0.5">{room.metadata}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <span className="flex items-center gap-1 text-xs text-slate-600">
+                  <Activity size={11} className="text-blue-500" />
+                  {room.numParticipants} participant{room.numParticipants !== 1 ? 's' : ''}
+                </span>
+                <button
+                  onClick={() => copyRoomName(room.name)}
+                  title="Copy room name"
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  {copiedName === room.name ? (
+                    <Check size={13} className="text-emerald-500" />
+                  ) : (
+                    <Copy size={13} />
+                  )}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Queue Health Panel ───────────────────────────────────────────────────────
@@ -560,6 +665,9 @@ export function VoiceAgentTesting() {
           Verify your agent configuration, fire test calls, and inspect live pipeline health.
         </p>
       </div>
+
+      {/* Live Rooms */}
+      <LiveRoomsPanel />
 
       {/* Top row: Queue health + Payload preview */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

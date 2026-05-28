@@ -1,5 +1,6 @@
 import type { Job } from 'bullmq';
 import axios from 'axios';
+import { RoomServiceClient, SipClient } from 'livekit-server-sdk';
 import { prisma, withSystemContext } from '@excess/db';
 import { env } from '@excess/config';
 
@@ -307,8 +308,8 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
     return;
   }
 
-  if (!env.VAPI_API_KEY) {
-    throw new Error('VAPI_API_KEY is not set');
+  if (!env.ENABLE_LIVEKIT && !env.VAPI_API_KEY) {
+    throw new Error('Neither LIVEKIT nor VAPI is configured — set ENABLE_LIVEKIT=true or VAPI_API_KEY');
   }
 
   if (!env.ENABLE_AI_DIAL) {
@@ -320,7 +321,8 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
   const personaEnv = PERSONA_TO_ENV_KEY[personaKey];
   const phoneNumberId = personaEnv?.phoneNumberId;
 
-  if (!phoneNumberId) {
+  // phoneNumberId is only required for the Vapi path — LiveKit does not use it
+  if (!env.ENABLE_LIVEKIT && !phoneNumberId) {
     throw new Error(`VAPI_PHONE_NUMBER_ID not configured for persona=${personaId}`);
   }
 
@@ -354,6 +356,76 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
       select: { systemPrompt: true, voiceConfig: true },
     }),
   );
+
+  // ─── LiveKit path ─────────────────────────────────────────────────────────────
+
+  if (env.ENABLE_LIVEKIT) {
+    if (!env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+      throw new Error('LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be set when ENABLE_LIVEKIT=true');
+    }
+
+    await job.log(`LiveKit path: persona=${personaId}`);
+
+    // Create call record first to derive the room name
+    const callRecord = await withSystemContext(prisma, tenantId, (tx) =>
+      tx.call.create({
+        data: {
+          leadId: lead.id,
+          tenantId,
+          direction: 'OUTBOUND',
+          status: 'QUEUED',
+          persona: personaKey as 'RESHMA_VERIFY' | 'KARTHIK_SALES' | 'RESHMA_FOLLOWUP',
+          fromNumber: env.LIVEKIT_SIP_TRUNK_ID ?? 'livekit',
+          toNumber: lead.phone,
+          initiatedAt: new Date(),
+        },
+        select: { id: true },
+      }),
+    );
+
+    const roomName = `call-${callRecord.id}`;
+    // Metadata: personaId:callId:leadId:tenantId — Python agent reads this on join
+    const metadata = `${personaId}:${callRecord.id}:${leadId}:${tenantId}`;
+
+    const roomService = new RoomServiceClient(
+      env.LIVEKIT_URL,
+      env.LIVEKIT_API_KEY,
+      env.LIVEKIT_API_SECRET,
+    );
+
+    await roomService.createRoom({ name: roomName, metadata, emptyTimeout: 300, maxParticipants: 10 });
+    await job.log(`LiveKit room created: ${roomName}`);
+
+    if (env.LIVEKIT_SIP_TRUNK_ID) {
+      const sipClient = new SipClient(
+        env.LIVEKIT_URL,
+        env.LIVEKIT_API_KEY,
+        env.LIVEKIT_API_SECRET,
+      );
+
+      await sipClient.createSipParticipant(env.LIVEKIT_SIP_TRUNK_ID, lead.phone, roomName, {
+        participantIdentity: `sip-${lead.phone}`,
+        participantName: lead.name ?? lead.phone,
+      });
+
+      await job.log(`SIP participant created for ${lead.phone} in room ${roomName}`);
+    } else {
+      await job.log(`No LIVEKIT_SIP_TRUNK_ID configured — room ${roomName} is ready, waiting for SIP trunk setup`);
+    }
+
+    await job.log(`LiveKit call initiated livekitRoomName=${roomName} callId=${callRecord.id}`);
+    return;
+  }
+
+  // ─── Vapi path (fallback when ENABLE_LIVEKIT=false) ──────────────────────────
+
+  if (!env.VAPI_API_KEY) {
+    throw new Error('VAPI_API_KEY is not set');
+  }
+
+  if (!phoneNumberId) {
+    throw new Error(`VAPI_PHONE_NUMBER_ID not configured for persona=${personaId}`);
+  }
 
   // A/B variant tracking (only applies when using env-based assistantId)
   let abVariant: string | null = null;

@@ -6,7 +6,7 @@ services:
     ports:
       - "7880:7880"
       - "7881:7881"
-      - "50000-60000:50000-60000/udp"
+      - "40000-40200:40000-40200/udp"
     volumes:
       - ./livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro
     environment:
@@ -43,7 +43,7 @@ services:
       "
     ports:
       - "5060:5060/udp"
-      - "10000-20000:10000-20000/udp"
+      - "50000-50200:50000-50200/udp"
     volumes:
       - ./livekit/sip.yaml:/etc/sip/sip.yaml:ro
     environment:

@@ -11,7 +11,6 @@ room:
   max_participants: 20
   empty_timeout: 60
   departure_timeout: 30
-  auto_create_rooms: true
 logging:
   json: true
   level: info

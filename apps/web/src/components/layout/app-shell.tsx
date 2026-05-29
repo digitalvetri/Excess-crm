@@ -227,7 +227,7 @@ const NAV_STORAGE_KEY = 'excess.nav.groups';
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, role } = useAuth();
+  const { user, role, clearCache } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expanded, setExpanded] = useState<string[]>([]);
   const [darkMode, setDarkMode] = useState(false);
@@ -274,6 +274,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   async function handleLogout() {
     await api.post('/auth/logout');
+    clearCache();
     router.push('/login');
   }
 

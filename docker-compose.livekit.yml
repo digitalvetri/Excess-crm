@@ -26,6 +26,8 @@ services:
         ws_url: ws://livekit:7880
         redis:
           address: app-redis:6379
+          username: default
+          password: ${REDIS_PASSWORD}
         logging:
           json: true
           level: info
@@ -42,8 +44,8 @@ services:
       - -c
       - |
         mkdir -p /sip
-        printf 'api_key: %s\napi_secret: %s\nws_url: ws://livekit:7880\nredis:\n  address: app-redis:6379\nlogging:\n  json: true\n  level: info\n' \
-          "$$LIVEKIT_API_KEY" "$$LIVEKIT_API_SECRET" > /sip/config.yaml
+        printf 'api_key: %s\napi_secret: %s\nws_url: ws://livekit:7880\nredis:\n  address: app-redis:6379\n  username: default\n  password: %s\nlogging:\n  json: true\n  level: info\n' \
+          "$$LIVEKIT_API_KEY" "$$LIVEKIT_API_SECRET" "$$REDIS_PASSWORD" > /sip/config.yaml
         exec livekit-sip --config=/sip/config.yaml
     ports:
       - "5060:5060/udp"
@@ -51,6 +53,7 @@ services:
     environment:
       LIVEKIT_API_KEY: "${LIVEKIT_API_KEY}"
       LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
     depends_on:
       - livekit
     networks:

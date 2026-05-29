@@ -316,8 +316,8 @@ function PayloadPreviewPanel() {
     <div className="bg-white rounded-xl border border-border p-6">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h3 className="text-sm font-semibold text-slate-800">Vapi Payload Preview</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Exact JSON the worker sends to Vapi — no call made</p>
+          <h3 className="text-sm font-semibold text-slate-800">Agent Config Preview</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Active persona config the worker uses — no call made</p>
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -363,15 +363,12 @@ function PayloadPreviewPanel() {
           {data.payload && (
             <div className="flex flex-wrap gap-2 mb-3">
               {[
-                { label: 'STT', value: (data.payload['assistant'] as Record<string, unknown>)?.['transcriber'] as Record<string, unknown> },
-                { label: 'LLM', value: (data.payload['assistant'] as Record<string, unknown>)?.['model'] as Record<string, unknown> },
-                { label: 'TTS', value: (data.payload['assistant'] as Record<string, unknown>)?.['voice'] as Record<string, unknown> },
-              ].map(({ label, value }) => value && (
+                { label: 'STT', value: 'Sarvam' },
+                { label: 'LLM', value: 'Groq / Llama' },
+                { label: 'TTS', value: 'ElevenLabs' },
+              ].map(({ label, value }) => (
                 <span key={label} className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono">
-                  {label}: {String(value['provider'])}
-                  {label === 'LLM' && ` / ${String(value['model'])}`}
-                  {label === 'TTS' && ` / ${String(value['voiceId'])}`}
-                  {label === 'STT' && ` / ${String(value['language'])}`}
+                  {label}: {value}
                 </span>
               ))}
             </div>
@@ -424,7 +421,7 @@ function TestDialPanel() {
       <div className="mb-5">
         <h3 className="text-sm font-semibold text-slate-800">Test Dial</h3>
         <p className="text-xs text-slate-400 mt-0.5">
-          Fire a real Vapi call using the active config — creates a temporary test lead
+          Fire a real LiveKit call using the active config — creates a temporary test lead
         </p>
       </div>
 
@@ -487,7 +484,7 @@ function TestDialPanel() {
           <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200 rounded-lg">
             <XCircle size={14} className="text-rose-600 flex-shrink-0" />
             <p className="text-xs text-rose-700">
-              {(testDial.error as Error)?.message ?? 'Failed to queue call — check VAPI_API_KEY and VAPI_PHONE_NUMBER_ID'}
+              {(testDial.error as Error)?.message ?? 'Failed to queue call — check LIVEKIT_API_KEY and LIVEKIT_API_SECRET'}
             </p>
           </div>
         )}
@@ -552,10 +549,10 @@ function CallRow({ call }: { call: RecentCall }) {
 
       {expanded && (
         <div className="border-t border-slate-100 px-4 py-4 bg-slate-50 space-y-3">
-          {/* Vaip call ID */}
+          {/* LiveKit room / call ID */}
           {call.vapiCallId && (
             <p className="text-xs font-mono text-slate-500">
-              Vapi ID: <span className="text-slate-700">{call.vapiCallId}</span>
+              Room: <span className="text-slate-700">{call.vapiCallId}</span>
             </p>
           )}
 
@@ -595,7 +592,7 @@ function CallRow({ call }: { call: RecentCall }) {
                 </div>
               ) : (
                 <p className="text-xs text-slate-400 italic">
-                  {call.status === 'COMPLETED' ? 'No transcript yet — Vapi may still be processing' : 'No transcript available'}
+                  {call.status === 'COMPLETED' ? 'No transcript yet — may still be processing' : 'No transcript available'}
                 </p>
               )}
             </>

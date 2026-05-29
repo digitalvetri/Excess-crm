@@ -27,6 +27,165 @@ const upsertSettingsSchema = z.object({
   aiDialEnabled: z.boolean().optional(),
 });
 
+// ─── Playground helpers ───────────────────────────────────────────────────────
+
+function playgroundDefaultPrompt(
+  personaId: string,
+  lead: { name: string; phone: string; city: string; stage: string },
+): string {
+  const name = personaId === 'KARTHIK_SALES' ? 'Karthik' : 'Reshma';
+  return `You are ${name}, a friendly solar energy sales assistant at Excess Renew Tech, Coimbatore. You speak Tamil primarily but switch to English when asked. You are helpful, knowledgeable, and professional.
+
+Current lead:
+- Name: ${lead.name}
+- Phone: ${lead.phone}
+- City: ${lead.city}
+- Stage: ${lead.stage}
+
+[PLAYGROUND MODE — this is a simulation, no real calls are made. Respond naturally as the ${personaId} persona.]`;
+}
+
+function playgroundTools(personaId: string): object[] {
+  const tools: object[] = [
+    {
+      type: 'function',
+      function: {
+        name: 'getLeadInfo',
+        description: 'Get current lead information (name, phone, city, stage, interest)',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'updateLeadStage',
+        description: 'Update the lead pipeline stage',
+        parameters: {
+          type: 'object',
+          properties: {
+            stage: { type: 'string', enum: ['QUALIFIED', 'NOT_ANSWERED', 'INVALID', 'WRONG_ENQUIRY', 'FOLLOW_UP', 'CONVERTED'] },
+            scheduledAt: { type: 'string', description: 'ISO8601 datetime for FOLLOW_UP stage' },
+          },
+          required: ['stage'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'getProductInfo',
+        description: 'Get solar product pricing and details by category',
+        parameters: {
+          type: 'object',
+          properties: {
+            category: { type: 'string', enum: ['residential', 'commercial', 'industrial', 'offgrid'] },
+          },
+          required: ['category'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'scheduleFollowUp',
+        description: 'Schedule a follow-up call for the lead',
+        parameters: {
+          type: 'object',
+          properties: {
+            scheduledAt: { type: 'string', description: 'ISO8601 datetime for the follow-up' },
+          },
+          required: ['scheduledAt'],
+        },
+      },
+    },
+  ];
+
+  if (personaId === 'KARTHIK_SALES') {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'scheduleAppointment',
+        description: 'Schedule a site survey appointment with the customer',
+        parameters: {
+          type: 'object',
+          properties: {
+            scheduledAt: { type: 'string' },
+            siteAddress: { type: 'string' },
+            surveyType: { type: 'string', enum: ['ROOFTOP_RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'OFFGRID'] },
+          },
+          required: ['scheduledAt', 'siteAddress', 'surveyType'],
+        },
+      },
+    });
+  }
+
+  if (personaId === 'RESHMA_FOLLOWUP') {
+    tools.push(
+      {
+        type: 'function',
+        function: {
+          name: 'getFollowUpContext',
+          description: 'Get previous call history and activities for context',
+          parameters: { type: 'object', properties: {}, required: [] },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'rescheduleFollowUp',
+          description: 'Reschedule the follow-up to a later time',
+          parameters: {
+            type: 'object',
+            properties: {
+              scheduledAt: { type: 'string', description: 'New ISO8601 datetime' },
+            },
+            required: ['scheduledAt'],
+          },
+        },
+      },
+    );
+  }
+
+  return tools;
+}
+
+function playgroundSimulateTool(
+  name: string,
+  args: Record<string, unknown>,
+  lead: { name: string; phone: string; city: string; stage: string },
+): unknown {
+  const PRODUCT_CATALOG: Record<string, unknown> = {
+    residential: { pricePerKw: 55000, subsidy: 'PM Surya Ghar — up to ₹78,000', roiYears: 4.5, warranty: '25yr panel, 5yr inverter' },
+    commercial: { pricePerKw: 48000, subsidy: 'MNRE CAPEX subsidy', roiYears: 3.5, warranty: '25yr panel, 10yr inverter' },
+    industrial: { pricePerKw: 42000, subsidy: 'No subsidy — REC mechanism', roiYears: 3.0, warranty: '25yr panel, 10yr inverter' },
+    offgrid: { pricePerKw: 75000, subsidy: 'PM KUSUM up to 60%', roiYears: 6.0, warranty: '25yr panel, 5yr battery' },
+  };
+
+  switch (name) {
+    case 'getLeadInfo':
+      return { id: 'sim-001', ...lead, language: 'Tamil', factSheet: { interest: 'residential', monthlyBill: '₹3,000' } };
+    case 'updateLeadStage':
+      return { success: true, stage: args['stage'], note: '[SIMULATED]' };
+    case 'getProductInfo':
+      return PRODUCT_CATALOG[args['category'] as string] ?? { error: 'Unknown category' };
+    case 'scheduleFollowUp':
+      return { success: true, scheduledAt: args['scheduledAt'], note: '[SIMULATED]' };
+    case 'scheduleAppointment':
+      return { success: true, appointmentId: 'sim-appt-001', scheduledAt: args['scheduledAt'], siteAddress: args['siteAddress'], note: '[SIMULATED]' };
+    case 'getFollowUpContext':
+      return {
+        activities: [{ type: 'STAGE_CHANGE', payload: { newStage: 'FOLLOW_UP' }, createdAt: new Date().toISOString() }],
+        previousCalls: [{ persona: 'RESHMA_VERIFY', status: 'COMPLETED', durationSec: 45 }],
+      };
+    case 'rescheduleFollowUp':
+      return { success: true, scheduledAt: args['scheduledAt'], note: '[SIMULATED]' };
+    default:
+      return { error: `Unknown function: ${name}` };
+  }
+}
+
+// ─── Route Plugin ─────────────────────────────────────────────────────────────
+
 export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 25 } });
   // GET /voice-agent/settings
@@ -1070,6 +1229,118 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, roomName: name }, 'voice_agent.rooms.token_minted');
     return reply.send({ data: { token, wsUrl: env.LIVEKIT_URL } });
+  });
+
+  // POST /voice-agent/playground/chat — in-app chat testing without outbound calls
+  app.post('/playground/chat', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const historyItemSchema = z.object({
+      role: z.enum(['user', 'assistant']),
+      content: z.string(),
+    });
+
+    const parsed = z.object({
+      personaId: z.enum(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP']),
+      message: z.string().min(1).max(2000),
+      history: z.array(historyItemSchema).default([]),
+      simulatedLead: z.object({
+        name: z.string().default('Test Lead'),
+        phone: z.string().default('+91 9999999999'),
+        city: z.string().default('Coimbatore'),
+        stage: z.string().default('NEW'),
+      }).default({}),
+    }).safeParse(req.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
+    }
+
+    if (!env.GROQ_API_KEY) {
+      return reply.code(503).send({ error: { code: 'not_configured', message: 'GROQ_API_KEY not configured — add it to environment variables' } });
+    }
+
+    const { personaId, message, history, simulatedLead } = parsed.data;
+
+    const activeConfig = await req.withTenant((tx) =>
+      tx.voiceAgentConfig.findFirst({
+        where: { tenantId: req.auth.tenantId, personaId, isActive: true },
+        select: { systemPrompt: true, version: true },
+      }),
+    );
+
+    const systemPrompt = activeConfig?.systemPrompt ?? playgroundDefaultPrompt(personaId, simulatedLead);
+
+    interface GroqToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
+    interface GroqMessage { role: string; content: string | null; tool_calls?: GroqToolCall[] }
+    interface GroqChoice { message: GroqMessage; finish_reason: string }
+    interface GroqResponse { choices: GroqChoice[] }
+
+    const currentMessages: object[] = [
+      { role: 'system', content: systemPrompt },
+      ...history,
+      { role: 'user', content: message },
+    ];
+
+    const tools = playgroundTools(personaId);
+    const toolCallLog: Array<{ name: string; args: Record<string, unknown>; result: unknown }> = [];
+
+    let finalReply = '';
+    for (let i = 0; i < 3; i++) {
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: currentMessages,
+          tools,
+          tool_choice: 'auto',
+          max_tokens: 1024,
+          temperature: 0.7,
+        }),
+      });
+
+      if (!groqRes.ok) {
+        const errText = await groqRes.text();
+        req.log.warn({ tenantId: req.auth.tenantId, personaId, status: groqRes.status, body: errText }, 'playground.groq_error');
+        return reply.code(502).send({ error: { code: 'groq_error', message: 'LLM API returned an error' } });
+      }
+
+      const groqBody = (await groqRes.json()) as GroqResponse;
+      const choice = groqBody.choices[0];
+      if (!choice) break;
+
+      if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls?.length) {
+        currentMessages.push({
+          role: 'assistant',
+          content: choice.message.content ?? null,
+          tool_calls: choice.message.tool_calls,
+        });
+        for (const tc of choice.message.tool_calls) {
+          const args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+          const result = playgroundSimulateTool(tc.function.name, args, simulatedLead);
+          toolCallLog.push({ name: tc.function.name, args, result });
+          currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+        }
+      } else {
+        finalReply = choice.message.content ?? '';
+        break;
+      }
+    }
+
+    const newHistory = [
+      ...history,
+      { role: 'user', content: message },
+      { role: 'assistant', content: finalReply },
+    ];
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, personaId, toolCalls: toolCallLog.length }, 'playground.chat');
+    return reply.send({ data: { reply: finalReply, toolCalls: toolCallLog, newHistory } });
   });
 
   // DELETE /voice-agent/voices/:voiceId — delete a cloned voice

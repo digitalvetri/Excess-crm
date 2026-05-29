@@ -44,6 +44,7 @@ import {
   Shield,
   Workflow,
   Webhook,
+  FlaskConical,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { CommandPalette } from '@/components/command-palette';
@@ -127,6 +128,7 @@ const GROUPS: NavGroup[] = [
     icon: Bot,
     roles: ['ADMIN'],
     items: [
+      { href: '/voice-agent/playground',  label: 'Playground',  icon: FlaskConical },
       { href: '/voice-agent/personas',   label: 'Personas',    icon: PhoneCall },
       { href: '/voice-agent/monitor',    label: 'Monitor',     icon: Radio },
       { href: '/voice-agent/ab-testing', label: 'A/B Testing', icon: Shuffle },

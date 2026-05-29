@@ -874,21 +874,25 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     try {
       switch (action) {
         case 'getActiveConfig': {
-          const call = await withSystemContext(prisma, tenantId, (tx) =>
-            tx.call.findUnique({
-              where: { id: callId },
-              select: { persona: true },
-            }),
-          );
-          if (!call) return reply.code(404).send({ error: { code: 'call.not_found', message: 'Call not found' } });
+          // Playground rooms encode personaId in callId as "playground-{PERSONA_ID}"
+          let resolvedPersona: string;
+          if (callId.startsWith('playground-')) {
+            resolvedPersona = callId.replace('playground-', '');
+          } else {
+            const call = await withSystemContext(prisma, tenantId, (tx) =>
+              tx.call.findUnique({ where: { id: callId }, select: { persona: true } }),
+            );
+            if (!call) return reply.code(404).send({ error: { code: 'call.not_found', message: 'Call not found' } });
+            resolvedPersona = call.persona;
+          }
 
           const config = await withSystemContext(prisma, tenantId, (tx) =>
             tx.voiceAgentConfig.findFirst({
-              where: { tenantId, personaId: call.persona, isActive: true },
+              where: { tenantId, personaId: resolvedPersona, isActive: true },
               select: { systemPrompt: true, voiceConfig: true, personaId: true, version: true },
             }),
           );
-          req.log.info({ tenantId, callId, persona: call.persona }, 'agent_function.getActiveConfig');
+          req.log.info({ tenantId, callId, persona: resolvedPersona }, 'agent_function.getActiveConfig');
           return reply.send({ data: config ?? null, message: 'ok' });
         }
 
@@ -1341,6 +1345,51 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, personaId, toolCalls: toolCallLog.length }, 'playground.chat');
     return reply.send({ data: { reply: finalReply, toolCalls: toolCallLog, newHistory } });
+  });
+
+  // POST /voice-agent/playground/voice-room — create a LiveKit room for in-browser voice testing
+  app.post('/playground/voice-room', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    if (!env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+      return reply.code(503).send({ error: { code: 'not_configured', message: 'LiveKit credentials not configured' } });
+    }
+
+    const parsed = z.object({
+      personaId: z.enum(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP']),
+    }).safeParse(req.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
+    }
+
+    const { personaId } = parsed.data;
+    const roomName = `playground-${req.auth.userId}-${Date.now()}`;
+    // Metadata format: {personaId}:{callId}:{leadId}:{tenantId}
+    // callId = playground-{personaId} so the agent can resolve config without a real call record
+    const metadata = `${personaId}:playground-${personaId}:${req.auth.tenantId}:${req.auth.tenantId}`;
+
+    const roomService = new RoomServiceClient(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
+    await roomService.createRoom({
+      name: roomName,
+      metadata,
+      emptyTimeout: 120,
+      maxParticipants: 5,
+    });
+
+    const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
+      identity: `playground-user-${req.auth.userId}`,
+      ttl: 3600,
+    });
+    at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
+    const token = await at.toJwt();
+
+    const publicWsUrl = env.LIVEKIT_PUBLIC_URL ?? env.LIVEKIT_URL;
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, personaId, roomName }, 'playground.voice_room_created');
+    return reply.send({ data: { token, wsUrl: publicWsUrl, roomName } });
   });
 
   // DELETE /voice-agent/voices/:voiceId — delete a cloned voice

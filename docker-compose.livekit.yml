@@ -17,16 +17,18 @@ services:
   livekit-egress:
     image: livekit/egress:latest
     restart: unless-stopped
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        printf 'api_key: %s\napi_secret: %s\nws_url: ws://livekit:7880\nredis:\n  address: app-redis:6379\nlogging:\n  json: true\n  level: info\n' \
-          "$$LIVEKIT_API_KEY" "$$LIVEKIT_API_SECRET" > /tmp/egress.yaml
-        exec /egress --config /tmp/egress.yaml
     environment:
       LIVEKIT_API_KEY: "${LIVEKIT_API_KEY}"
       LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET}"
+      EGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY}
+        api_secret: ${LIVEKIT_API_SECRET}
+        ws_url: ws://livekit:7880
+        redis:
+          address: app-redis:6379
+        logging:
+          json: true
+          level: info
     depends_on:
       - livekit
     networks:
@@ -39,9 +41,10 @@ services:
       - /bin/sh
       - -c
       - |
+        mkdir -p /sip
         printf 'api_key: %s\napi_secret: %s\nws_url: ws://livekit:7880\nredis:\n  address: app-redis:6379\nlogging:\n  json: true\n  level: info\n' \
-          "$$LIVEKIT_API_KEY" "$$LIVEKIT_API_SECRET" > /tmp/sip.yaml
-        exec /sip --config /tmp/sip.yaml
+          "$$LIVEKIT_API_KEY" "$$LIVEKIT_API_SECRET" > /sip/config.yaml
+        exec livekit-sip --config=/sip/config.yaml
     ports:
       - "5060:5060/udp"
       - "50000-50200:50000-50200/udp"

@@ -38,9 +38,9 @@ AGENT_WEBHOOK_SECRET: str = os.environ["AGENT_WEBHOOK_SECRET"]
 
 # Default voice IDs per persona — overridden by CRM config when present
 DEFAULT_VOICE_IDS: dict[str, str] = {
-    "RESHMA_VERIFY": "mk-tamil-v1",
-    "KARTHIK_SALES": "edapadi",
-    "RESHMA_FOLLOWUP": "mk-tamil-v1",
+    "RESHMA_VERIFY": "EXAVITQu4vr4xnSDxMaL",   # Sarah
+    "KARTHIK_SALES": "iP95p4xoKVk53GoZ742B",    # Chris
+    "RESHMA_FOLLOWUP": "EXAVITQu4vr4xnSDxMaL",  # Sarah
 }
 
 # ── Default system prompts (verbatim from persona-manager.tsx) ─────────────────
@@ -112,7 +112,7 @@ async def crm_post(
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """POST to the CRM agent-function endpoint and return the parsed response."""
-    url = f"{CRM_API_URL}/api/v1/voice-agent/agent-function"
+    url = f"{CRM_API_URL}/voice-agent/agent-function"
     body: dict[str, Any] = {
         "callId": call_id,
         "tenantId": tenant_id,
@@ -143,6 +143,9 @@ class ReshmaVerifyAgent(Agent):
         self._call_id = call_id
         self._tenant_id = tenant_id
         self._lead_id = lead_id
+
+    async def on_enter(self) -> None:
+        await self.session.generate_reply()
 
     @function_tool
     async def update_lead_stage(
@@ -223,6 +226,9 @@ class KarthikSalesAgent(Agent):
         self._call_id = call_id
         self._tenant_id = tenant_id
         self._lead_id = lead_id
+
+    async def on_enter(self) -> None:
+        await self.session.generate_reply()
 
     @function_tool
     async def update_lead_stage(
@@ -333,6 +339,9 @@ class ReshmaFollowupAgent(Agent):
         self._call_id = call_id
         self._tenant_id = tenant_id
         self._lead_id = lead_id
+
+    async def on_enter(self) -> None:
+        await self.session.generate_reply()
 
     @function_tool
     async def update_lead_stage(
@@ -512,7 +521,7 @@ async def entrypoint(ctx: JobContext) -> None:
             mode="transcribe",
             sample_rate=16000,
             high_vad_sensitivity=True,
-            flush_signal=True,
+            flush_signal=False,
         ),
         llm=groq.LLM(model="llama-3.3-70b-versatile"),
         tts=elevenlabs.TTS(

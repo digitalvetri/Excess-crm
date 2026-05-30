@@ -158,7 +158,7 @@ export function VoicePlayground() {
     setChatLoading(true);
 
     try {
-      const res = await api.post('/api/v1/voice-agent/playground/chat', {
+      const res = await api.post('/voice-agent/playground/chat', {
         personaId, message: text, history, simulatedLead: lead,
       });
       const { reply, toolCalls, newHistory } = res.data.data as { reply: string; toolCalls: ToolCall[]; newHistory: HistoryItem[] };
@@ -187,7 +187,7 @@ export function VoicePlayground() {
     setCallState('connecting');
 
     try {
-      const res = await api.post('/api/v1/voice-agent/playground/voice-room', { personaId });
+      const res = await api.post('/voice-agent/playground/voice-room', { personaId });
       const { token, wsUrl } = res.data.data as { token: string; wsUrl: string; roomName: string };
 
       const room = new Room({

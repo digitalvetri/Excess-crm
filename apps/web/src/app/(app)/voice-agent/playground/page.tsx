@@ -1,4 +1,9 @@
-import { VoicePlayground } from '@/components/voice-agent/voice-playground';
+import dynamic from 'next/dynamic';
+
+const VoicePlayground = dynamic(
+  () => import('@/components/voice-agent/voice-playground').then((m) => m.VoicePlayground),
+  { ssr: false },
+);
 
 export const metadata = { title: 'Voice Agent Playground — Excess CRM' };
 

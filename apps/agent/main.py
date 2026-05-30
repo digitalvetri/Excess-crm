@@ -491,7 +491,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Fetch active config from CRM; fall back to built-in defaults on any error
     system_prompt = DEFAULT_PROMPTS.get(persona_id, DEFAULT_PROMPTS["RESHMA_VERIFY"])
-    voice_id = DEFAULT_VOICE_IDS.get(persona_id, "mk-tamil-v1")
+    voice_id = DEFAULT_VOICE_IDS.get(persona_id, "EXAVITQu4vr4xnSDxMaL")
 
     try:
         config_resp = await crm_post("getActiveConfig", call_id, tenant_id, lead_id)

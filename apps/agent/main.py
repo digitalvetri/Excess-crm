@@ -3,7 +3,7 @@ Excess CRM — LiveKit Python voice agent.
 
 Parses room metadata ({personaId}:{callId}:{leadId}:{tenantId}), fetches the
 active prompt from the CRM, and runs a Sarvam-STT / Groq-LLM / ElevenLabs-TTS
-pipeline with persona-specific function tools.
+pipeline with all lead-management function tools.
 """
 
 import asyncio
@@ -36,70 +36,51 @@ logger.setLevel(logging.INFO)
 CRM_API_URL: str = os.environ["CRM_API_URL"].rstrip("/")
 AGENT_WEBHOOK_SECRET: str = os.environ["AGENT_WEBHOOK_SECRET"]
 
-# Default voice IDs per persona — overridden by CRM config when present
-DEFAULT_VOICE_IDS: dict[str, str] = {
-    "RESHMA_VERIFY": "EXAVITQu4vr4xnSDxMaL",   # Sarah
-    "KARTHIK_SALES": "iP95p4xoKVk53GoZ742B",    # Chris
-    "RESHMA_FOLLOWUP": "EXAVITQu4vr4xnSDxMaL",  # Sarah
-}
+DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # Sarah (ElevenLabs)
 
-# ── Default system prompts (verbatim from persona-manager.tsx) ─────────────────
+# ── Default system prompt ──────────────────────────────────────────────────────
 
-DEFAULT_PROMPTS: dict[str, str] = {
-    "RESHMA_VERIFY": (
-        "You are Reshma, a friendly and professional customer relations executive at Excess Renew,"
-        " a leading solar energy company in Tamil Nadu with 500+ successful installations since 2009.\n\n"
-        "OBJECTIVE: Verify new enquiries and qualify leads for solar installations.\n\n"
-        "LANGUAGE: Match the customer's language (Tamil or English). Greet in both.\n\n"
-        "SCRIPT:\n"
-        "1. Greet: \"Hello, namaskar! Am I speaking with [name]? This is Reshma calling from Excess Renew Solar.\"\n"
-        "2. Confirm interest: \"We received your enquiry about solar installation. Is this a good time to talk?\"\n"
-        "3. Qualify (ask 2-3 questions max):\n"
-        "   - Property type: residential / commercial / industrial?\n"
-        "   - Monthly electricity bill (approximate)?\n"
-        "   - Location/city?\n"
-        "4. Based on answers:\n"
-        "   - If interested and qualified → call updateLeadStage(\"QUALIFIED\")\n"
-        "   - If interested but needs follow-up later → call scheduleFollowUp with a time they mention\n"
-        "   - If wrong number / not interested → call updateLeadStage(\"WRONG_ENQUIRY\")\n"
-        "   - If invalid contact → call updateLeadStage(\"INVALID\")\n\n"
-        "TONE: Warm, helpful, not pushy. Keep calls under 3 minutes."
-    ),
-    "KARTHIK_SALES": (
-        "You are Karthik, a confident and knowledgeable solar sales consultant at Excess Renew.\n\n"
-        "OBJECTIVE: Convert qualified leads into committed customers by presenting tailored solar proposals.\n\n"
-        "LANGUAGE: Match the customer's language (Tamil or English).\n\n"
-        "SCRIPT:\n"
-        "1. Greet: \"Hello [name], this is Karthik from Excess Renew Solar."
-        " Reshma from our team mentioned you're interested in a solar installation"
-        " — congratulations on taking this step!\"\n"
-        "2. Confirm details from verification call (property type, electricity bill, location).\n"
-        "3. Present solution:\n"
-        "   - System size recommendation based on bill\n"
-        "   - Savings estimate (payback period: typically 3-4 years)\n"
-        "   - Current government subsidy (PM-KUSUM or state scheme)\n"
-        "   - Highlight: 500+ installations, 25-year panel warranty, in-house installation team\n"
-        "4. Close:\n"
-        "   - If ready → schedule site survey: call scheduleAppointment\n"
-        "   - If needs time → set a callback: call scheduleFollowUp\n"
-        "   - If not interested → call updateLeadStage(\"INVALID\")\n\n"
-        "TONE: Consultative, confident. Never pushy. Keep under 5 minutes."
-    ),
-    "RESHMA_FOLLOWUP": (
-        "You are Reshma, a friendly follow-up executive at Excess Renew Solar.\n\n"
-        "OBJECTIVE: Re-engage leads who requested a follow-up or went cold after initial contact.\n\n"
-        "LANGUAGE: Match the customer's language (Tamil or English).\n\n"
-        "SCRIPT:\n"
-        "1. Greet: \"Hello [name], this is Reshma from Excess Renew Solar."
-        " I'm calling as we had scheduled — hope this is a good time?\"\n"
-        "2. Reference the previous conversation.\n"
-        "3. Check current interest:\n"
-        "   - Still interested → re-qualify and connect with Karthik → call updateLeadStage(\"QUALIFIED\")\n"
-        "   - Needs more time → reschedule: call rescheduleFollowUp\n"
-        "   - Not interested → call updateLeadStage(\"INVALID\")\n\n"
-        "TONE: Warm, patient. Keep it conversational."
-    ),
-}
+DEFAULT_PROMPT = (
+    "You are an AI voice agent for Excess Renew Solar, a leading solar energy company"
+    " in Tamil Nadu with 500+ successful installations since 2009.\n\n"
+    "OBJECTIVE: Handle all stages of the lead lifecycle — verify new enquiries, convert"
+    " qualified leads, and re-engage follow-up leads.\n\n"
+    "LANGUAGE: Match the customer's language (Tamil or English). You may greet in both.\n\n"
+    "LEAD STAGE HANDLING:\n\n"
+    "NEW LEADS — Verify & Qualify:\n"
+    '1. Greet: "Hello, namaskar! Am I speaking with [name]? This is Reshma calling from Excess Renew Solar."\n'
+    '2. Confirm interest: "We received your enquiry about solar installation. Is this a good time to talk?"\n'
+    "3. Qualify (ask 2-3 questions max):\n"
+    "   - Property type: residential / commercial / industrial?\n"
+    "   - Monthly electricity bill (approximate)?\n"
+    "   - Location/city?\n"
+    "4. Based on answers:\n"
+    '   - Interested and qualified → call updateLeadStage("QUALIFIED")\n'
+    "   - Needs follow-up later → call scheduleFollowUp with the agreed time\n"
+    '   - Wrong number / not interested → call updateLeadStage("WRONG_ENQUIRY")\n'
+    '   - Invalid contact → call updateLeadStage("INVALID")\n\n'
+    "QUALIFIED LEADS — Sales Conversion:\n"
+    '1. Greet: "Hello [name], I\'m calling from Excess Renew Solar regarding your solar enquiry."\n'
+    "2. Confirm their property type, electricity bill, and location.\n"
+    "3. Present the solution:\n"
+    "   - Recommend system size based on their bill\n"
+    "   - Savings estimate (payback period: typically 3-4 years)\n"
+    "   - Current government subsidy (PM-KUSUM or state scheme)\n"
+    "   - Highlight: 500+ installations, 25-year panel warranty, in-house installation team\n"
+    "4. Close:\n"
+    "   - Ready to proceed → schedule site survey: call scheduleAppointment\n"
+    "   - Needs time → set a callback: call scheduleFollowUp\n"
+    '   - Not interested → call updateLeadStage("INVALID")\n\n'
+    "FOLLOW-UP LEADS — Re-engagement:\n"
+    '1. Greet: "Hello [name], I\'m calling from Excess Renew Solar as scheduled — hope this is a good time?"\n'
+    "2. Reference the previous conversation.\n"
+    "3. Check current interest:\n"
+    '   - Still interested → re-qualify and call updateLeadStage("QUALIFIED")\n'
+    "   - Needs more time → reschedule: call rescheduleFollowUp\n"
+    '   - Not interested → call updateLeadStage("INVALID")\n\n'
+    "ALWAYS: Use getLeadInfo at the start of every call to personalise the greeting.\n"
+    "TONE: Warm, helpful, never pushy. Keep calls focused and under 5 minutes."
+)
 
 # ── CRM HTTP helper ────────────────────────────────────────────────────────────
 
@@ -130,11 +111,11 @@ async def crm_post(
         return resp.json()  # type: ignore[return-value]
 
 
-# ── Persona agent classes ──────────────────────────────────────────────────────
+# ── Single unified agent ───────────────────────────────────────────────────────
 
 
-class ReshmaVerifyAgent(Agent):
-    """Lead verification persona — qualifies new solar enquiries."""
+class ExcessAgent(Agent):
+    """Unified Excess Renew voice agent — handles verification, sales, and follow-up."""
 
     def __init__(
         self, *, call_id: str, tenant_id: str, lead_id: str, instructions: str
@@ -146,6 +127,45 @@ class ReshmaVerifyAgent(Agent):
 
     async def on_enter(self) -> None:
         await self.session.generate_reply()
+
+    # ── Lead info ──────────────────────────────────────────────────────────────
+
+    @function_tool
+    async def get_lead_info(self, run_ctx: RunContext) -> dict[str, Any]:
+        """Fetch the lead's name, phone, city, current stage, and language from the CRM."""
+        result = await crm_post(
+            "getLeadInfo", self._call_id, self._tenant_id, self._lead_id
+        )
+        logger.info("get_lead_info lead=%s", self._lead_id)
+        return result.get("data") or {}
+
+    @function_tool
+    async def get_product_info(self, run_ctx: RunContext, category: str) -> dict[str, Any]:
+        """Retrieve solar product details for a category.
+
+        Args:
+            category: One of residential, commercial, industrial, offgrid.
+        """
+        result = await crm_post(
+            "getProductInfo",
+            self._call_id,
+            self._tenant_id,
+            self._lead_id,
+            {"category": category},
+        )
+        logger.info("get_product_info category=%s lead=%s", category, self._lead_id)
+        return result.get("data") or {}
+
+    @function_tool
+    async def get_follow_up_context(self, run_ctx: RunContext) -> dict[str, Any]:
+        """Retrieve the lead's previous call history and recent activity for context."""
+        result = await crm_post(
+            "getFollowUpContext", self._call_id, self._tenant_id, self._lead_id
+        )
+        logger.info("get_follow_up_context lead=%s", self._lead_id)
+        return result.get("data") or {}
+
+    # ── Stage transitions ──────────────────────────────────────────────────────
 
     @function_tool
     async def update_lead_stage(
@@ -170,6 +190,25 @@ class ReshmaVerifyAgent(Agent):
         return result.get("message", "ok")
 
     @function_tool
+    async def update_conversion_status(self, run_ctx: RunContext, status: str) -> str:
+        """Record the final outcome of a follow-up call.
+
+        Args:
+            status: One of CONVERTED, INVALID, RESCHEDULED.
+        """
+        result = await crm_post(
+            "updateConversionStatus",
+            self._call_id,
+            self._tenant_id,
+            self._lead_id,
+            {"status": status},
+        )
+        logger.info("update_conversion_status status=%s lead=%s", status, self._lead_id)
+        return result.get("message", "ok")
+
+    # ── Scheduling ─────────────────────────────────────────────────────────────
+
+    @function_tool
     async def schedule_follow_up(self, run_ctx: RunContext, scheduled_at: str) -> str:
         """Schedule a follow-up call for a time the customer has agreed to.
 
@@ -184,118 +223,25 @@ class ReshmaVerifyAgent(Agent):
             self._lead_id,
             {"scheduledAt": scheduled_at},
         )
-        logger.info(
-            "schedule_follow_up scheduledAt=%s lead=%s", scheduled_at, self._lead_id
-        )
+        logger.info("schedule_follow_up scheduledAt=%s lead=%s", scheduled_at, self._lead_id)
         return result.get("message", "ok")
 
     @function_tool
-    async def get_lead_info(self, run_ctx: RunContext) -> dict[str, Any]:
-        """Fetch the lead's name, phone, city, current stage, and language from the CRM."""
-        result = await crm_post(
-            "getLeadInfo", self._call_id, self._tenant_id, self._lead_id
-        )
-        logger.info("get_lead_info lead=%s", self._lead_id)
-        return result.get("data") or {}
-
-    @function_tool
-    async def get_product_info(self, run_ctx: RunContext, category: str) -> dict[str, Any]:
-        """Retrieve solar product details for a category.
+    async def reschedule_follow_up(self, run_ctx: RunContext, scheduled_at: str) -> str:
+        """Reschedule a follow-up to a new time agreed with the customer.
 
         Args:
-            category: One of residential, commercial, industrial, offgrid.
+            scheduled_at: ISO-8601 datetime for the rescheduled follow-up.
         """
         result = await crm_post(
-            "getProductInfo",
-            self._call_id,
-            self._tenant_id,
-            self._lead_id,
-            {"category": category},
-        )
-        logger.info("get_product_info category=%s lead=%s", category, self._lead_id)
-        return result.get("data") or {}
-
-
-class KarthikSalesAgent(Agent):
-    """Sales conversion persona — closes qualified leads for site surveys."""
-
-    def __init__(
-        self, *, call_id: str, tenant_id: str, lead_id: str, instructions: str
-    ) -> None:
-        super().__init__(instructions=instructions)
-        self._call_id = call_id
-        self._tenant_id = tenant_id
-        self._lead_id = lead_id
-
-    async def on_enter(self) -> None:
-        await self.session.generate_reply()
-
-    @function_tool
-    async def update_lead_stage(
-        self,
-        run_ctx: RunContext,
-        stage: str,
-        scheduled_at: str | None = None,
-    ) -> str:
-        """Update the lead's pipeline stage in the CRM.
-
-        Args:
-            stage: New stage — one of QUALIFIED, NOT_ANSWERED, INVALID, WRONG_ENQUIRY, FOLLOW_UP.
-            scheduled_at: ISO-8601 datetime (required when stage is FOLLOW_UP).
-        """
-        payload: dict[str, Any] = {"stage": stage}
-        if scheduled_at:
-            payload["scheduledAt"] = scheduled_at
-        result = await crm_post(
-            "updateLeadStage", self._call_id, self._tenant_id, self._lead_id, payload
-        )
-        logger.info("update_lead_stage stage=%s lead=%s", stage, self._lead_id)
-        return result.get("message", "ok")
-
-    @function_tool
-    async def schedule_follow_up(self, run_ctx: RunContext, scheduled_at: str) -> str:
-        """Schedule a follow-up call for a time the customer has agreed to.
-
-        Args:
-            scheduled_at: ISO-8601 datetime when the follow-up should occur.
-        """
-        result = await crm_post(
-            "scheduleFollowUp",
+            "rescheduleFollowUp",
             self._call_id,
             self._tenant_id,
             self._lead_id,
             {"scheduledAt": scheduled_at},
         )
-        logger.info(
-            "schedule_follow_up scheduledAt=%s lead=%s", scheduled_at, self._lead_id
-        )
+        logger.info("reschedule_follow_up scheduledAt=%s lead=%s", scheduled_at, self._lead_id)
         return result.get("message", "ok")
-
-    @function_tool
-    async def get_lead_info(self, run_ctx: RunContext) -> dict[str, Any]:
-        """Fetch the lead's name, phone, city, current stage, and language from the CRM."""
-        result = await crm_post(
-            "getLeadInfo", self._call_id, self._tenant_id, self._lead_id
-        )
-        logger.info("get_lead_info lead=%s", self._lead_id)
-        return result.get("data") or {}
-
-    @function_tool
-    async def get_product_info(self, run_ctx: RunContext, category: str) -> dict[str, Any]:
-        """Retrieve solar product details for a category.
-
-        Args:
-            category: One of residential, commercial, industrial, offgrid.
-        """
-        result = await crm_post(
-            "getProductInfo",
-            self._call_id,
-            self._tenant_id,
-            self._lead_id,
-            {"category": category},
-        )
-        logger.info("get_product_info category=%s lead=%s", category, self._lead_id)
-        return result.get("data") or {}
 
     @function_tool
     async def schedule_appointment(
@@ -323,128 +269,8 @@ class KarthikSalesAgent(Agent):
                 "surveyType": survey_type,
             },
         )
-        logger.info(
-            "schedule_appointment scheduledAt=%s lead=%s", scheduled_at, self._lead_id
-        )
+        logger.info("schedule_appointment scheduledAt=%s lead=%s", scheduled_at, self._lead_id)
         return result.get("data") or {}
-
-
-class ReshmaFollowupAgent(Agent):
-    """Follow-up re-engagement persona — contacts leads that went cold."""
-
-    def __init__(
-        self, *, call_id: str, tenant_id: str, lead_id: str, instructions: str
-    ) -> None:
-        super().__init__(instructions=instructions)
-        self._call_id = call_id
-        self._tenant_id = tenant_id
-        self._lead_id = lead_id
-
-    async def on_enter(self) -> None:
-        await self.session.generate_reply()
-
-    @function_tool
-    async def update_lead_stage(
-        self,
-        run_ctx: RunContext,
-        stage: str,
-        scheduled_at: str | None = None,
-    ) -> str:
-        """Update the lead's pipeline stage in the CRM.
-
-        Args:
-            stage: New stage — one of QUALIFIED, NOT_ANSWERED, INVALID, WRONG_ENQUIRY, FOLLOW_UP.
-            scheduled_at: ISO-8601 datetime (required when stage is FOLLOW_UP).
-        """
-        payload: dict[str, Any] = {"stage": stage}
-        if scheduled_at:
-            payload["scheduledAt"] = scheduled_at
-        result = await crm_post(
-            "updateLeadStage", self._call_id, self._tenant_id, self._lead_id, payload
-        )
-        logger.info("update_lead_stage stage=%s lead=%s", stage, self._lead_id)
-        return result.get("message", "ok")
-
-    @function_tool
-    async def get_lead_info(self, run_ctx: RunContext) -> dict[str, Any]:
-        """Fetch the lead's name, phone, city, current stage, and language from the CRM."""
-        result = await crm_post(
-            "getLeadInfo", self._call_id, self._tenant_id, self._lead_id
-        )
-        logger.info("get_lead_info lead=%s", self._lead_id)
-        return result.get("data") or {}
-
-    @function_tool
-    async def get_follow_up_context(self, run_ctx: RunContext) -> dict[str, Any]:
-        """Retrieve the lead's previous call history and recent activity for context."""
-        result = await crm_post(
-            "getFollowUpContext", self._call_id, self._tenant_id, self._lead_id
-        )
-        logger.info("get_follow_up_context lead=%s", self._lead_id)
-        return result.get("data") or {}
-
-    @function_tool
-    async def update_conversion_status(self, run_ctx: RunContext, status: str) -> str:
-        """Record the outcome of this follow-up call.
-
-        Args:
-            status: One of CONVERTED, INVALID, RESCHEDULED.
-        """
-        result = await crm_post(
-            "updateConversionStatus",
-            self._call_id,
-            self._tenant_id,
-            self._lead_id,
-            {"status": status},
-        )
-        logger.info(
-            "update_conversion_status status=%s lead=%s", status, self._lead_id
-        )
-        return result.get("message", "ok")
-
-    @function_tool
-    async def reschedule_follow_up(self, run_ctx: RunContext, scheduled_at: str) -> str:
-        """Reschedule this follow-up to a new time agreed with the customer.
-
-        Args:
-            scheduled_at: ISO-8601 datetime for the rescheduled follow-up.
-        """
-        result = await crm_post(
-            "rescheduleFollowUp",
-            self._call_id,
-            self._tenant_id,
-            self._lead_id,
-            {"scheduledAt": scheduled_at},
-        )
-        logger.info(
-            "reschedule_follow_up scheduledAt=%s lead=%s", scheduled_at, self._lead_id
-        )
-        return result.get("message", "ok")
-
-
-# ── Agent factory ──────────────────────────────────────────────────────────────
-
-_AGENT_CLASSES: dict[str, type[Agent]] = {
-    "RESHMA_VERIFY": ReshmaVerifyAgent,
-    "KARTHIK_SALES": KarthikSalesAgent,
-    "RESHMA_FOLLOWUP": ReshmaFollowupAgent,
-}
-
-
-def _build_agent(
-    persona_id: str,
-    call_id: str,
-    tenant_id: str,
-    lead_id: str,
-    instructions: str,
-) -> Agent:
-    cls = _AGENT_CLASSES.get(persona_id, ReshmaVerifyAgent)
-    return cls(
-        call_id=call_id,
-        tenant_id=tenant_id,
-        lead_id=lead_id,
-        instructions=instructions,
-    )
 
 
 # ── Server setup & prewarm ─────────────────────────────────────────────────────
@@ -489,9 +315,8 @@ async def entrypoint(ctx: JobContext) -> None:
         tenant_id,
     )
 
-    # Fetch active config from CRM; fall back to built-in defaults on any error
-    system_prompt = DEFAULT_PROMPTS.get(persona_id, DEFAULT_PROMPTS["RESHMA_VERIFY"])
-    voice_id = DEFAULT_VOICE_IDS.get(persona_id, "EXAVITQu4vr4xnSDxMaL")
+    system_prompt = DEFAULT_PROMPT
+    voice_id = DEFAULT_VOICE_ID
 
     try:
         config_resp = await crm_post("getActiveConfig", call_id, tenant_id, lead_id)
@@ -512,7 +337,6 @@ async def entrypoint(ctx: JobContext) -> None:
             exc,
         )
 
-    # Build media pipeline
     vad: silero.VAD = ctx.proc.userdata["vad"]
     session = AgentSession(
         stt=sarvam.STT(
@@ -531,10 +355,13 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=vad,
     )
 
-    agent = _build_agent(persona_id, call_id, tenant_id, lead_id, system_prompt)
+    agent = ExcessAgent(
+        call_id=call_id,
+        tenant_id=tenant_id,
+        lead_id=lead_id,
+        instructions=system_prompt,
+    )
 
-    # Register disconnect handler before starting the session so we never miss
-    # the event. Any participant leaving the room means the call has ended.
     @ctx.room.on("participant_disconnected")
     def _on_disconnect(participant: rtc.RemoteParticipant) -> None:
         asyncio.ensure_future(

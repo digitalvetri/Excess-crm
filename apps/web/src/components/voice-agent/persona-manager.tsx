@@ -53,28 +53,22 @@ interface ElevenLabsVoice {
 const PERSONA_META: Record<string, {
   name: string; subtitle: string; role: string; trigger: string; defaultVoiceId: string;
 }> = {
-  RESHMA_VERIFY: {
-    name: 'Reshma', subtitle: 'Verify',
-    role: 'Lead Verification', trigger: 'New lead arrives', defaultVoiceId: 'mk-tamil-v1',
-  },
-  KARTHIK_SALES: {
-    name: 'Karthik', subtitle: 'Sales',
-    role: 'Sales Conversion', trigger: 'Qualified → +30 min', defaultVoiceId: 'edapadi',
-  },
-  RESHMA_FOLLOWUP: {
-    name: 'Reshma', subtitle: 'Follow-up',
-    role: 'Re-engagement', trigger: 'Scheduled follow-up', defaultVoiceId: 'mk-tamil-v1',
+  EXCESS_AGENT: {
+    name: 'Excess AI', subtitle: 'Agent',
+    role: 'Verify · Convert · Follow-up', trigger: 'Every call', defaultVoiceId: 'EXAVITQu4vr4xnSDxMaL',
   },
 };
 
 const DEFAULT_PROMPTS: Record<string, string> = {
-  RESHMA_VERIFY: `You are Reshma, a friendly and professional customer relations executive at Excess Renew, a leading solar energy company in Tamil Nadu with 500+ successful installations since 2009.
+  EXCESS_AGENT: `You are an AI voice agent for Excess Renew Solar, a leading solar energy company in Tamil Nadu with 500+ successful installations since 2009.
 
-OBJECTIVE: Verify new enquiries and qualify leads for solar installations.
+OBJECTIVE: Handle all stages of the lead lifecycle — verify new enquiries, convert qualified leads, and re-engage follow-up leads.
 
-LANGUAGE: Match the customer's language (Tamil or English). Greet in both.
+LANGUAGE: Match the customer's language (Tamil or English). You may greet in both.
 
-SCRIPT:
+LEAD STAGE HANDLING:
+
+NEW LEADS — Verify & Qualify:
 1. Greet: "Hello, namaskar! Am I speaking with [name]? This is Reshma calling from Excess Renew Solar."
 2. Confirm interest: "We received your enquiry about solar installation. Is this a good time to talk?"
 3. Qualify (ask 2-3 questions max):
@@ -82,52 +76,37 @@ SCRIPT:
    - Monthly electricity bill (approximate)?
    - Location/city?
 4. Based on answers:
-   - If interested and qualified → call updateLeadStage("QUALIFIED")
-   - If interested but needs follow-up later → call scheduleFollowUp with a time they mention
-   - If wrong number / not interested → call updateLeadStage("WRONG_ENQUIRY")
-   - If invalid contact → call updateLeadStage("INVALID")
+   - Interested and qualified → call updateLeadStage("QUALIFIED")
+   - Needs follow-up later → call scheduleFollowUp with the agreed time
+   - Wrong number / not interested → call updateLeadStage("WRONG_ENQUIRY")
+   - Invalid contact → call updateLeadStage("INVALID")
 
-TONE: Warm, helpful, not pushy. Keep calls under 3 minutes.`,
-
-  KARTHIK_SALES: `You are Karthik, a confident and knowledgeable solar sales consultant at Excess Renew.
-
-OBJECTIVE: Convert qualified leads into committed customers by presenting tailored solar proposals.
-
-LANGUAGE: Match the customer's language (Tamil or English).
-
-SCRIPT:
-1. Greet: "Hello [name], this is Karthik from Excess Renew Solar. Reshma from our team mentioned you're interested in a solar installation — congratulations on taking this step!"
-2. Confirm details from verification call (property type, electricity bill, location).
-3. Present solution:
-   - System size recommendation based on bill
+QUALIFIED LEADS — Sales Conversion:
+1. Greet: "Hello [name], I'm calling from Excess Renew Solar regarding your solar enquiry."
+2. Confirm their property type, electricity bill, and location.
+3. Present the solution:
+   - Recommend system size based on their bill
    - Savings estimate (payback period: typically 3-4 years)
    - Current government subsidy (PM-KUSUM or state scheme)
    - Highlight: 500+ installations, 25-year panel warranty, in-house installation team
 4. Close:
-   - If ready → schedule site survey: call scheduleFollowUp
-   - If needs time → set a callback: call scheduleFollowUp
-   - If not interested → call updateLeadStage("INVALID")
-
-TONE: Consultative, confident. Never pushy. Keep under 5 minutes.`,
-
-  RESHMA_FOLLOWUP: `You are Reshma, a friendly follow-up executive at Excess Renew Solar.
-
-OBJECTIVE: Re-engage leads who requested a follow-up or went cold after initial contact.
-
-LANGUAGE: Match the customer's language (Tamil or English).
-
-SCRIPT:
-1. Greet: "Hello [name], this is Reshma from Excess Renew Solar. I'm calling as we had scheduled — hope this is a good time?"
-2. Reference the previous conversation.
-3. Check current interest:
-   - Still interested → re-qualify and connect with Karthik → call updateLeadStage("QUALIFIED")
-   - Needs more time → reschedule: call scheduleFollowUp
+   - Ready to proceed → schedule site survey: call scheduleAppointment
+   - Needs time → set a callback: call scheduleFollowUp
    - Not interested → call updateLeadStage("INVALID")
 
-TONE: Warm, patient. Keep it conversational.`,
+FOLLOW-UP LEADS — Re-engagement:
+1. Greet: "Hello [name], I'm calling from Excess Renew Solar as scheduled — hope this is a good time?"
+2. Reference the previous conversation.
+3. Check current interest:
+   - Still interested → re-qualify and call updateLeadStage("QUALIFIED")
+   - Needs more time → reschedule: call rescheduleFollowUp
+   - Not interested → call updateLeadStage("INVALID")
+
+ALWAYS: Use getLeadInfo at the start of every call to personalise the greeting.
+TONE: Warm, helpful, never pushy. Keep calls focused and under 5 minutes.`,
 };
 
-const PERSONAS = ['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP'] as const;
+const PERSONAS = ['EXCESS_AGENT'] as const;
 type PersonaId = (typeof PERSONAS)[number];
 
 const DEFAULT_VOICE_CONFIG: Required<VoiceConfig> = {
@@ -136,7 +115,7 @@ const DEFAULT_VOICE_CONFIG: Required<VoiceConfig> = {
   sttProvider: 'sarvam',
   llmProvider: 'groq/llama-3.3-70b-versatile',
   ttsProvider: 'elevenlabs',
-  voiceId: 'mk-tamil-v1',
+  voiceId: 'EXAVITQu4vr4xnSDxMaL',
   responseTiming: 'balanced',
   voiceSpeed: 1.0,
   allowInterruptions: true,
@@ -842,69 +821,19 @@ function PersonaEditor({ personaId, configs }: {
 export function PersonaManager() {
   const { data, isLoading } = useVoiceAgentConfigs();
   const configs = data ?? [];
-  const [selectedPersonaId, setSelectedPersonaId] = useState<PersonaId>('RESHMA_VERIFY');
 
   if (isLoading) {
     return (
-      <div className="flex bg-white rounded-xl border border-border overflow-hidden" style={{ minHeight: '600px' }}>
-        <div className="w-60 border-r border-border bg-slate-50 animate-pulse flex-shrink-0" />
-        <div className="flex-1 animate-pulse" />
-      </div>
+      <div className="bg-white rounded-xl border border-border overflow-hidden animate-pulse" style={{ minHeight: '600px' }} />
     );
   }
 
-  const activeConfig = configs.find((c) => c.personaId === selectedPersonaId && c.isActive);
-  const editorKey = `${selectedPersonaId}-${activeConfig?.id ?? 'none'}`;
+  const activeConfig = configs.find((c) => c.personaId === 'EXCESS_AGENT' && c.isActive);
+  const editorKey = `EXCESS_AGENT-${activeConfig?.id ?? 'none'}`;
 
   return (
     <div className="flex bg-white rounded-xl border border-border overflow-hidden" style={{ minHeight: '640px' }}>
-      {/* Left panel: persona list */}
-      <div className="w-60 border-r border-border flex-shrink-0 flex flex-col bg-slate-50/60">
-        <div className="px-4 py-3 border-b border-border">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Personas</p>
-        </div>
-        <nav className="flex-1 py-2">
-          {PERSONAS.map((pid) => {
-            const m = PERSONA_META[pid]!;
-            const ac = configs.find((c) => c.personaId === pid && c.isActive);
-            const selected = pid === selectedPersonaId;
-            return (
-              <button
-                key={pid}
-                onClick={() => setSelectedPersonaId(pid)}
-                className={`w-full text-left px-4 py-3.5 transition-colors border-r-[3px] ${
-                  selected
-                    ? 'bg-primary/5 border-primary'
-                    : 'hover:bg-slate-100 border-transparent'
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className={`text-sm font-semibold ${selected ? 'text-primary' : 'text-slate-800'}`}>
-                      {m.name}{' '}
-                      <span className={`font-normal ${selected ? 'text-primary/70' : 'text-slate-400'}`}>
-                        · {m.subtitle}
-                      </span>
-                    </p>
-                    <p className="text-xs text-slate-500 mt-0.5">{m.role}</p>
-                  </div>
-                  {ac ? (
-                    <span className="flex items-center gap-0.5 text-xs text-emerald-600 font-medium flex-shrink-0 ml-1 mt-0.5">
-                      <CheckCircle size={11} /> v{ac.version}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-slate-400 flex-shrink-0 ml-1 mt-0.5">Draft</span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-400 mt-1.5 truncate">{m.trigger}</p>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      {/* Right panel: editor (key forces clean remount on persona switch or save) */}
-      <PersonaEditor key={editorKey} personaId={selectedPersonaId} configs={configs} />
+      <PersonaEditor key={editorKey} personaId="EXCESS_AGENT" configs={configs} />
     </div>
   );
 }

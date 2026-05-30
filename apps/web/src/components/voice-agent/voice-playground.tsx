@@ -11,7 +11,7 @@ import { api } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type PersonaId = 'RESHMA_VERIFY' | 'KARTHIK_SALES' | 'RESHMA_FOLLOWUP';
+type PersonaId = 'EXCESS_AGENT';
 
 interface HistoryItem { role: 'user' | 'assistant'; content: string }
 interface ToolCall { name: string; args: Record<string, unknown>; result: unknown }
@@ -36,9 +36,7 @@ type CallState = 'idle' | 'connecting' | 'active' | 'ended';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const PERSONAS: Array<{ id: PersonaId; label: string; short: string }> = [
-  { id: 'RESHMA_VERIFY',   label: 'Reshma — Verify',    short: 'Reshma Verify' },
-  { id: 'KARTHIK_SALES',   label: 'Karthik — Sales',    short: 'Karthik Sales' },
-  { id: 'RESHMA_FOLLOWUP', label: 'Reshma — Follow-up', short: 'Reshma Follow-up' },
+  { id: 'EXCESS_AGENT', label: 'Excess AI Agent', short: 'Excess Agent' },
 ];
 
 const STAGES = ['NEW', 'QUALIFIED', 'FOLLOW_UP', 'NOT_ANSWERED', 'CONVERTED', 'INVALID', 'WRONG_ENQUIRY'];
@@ -111,7 +109,7 @@ function CallTimer({ startTime }: { startTime: number }) {
 
 export function VoicePlayground() {
   // Text chat state
-  const [personaId, setPersonaId] = useState<PersonaId>('RESHMA_VERIFY');
+  const [personaId] = useState<PersonaId>('EXCESS_AGENT');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [input, setInput] = useState('');
@@ -266,28 +264,16 @@ export function VoicePlayground() {
     setMuted(next);
   }
 
-  const activePersona = PERSONAS.find((p) => p.id === personaId)!;
+  const activePersona = PERSONAS[0]!;
 
   return (
     <div className="flex flex-col gap-5">
       {/* Hidden audio container */}
       <div ref={audioContainerRef} className="hidden" aria-hidden />
 
-      {/* Persona selector */}
+      {/* Toolbar */}
       <div className="flex items-center gap-3">
-        <label className="text-xs font-semibold text-slate-500 whitespace-nowrap">Select agent to test:</label>
-        <div className="relative">
-          <select
-            value={personaId}
-            onChange={(e) => { setPersonaId(e.target.value as PersonaId); clearChat(); }}
-            className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 cursor-pointer shadow-sm"
-          >
-            {PERSONAS.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </select>
-          <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        </div>
+        <span className="text-xs font-semibold text-slate-500">{activePersona.label}</span>
         <div className="flex-1" />
         <button
           onClick={saveTranscript}

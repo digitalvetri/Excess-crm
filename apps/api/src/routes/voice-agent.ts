@@ -30,11 +30,9 @@ const upsertSettingsSchema = z.object({
 // ─── Playground helpers ───────────────────────────────────────────────────────
 
 function playgroundDefaultPrompt(
-  personaId: string,
   lead: { name: string; phone: string; city: string; stage: string },
 ): string {
-  const name = personaId === 'KARTHIK_SALES' ? 'Karthik' : 'Reshma';
-  return `You are ${name}, a friendly solar energy sales assistant at Excess Renew Tech, Coimbatore. You speak Tamil primarily but switch to English when asked. You are helpful, knowledgeable, and professional.
+  return `You are an AI voice agent for Excess Renew Solar, a leading solar energy company in Tamil Nadu with 500+ successful installations since 2009. You speak Tamil primarily but switch to English when asked. You are helpful, knowledgeable, and professional.
 
 Current lead:
 - Name: ${lead.name}
@@ -42,11 +40,11 @@ Current lead:
 - City: ${lead.city}
 - Stage: ${lead.stage}
 
-[PLAYGROUND MODE — this is a simulation, no real calls are made. Respond naturally as the ${personaId} persona.]`;
+[PLAYGROUND MODE — this is a simulation, no real calls are made. Use getLeadInfo to personalise your greeting, then handle the lead according to their current stage.]`;
 }
 
-function playgroundTools(personaId: string): object[] {
-  const tools: object[] = [
+function playgroundTools(): object[] {
+  return [
     {
       type: 'function',
       function: {
@@ -98,10 +96,7 @@ function playgroundTools(personaId: string): object[] {
         },
       },
     },
-  ];
-
-  if (personaId === 'KARTHIK_SALES') {
-    tools.push({
+    {
       type: 'function',
       function: {
         name: 'scheduleAppointment',
@@ -116,37 +111,44 @@ function playgroundTools(personaId: string): object[] {
           required: ['scheduledAt', 'siteAddress', 'surveyType'],
         },
       },
-    });
-  }
-
-  if (personaId === 'RESHMA_FOLLOWUP') {
-    tools.push(
-      {
-        type: 'function',
-        function: {
-          name: 'getFollowUpContext',
-          description: 'Get previous call history and activities for context',
-          parameters: { type: 'object', properties: {}, required: [] },
-        },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'getFollowUpContext',
+        description: 'Get previous call history and activities for context',
+        parameters: { type: 'object', properties: {}, required: [] },
       },
-      {
-        type: 'function',
-        function: {
-          name: 'rescheduleFollowUp',
-          description: 'Reschedule the follow-up to a later time',
-          parameters: {
-            type: 'object',
-            properties: {
-              scheduledAt: { type: 'string', description: 'New ISO8601 datetime' },
-            },
-            required: ['scheduledAt'],
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'rescheduleFollowUp',
+        description: 'Reschedule the follow-up to a later time',
+        parameters: {
+          type: 'object',
+          properties: {
+            scheduledAt: { type: 'string', description: 'New ISO8601 datetime' },
           },
+          required: ['scheduledAt'],
         },
       },
-    );
-  }
-
-  return tools;
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'updateConversionStatus',
+        description: 'Record the final outcome of a follow-up call',
+        parameters: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['CONVERTED', 'INVALID', 'RESCHEDULED'] },
+          },
+          required: ['status'],
+        },
+      },
+    },
+  ];
 }
 
 function playgroundSimulateTool(
@@ -175,7 +177,7 @@ function playgroundSimulateTool(
     case 'getFollowUpContext':
       return {
         activities: [{ type: 'STAGE_CHANGE', payload: { newStage: 'FOLLOW_UP' }, createdAt: new Date().toISOString() }],
-        previousCalls: [{ persona: 'RESHMA_VERIFY', status: 'COMPLETED', durationSec: 45 }],
+        previousCalls: [{ persona: 'EXCESS_AGENT', status: 'COMPLETED', durationSec: 45 }],
       };
     case 'rescheduleFollowUp':
       return { success: true, scheduledAt: args['scheduledAt'], note: '[SIMULATED]' };
@@ -423,7 +425,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
 
     const parsed = z
       .object({
-        personaId: z.enum(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP']),
+        personaId: z.enum(['EXCESS_AGENT']),
         systemPrompt: z.string().min(10).max(20000),
         voiceConfig: voiceConfigSchema.optional(),
       })
@@ -500,7 +502,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { leadId } = req.params as { leadId: string };
-    const { persona = 'RESHMA_VERIFY' } = req.body as { persona?: string };
+    const { persona = 'EXCESS_AGENT' } = req.body as { persona?: string };
 
     const lead = await req.withTenant((tx) =>
       tx.lead.findUnique({ where: { id: leadId }, select: { id: true, tenantId: true } }),
@@ -548,7 +550,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { personaId } = req.params as { personaId: string };
-    const validPersonas = ['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP'];
+    const validPersonas = ['EXCESS_AGENT'];
     if (!validPersonas.includes(personaId)) {
       return reply.code(400).send({ error: { code: 'invalid_persona', message: 'Invalid personaId' } });
     }
@@ -570,7 +572,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     const sttProvider = (vc['sttProvider'] as string | undefined) ?? 'sarvam';
     const llmProvider = (vc['llmProvider'] as string | undefined) ?? 'google/gemini-2.5-flash';
     const ttsProvider = (vc['ttsProvider'] as string | undefined) ?? 'elevenlabs';
-    const voiceId = (vc['voiceId'] as string | undefined) ?? (personaId === 'KARTHIK_SALES' ? 'edapadi' : 'mk-tamil-v1');
+    const voiceId = (vc['voiceId'] as string | undefined) ?? 'EXAVITQu4vr4xnSDxMaL';
     const voiceSpeed = (vc['voiceSpeed'] as number | undefined) ?? 1.0;
     const language = (vc['language'] as string | undefined) ?? 'ta';
     const firstMessage = vc['firstMessage'] as string | undefined;
@@ -597,7 +599,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
           provider: modelProvider,
           model: modelName,
           messages: [{ role: 'system', content: activeConfig.systemPrompt }],
-          tools: `[${personaId} tools — ${personaId === 'RESHMA_VERIFY' ? 'getLeadInfo, updateLeadStage, scheduleFollowUp, getProductInfo' : personaId === 'KARTHIK_SALES' ? 'getLeadInfo, updateLeadStage, scheduleAppointment, getProductInfo, scheduleFollowUp' : 'getLeadInfo, getFollowUpContext, updateConversionStatus, rescheduleFollowUp, scheduleFollowUp'} → ${webhookUrl}]`,
+          tools: `[EXCESS_AGENT tools — getLeadInfo, updateLeadStage, scheduleFollowUp, scheduleAppointment, getProductInfo, getFollowUpContext, rescheduleFollowUp, updateConversionStatus → ${webhookUrl}]`,
         },
         voice: {
           provider: ttsProvider === 'elevenlabs' ? '11labs' : ttsProvider,
@@ -636,7 +638,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     const parsed = z.object({
       phone: z.string().min(10).max(15),
       name: z.string().default('Test Lead'),
-      personaId: z.enum(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP']),
+      personaId: z.enum(['EXCESS_AGENT']),
     }).safeParse(req.body);
 
     if (!parsed.success) {
@@ -979,7 +981,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
           await req.server.redis.publish('schedule:followup', JSON.stringify({
             leadId,
             tenantId,
-            personaId: 'RESHMA_FOLLOWUP',
+            personaId: 'EXCESS_AGENT',
             delayMs,
           }));
 
@@ -1139,7 +1141,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
           await req.server.redis.publish('schedule:followup', JSON.stringify({
             leadId,
             tenantId,
-            personaId: 'RESHMA_FOLLOWUP',
+            personaId: 'EXCESS_AGENT',
             delayMs: rfDelayMs,
           }));
 
@@ -1190,7 +1192,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
             const retryDelayMs = retryHours * 60 * 60 * 1000;
             await app.queues.voiceDial.add(
               'voice-dial',
-              { leadId, tenantId, personaId: 'RESHMA_VERIFY' },
+              { leadId, tenantId, personaId: 'EXCESS_AGENT' },
               { delay: retryDelayMs },
             );
             req.log.info({ tenantId, callId, leadId, retryHours }, 'agent_function.callEnded.retry_scheduled');
@@ -1273,7 +1275,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     });
 
     const parsed = z.object({
-      personaId: z.enum(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP']),
+      personaId: z.enum(['EXCESS_AGENT']),
       message: z.string().min(1).max(2000),
       history: z.array(historyItemSchema).default([]),
       simulatedLead: z.object({
@@ -1301,7 +1303,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
       }),
     );
 
-    const systemPrompt = activeConfig?.systemPrompt ?? playgroundDefaultPrompt(personaId, simulatedLead);
+    const systemPrompt = activeConfig?.systemPrompt ?? playgroundDefaultPrompt(simulatedLead);
 
     interface GroqToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
     interface GroqMessage { role: string; content: string | null; tool_calls?: GroqToolCall[] }
@@ -1314,7 +1316,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
       { role: 'user', content: message },
     ];
 
-    const tools = playgroundTools(personaId);
+    const tools = playgroundTools();
     const toolCallLog: Array<{ name: string; args: Record<string, unknown>; result: unknown }> = [];
 
     let finalReply = '';
@@ -1384,7 +1386,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const parsed = z.object({
-      personaId: z.enum(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP']),
+      personaId: z.enum(['EXCESS_AGENT']),
     }).safeParse(req.body);
 
     if (!parsed.success) {

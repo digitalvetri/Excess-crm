@@ -908,6 +908,10 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
         }
 
         case 'updateLeadStage': {
+          if (callId.startsWith('playground-')) {
+            req.log.info({ callId, tenantId }, 'agent_function.updateLeadStage.playground');
+            return reply.send({ data: { success: true }, message: 'ok' });
+          }
           const stagePayload = actionPayload as { stage?: unknown; scheduledAt?: unknown };
           const stageSchema = z.object({
             stage: z.enum(['QUALIFIED', 'NOT_ANSWERED', 'INVALID', 'WRONG_ENQUIRY', 'FOLLOW_UP', 'CONVERTED']),
@@ -940,6 +944,10 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
         }
 
         case 'scheduleFollowUp': {
+          if (callId.startsWith('playground-')) {
+            req.log.info({ callId, tenantId }, 'agent_function.scheduleFollowUp.playground');
+            return reply.send({ data: { success: true }, message: 'ok' });
+          }
           const fpPayload = actionPayload as { scheduledAt?: unknown };
           const fpSchema = z.object({ scheduledAt: z.string() });
           const fpResult = fpSchema.safeParse(fpPayload);
@@ -990,6 +998,10 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
         }
 
         case 'scheduleAppointment': {
+          if (callId.startsWith('playground-')) {
+            req.log.info({ callId, tenantId }, 'agent_function.scheduleAppointment.playground');
+            return reply.send({ data: { success: true, appointmentId: 'playground', scheduledAt: (actionPayload as Record<string, unknown>).scheduledAt }, message: 'ok' });
+          }
           const apptPayload = actionPayload as { scheduledAt?: unknown; siteAddress?: unknown; surveyType?: unknown };
           const apptSchema = z.object({
             scheduledAt: z.string(),
@@ -1059,6 +1071,10 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
         }
 
         case 'updateConversionStatus': {
+          if (callId.startsWith('playground-')) {
+            req.log.info({ callId, tenantId }, 'agent_function.updateConversionStatus.playground');
+            return reply.send({ data: { success: true }, message: 'ok' });
+          }
           const csPayload = actionPayload as { status?: unknown };
           const stageMap: Record<string, string> = {
             CONVERTED: 'CONVERTED',
@@ -1092,6 +1108,10 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
         }
 
         case 'rescheduleFollowUp': {
+          if (callId.startsWith('playground-')) {
+            req.log.info({ callId, tenantId }, 'agent_function.rescheduleFollowUp.playground');
+            return reply.send({ data: { success: true }, message: 'ok' });
+          }
           const rfPayload = actionPayload as { scheduledAt?: unknown };
           const rfSchema = z.object({ scheduledAt: z.string() });
           const rfResult = rfSchema.safeParse(rfPayload);
@@ -1128,6 +1148,12 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
         }
 
         case 'callEnded': {
+          // Playground calls have no DB record — return success without touching DB
+          if (callId.startsWith('playground-')) {
+            req.log.info({ callId, tenantId }, 'agent_function.callEnded.playground');
+            return reply.send({ data: { success: true }, message: 'ok' });
+          }
+
           const cePayload = actionPayload as { endedAt?: unknown; durationSec?: unknown; endReason?: unknown };
           const endedAt = typeof cePayload.endedAt === 'string' ? new Date(cePayload.endedAt) : new Date();
           const durationSec = typeof cePayload.durationSec === 'number' ? Math.round(cePayload.durationSec) : null;

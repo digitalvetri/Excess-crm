@@ -313,6 +313,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-0.5" aria-label="Main navigation">
           <NavItem link={SOLO_TOP} pathname={pathname} onNavigate={closeMobile} />
 
+          {/* Show skeleton bars while auth is resolving so nav never looks blank */}
+          {visibleGroups.length === 0 && (
+            <div className="pt-4 space-y-1 px-1">
+              <div className="h-2 w-16 bg-slate-100 rounded mb-3" />
+              {[80, 64, 72, 80, 64].map((w, i) => (
+                <div key={i} className="flex items-center gap-2.5 px-3 py-2">
+                  <div className="w-4 h-4 rounded bg-slate-100 shrink-0" />
+                  <div className={`h-3 bg-slate-100 rounded`} style={{ width: w }} />
+                </div>
+              ))}
+            </div>
+          )}
+
           {visibleGroups.length > 0 && (
             <div className="pt-4 pb-1 px-1">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Modules</p>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { UserRole } from '@excess/shared';
@@ -16,13 +17,12 @@ export interface AuthUser {
 
 const AUTH_CACHE_KEY = 'excess.auth.me';
 
-function readCachedUser(): AuthUser | undefined {
-  if (typeof window === 'undefined') return undefined;
+function readCachedUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(AUTH_CACHE_KEY);
-    return raw ? (JSON.parse(raw) as AuthUser) : undefined;
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
   } catch {
-    return undefined;
+    return null;
   }
 }
 
@@ -43,23 +43,33 @@ function clearCachedUser() {
 }
 
 export function useAuth() {
+  // Always null on both server and client during SSR — prevents hydration mismatch.
+  // Populated from localStorage after mount, then replaced by the API response.
+  const [snapshot, setSnapshot] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    const cached = readCachedUser();
+    if (cached) setSnapshot(cached);
+  }, []);
+
   const { data, isLoading } = useQuery({
     queryKey: ['auth', 'me'],
     queryFn: async () => {
       const res = await api.get<{ data: AuthUser }>('/auth/me');
       writeCachedUser(res.data.data);
+      setSnapshot(res.data.data);
       return res.data.data;
     },
-    // Seed from localStorage so the sidebar renders immediately on every page load
-    initialData: readCachedUser,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
+  const user = data ?? snapshot;
+
   return {
-    user: data ?? null,
-    role: (data?.role ?? null) as UserRole | null,
-    isLoading,
+    user,
+    role: (user?.role ?? null) as UserRole | null,
+    isLoading: isLoading && !snapshot,
     clearCache: clearCachedUser,
   };
 }

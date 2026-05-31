@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import type React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle, Loader2, AlertCircle, Mic, Brain, Volume2, Zap,
   Settings2, ChevronDown, Check, Lock, Upload, Plus, RefreshCw, Clock,
+  Play, Square,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { api } from '@/lib/api';
@@ -299,18 +300,39 @@ function DynamicVoicePicker({ voiceId, onChange }: {
   onChange: (v: string) => void;
 }) {
   const [showUpload, setShowUpload] = useState(false);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const { data: voices, isLoading, refetch } = useVoices();
 
   const cloned = voices?.filter((v) => v.category === 'cloned') ?? [];
   const premade = voices?.filter((v) => v.category !== 'cloned') ?? [];
   const all = [...cloned, ...premade];
 
+  function handlePreview(e: React.MouseEvent, voice: ElevenLabsVoice) {
+    e.stopPropagation();
+    if (!voice.preview_url) return;
+
+    if (playingId === voice.voice_id) {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      setPlayingId(null);
+      return;
+    }
+
+    audioRef.current?.pause();
+    const audio = new Audio(voice.preview_url);
+    audioRef.current = audio;
+    setPlayingId(voice.voice_id);
+    audio.play().catch(() => setPlayingId(null));
+    audio.onended = () => setPlayingId(null);
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
         <div>
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Voice</p>
-          <p className="text-xs text-slate-400 mt-0.5">Cloned voices appear first</p>
+          <p className="text-xs text-slate-400 mt-0.5">Cloned voices appear first · click ▶ to preview</p>
         </div>
         <button
           onClick={() => void refetch()}
@@ -333,11 +355,12 @@ function DynamicVoicePicker({ voiceId, onChange }: {
         <div className="grid grid-cols-2 gap-2 mb-4">
           {all.map((voice) => {
             const selected = voiceId === voice.voice_id;
+            const isPlaying = playingId === voice.voice_id;
             return (
-              <button
+              <div
                 key={voice.voice_id}
                 onClick={() => onChange(voice.voice_id)}
-                className={`flex items-start justify-between px-3 py-2.5 rounded-lg border text-left transition-all ${
+                className={`flex items-start justify-between px-3 py-2.5 rounded-lg border text-left transition-all cursor-pointer ${
                   selected
                     ? 'border-primary/50 bg-primary/5 ring-1 ring-primary/30'
                     : 'border-slate-200 bg-white hover:border-slate-300'
@@ -355,9 +378,22 @@ function DynamicVoicePicker({ voiceId, onChange }: {
                   }`}>
                     {voice.category === 'cloned' ? 'Cloned' : 'EL'}
                   </span>
+                  {voice.preview_url && (
+                    <button
+                      onClick={(e) => handlePreview(e, voice)}
+                      title={isPlaying ? 'Stop preview' : 'Play preview'}
+                      className={`p-1 rounded-full transition-colors ${
+                        isPlaying
+                          ? 'bg-primary text-white'
+                          : 'text-slate-400 hover:text-primary hover:bg-primary/10'
+                      }`}
+                    >
+                      {isPlaying ? <Square size={10} fill="currentColor" /> : <Play size={10} fill="currentColor" />}
+                    </button>
+                  )}
                   {selected && <Check size={13} className="text-primary flex-shrink-0" />}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>

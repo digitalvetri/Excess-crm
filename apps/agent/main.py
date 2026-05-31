@@ -340,7 +340,7 @@ async def entrypoint(ctx: JobContext) -> None:
     vad: silero.VAD = ctx.proc.userdata["vad"]
     session = AgentSession(
         stt=sarvam.STT(
-            language="en-IN",
+            language="ta-IN",
             model="saaras:v3",
             mode="transcribe",
             sample_rate=16000,

@@ -304,8 +304,13 @@ function DynamicVoicePicker({ voiceId, onChange }: {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const { data: voices, isLoading, refetch } = useVoices();
 
+  const TAMIL_LANGS = new Set(['ta', 'ta-in', 'tamil']);
+  const isTamil = (v: ElevenLabsVoice) => {
+    const lang = (v.labels?.['language'] ?? v.labels?.['accent'] ?? '').toLowerCase();
+    return TAMIL_LANGS.has(lang) || lang.includes('tamil');
+  };
   const cloned = voices?.filter((v) => v.category === 'cloned') ?? [];
-  const premade = voices?.filter((v) => v.category !== 'cloned') ?? [];
+  const premade = voices?.filter((v) => v.category !== 'cloned' && isTamil(v)) ?? [];
   const all = [...cloned, ...premade];
 
   function handlePreview(e: React.MouseEvent, voice: ElevenLabsVoice) {
@@ -349,7 +354,7 @@ function DynamicVoicePicker({ voiceId, onChange }: {
         </div>
       ) : all.length === 0 ? (
         <div className="py-4 text-center text-xs text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-          No voices found — check your ElevenLabs API key or upload one below
+          No Tamil voices found — upload a cloned voice below to get started
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2 mb-4">

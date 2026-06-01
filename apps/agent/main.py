@@ -358,23 +358,31 @@ async def entrypoint(ctx: JobContext) -> None:
             exc,
         )
 
-    # Pre-fetch lead info so the LLM can greet by name on the first turn
+    # Pre-fetch lead info so the first greeting is personalised
     lead_context = ""
     try:
         lead_resp = await crm_post("getLeadInfo", call_id, tenant_id, lead_id)
         lead_data: dict[str, Any] = lead_resp.get("data") or {}
         if lead_data:
+            name = lead_data.get("name") or "sir"
+            stage = lead_data.get("stage") or "NEW"
+            city = lead_data.get("city") or ""
+            city_str = f" ({city})" if city else ""
+            stage_map = {
+                "NEW": "new enquiry — verify and qualify",
+                "QUALIFIED": "already qualified — focus on sales conversion",
+                "FOLLOW_UP": "follow-up — re-engage, check interest",
+                "NOT_ANSWERED": "not answered before — try again warmly",
+            }
+            stage_hint = stage_map.get(stage, "new enquiry")
             lead_context = (
-                "\n\nLEAD CONTEXT (use this to personalise your opening greeting):\n"
-                f"- Name: {lead_data.get('name', 'the customer')}\n"
-                f"- Stage: {lead_data.get('stage', 'NEW')}\n"
-                f"- City: {lead_data.get('city', '')}\n"
-                f"- Language preference: {lead_data.get('language', 'Tamil')}\n"
-                "Open the call by greeting this person by name right now."
+                f"\n\n[CALL BRIEF — do NOT read this aloud]\n"
+                f"Customer: {name}{city_str} | Stage: {stage} ({stage_hint})\n"
+                f"Start immediately with your warm Tanglish greeting using their name '{name}'."
             )
-            logger.info("lead_context_prefetched lead=%s stage=%s", lead_id, lead_data.get("stage"))
+            logger.info("lead_context_prefetched lead=%s stage=%s", lead_id, stage)
     except Exception as exc:
-        logger.warning("lead prefetch failed lead=%s error=%s — will use get_lead_info tool", lead_id, exc)
+        logger.warning("lead prefetch failed lead=%s error=%s", lead_id, exc)
 
     system_prompt = system_prompt + lead_context
 

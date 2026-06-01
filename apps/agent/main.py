@@ -26,7 +26,7 @@ from livekit.agents import (
     cli,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import groq, sarvam, silero
+from livekit.plugins import elevenlabs, groq, sarvam, silero
 
 logger = logging.getLogger("excess-crm-agent")
 logger.setLevel(logging.INFO)
@@ -36,7 +36,7 @@ logger.setLevel(logging.INFO)
 CRM_API_URL: str = os.environ["CRM_API_URL"].rstrip("/")
 AGENT_WEBHOOK_SECRET: str = os.environ["AGENT_WEBHOOK_SECRET"]
 
-DEFAULT_SPEAKER = "kavitha"  # Sarvam Tamil female voice
+DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # ElevenLabs Sarah — eleven_multilingual_v2 handles Tanglish
 
 # ── Default system prompt ──────────────────────────────────────────────────────
 
@@ -337,7 +337,7 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     system_prompt = DEFAULT_PROMPT
-    speaker = DEFAULT_SPEAKER
+    voice_id = DEFAULT_VOICE_ID
 
     try:
         config_resp = await crm_post("getActiveConfig", call_id, tenant_id, lead_id)
@@ -345,8 +345,7 @@ async def entrypoint(ctx: JobContext) -> None:
         if config_data:
             system_prompt = config_data.get("systemPrompt") or system_prompt
             vc: dict[str, Any] = config_data.get("voiceConfig") or {}
-            # voiceId field used as Sarvam speaker name when it matches a known speaker
-            speaker = vc.get("voiceId") or speaker
+            voice_id = vc.get("voiceId") or voice_id
             logger.info(
                 "active_config_loaded persona=%s version=%s",
                 persona_id,
@@ -390,14 +389,9 @@ async def entrypoint(ctx: JobContext) -> None:
             flush_signal=True,           # faster STT finalization
         ),
         llm=groq.LLM(model="llama-3.1-8b-instant"),  # 3x faster than 70b for conversational replies
-        tts=sarvam.TTS(
-            target_language_code="ta-IN",
-            model="bulbul:v1",           # v1 is faster than v3
-            speaker=speaker,
-            pace=1.0,
-            loudness=1.5,
-            enable_preprocessing=True,
-            min_buffer_size=30,          # start speaking sooner
+        tts=elevenlabs.TTS(
+            voice_id=voice_id,
+            model="eleven_multilingual_v2",
         ),
         vad=vad,
         min_endpointing_delay=0.3,       # react faster when customer stops speaking

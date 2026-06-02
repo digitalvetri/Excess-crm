@@ -6,7 +6,10 @@ import {
   Mic, MicOff, Phone, PhoneOff, Activity, Zap, Volume2, AlertCircle,
   Download,
 } from 'lucide-react';
-import { Room, RoomEvent, Track, ConnectionState, type RemoteTrack } from 'livekit-client';
+import {
+  Room, RoomEvent, Track, ConnectionState,
+  type RemoteTrack, type TranscriptionSegment, type Participant,
+} from 'livekit-client';
 import { api } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,6 +35,13 @@ interface SimulatedLead {
 }
 
 type CallState = 'idle' | 'connecting' | 'active' | 'ended';
+
+interface TranscriptLine {
+  id: string;
+  speaker: 'user' | 'agent';
+  text: string;
+  final: boolean;
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -123,11 +133,14 @@ export function VoicePlayground() {
   const [callStart, setCallStart] = useState(0);
   const [callError, setCallError] = useState<string | null>(null);
   const [agentSpeaking, setAgentSpeaking] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState<TranscriptLine[]>([]);
   const roomRef = useRef<Room | null>(null);
   const audioContainerRef = useRef<HTMLDivElement>(null);
+  const transcriptBottomRef = useRef<HTMLDivElement>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { transcriptBottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [liveTranscript]);
 
   // ── Cleanup on unmount ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -183,6 +196,7 @@ export function VoicePlayground() {
   const startVoiceCall = useCallback(async () => {
     setCallError(null);
     setCallState('connecting');
+    setLiveTranscript([]);
 
     try {
       const res = await api.post('/voice-agent/playground/voice-room', { personaId });
@@ -231,6 +245,26 @@ export function VoicePlayground() {
         setCallState('ended');
         setAgentSpeaking(false);
         setTimeout(() => setCallState('idle'), 3000);
+      });
+
+      room.on(RoomEvent.TranscriptionReceived, (
+        segments: TranscriptionSegment[],
+        participant?: Participant,
+      ) => {
+        const isAgent = !!participant && participant.identity !== room.localParticipant.identity;
+        const speaker: 'user' | 'agent' = isAgent ? 'agent' : 'user';
+        setLiveTranscript((prev) => {
+          let next = [...prev];
+          for (const seg of segments) {
+            const idx = next.findIndex((l) => l.id === seg.id);
+            if (idx !== -1) {
+              next[idx] = { ...next[idx]!, text: seg.text, final: seg.final };
+            } else {
+              next = [...next, { id: seg.id, speaker, text: seg.text, final: seg.final }];
+            }
+          }
+          return next;
+        });
       });
 
       await room.connect(wsUrl, token);
@@ -391,25 +425,67 @@ export function VoicePlayground() {
           </div>
 
           {/* Live Transcription */}
-          <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4">
+          <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4 flex flex-col" style={{ minHeight: 180 }}>
             <div className="flex items-center gap-2 mb-3">
-              <Zap size={14} className="text-slate-400" />
+              <Zap size={14} className={callState === 'active' ? 'text-green-500 animate-pulse' : 'text-slate-400'} />
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Live Transcription</span>
-            </div>
-            <div className="min-h-[52px] flex flex-col items-center justify-center rounded-lg bg-slate-50 border border-slate-100 p-3">
-              {callState === 'active' ? (
-                <>
-                  <VoiceWaveform active={agentSpeaking} />
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    {agentSpeaking ? 'Agent speaking…' : 'Listening…'}
-                  </p>
-                </>
-              ) : (
-                <p className="text-xs text-slate-400 text-center">
-                  Sarvam streaming. Click mic to start.
-                </p>
+              {callState === 'active' && (
+                <span className="ml-auto flex items-center gap-1 text-[10px] font-semibold text-green-600">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  LIVE
+                </span>
               )}
             </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 rounded-lg bg-slate-50 border border-slate-100 p-3" style={{ maxHeight: 220 }}>
+              {liveTranscript.length === 0 ? (
+                <div className="flex items-center justify-center h-full py-4">
+                  {callState === 'active' ? (
+                    <div className="text-center">
+                      <VoiceWaveform active={agentSpeaking} />
+                      <p className="text-[11px] text-slate-400 mt-2">
+                        {agentSpeaking ? 'Agent speaking…' : 'Listening…'}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 text-center">
+                      Transcription appears here during a voice call.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                liveTranscript.map((line) => (
+                  <div key={line.id} className={`flex gap-2 ${line.speaker === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold ${line.speaker === 'agent' ? 'bg-primary/10 text-primary' : 'bg-slate-200 text-slate-600'}`}>
+                      {line.speaker === 'agent' ? 'AI' : 'U'}
+                    </div>
+                    <div className={`max-w-[85%] px-2.5 py-1.5 rounded-xl text-[11px] leading-relaxed ${
+                      line.speaker === 'agent'
+                        ? 'bg-primary/10 text-primary rounded-tl-none'
+                        : 'bg-slate-200 text-slate-700 rounded-tr-none'
+                    } ${!line.final ? 'opacity-60 italic' : ''}`}>
+                      {line.text}
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={transcriptBottomRef} />
+            </div>
+
+            {liveTranscript.length > 0 && callState !== 'active' && (
+              <button
+                onClick={() => {
+                  const text = liveTranscript.map((l) => `${l.speaker === 'agent' ? 'Agent' : 'You'}: ${l.text}`).join('\n');
+                  const blob = new Blob([text], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a'); a.href = url; a.download = `voice-transcript-${Date.now()}.txt`; a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="mt-2 flex items-center justify-center gap-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-700 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+              >
+                <Download size={11} /> Save voice transcript
+              </button>
+            )}
           </div>
 
           {/* Voice Call */}

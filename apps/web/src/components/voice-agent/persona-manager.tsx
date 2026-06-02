@@ -236,10 +236,32 @@ function RangeSlider({ label, value, min, max, step = 1, unit = '', onChange, fo
 
 // ─── Voice Upload Form ─────────────────────────────────────────────────────────
 
+const ALLOWED_AUDIO_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/m4a', 'audio/aac', 'audio/flac', 'audio/x-m4a'];
+
 function VoiceUploadForm({ onSuccess }: { onSuccess: (voiceId: string) => void }) {
   const [name, setName] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState('');
   const createVoice = useCreateVoice();
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files ?? []);
+    const invalid = selected.filter((f) => {
+      const mime = f.type.toLowerCase();
+      const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
+      const validExt = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext);
+      const validMime = ALLOWED_AUDIO_TYPES.includes(mime) || mime.startsWith('audio/');
+      return !validExt && !validMime;
+    });
+    if (invalid.length > 0) {
+      setFileError(`"${invalid[0]!.name}" is not an audio file. Please upload mp3, wav, m4a, or ogg files — not video files.`);
+      setFiles([]);
+      e.target.value = '';
+      return;
+    }
+    setFileError('');
+    setFiles(selected);
+  }
 
   async function handleUpload() {
     if (!name.trim() || files.length === 0) return;
@@ -260,31 +282,41 @@ function VoiceUploadForm({ onSuccess }: { onSuccess: (voiceId: string) => void }
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Selvi, Murugan, Reshma HD…"
+          placeholder="e.g. Reshma, Selvi, Murugan…"
           className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
         />
       </div>
       <div>
-        <label className="text-xs text-slate-500 mb-1 block">Audio Samples (2–25 clips, clear speech)</label>
+        <label className="text-xs text-slate-500 mb-1 block">
+          Audio Samples — mp3, wav, m4a, ogg only (min 1 min of clear speech)
+        </label>
         <input
           type="file"
           multiple
-          accept="audio/*"
-          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,audio/*"
+          onChange={handleFileChange}
           className="w-full text-xs text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:text-xs file:border file:border-slate-200 file:rounded-lg file:text-primary file:bg-white hover:file:bg-primary/5 file:cursor-pointer"
         />
         {files.length > 0 && (
-          <p className="text-xs text-slate-500 mt-1">{files.length} file{files.length > 1 ? 's' : ''} selected</p>
+          <p className="text-xs text-green-600 mt-1">✓ {files.length} audio file{files.length > 1 ? 's' : ''} selected</p>
         )}
+        {fileError && (
+          <p className="text-xs text-rose-600 mt-1 flex items-start gap-1">
+            <AlertCircle size={12} className="shrink-0 mt-0.5" /> {fileError}
+          </p>
+        )}
+        <p className="text-[10px] text-slate-400 mt-1.5">
+          Tip: Send a WhatsApp voice note to yourself → download the .ogg file → upload here
+        </p>
       </div>
       {createVoice.isError && (
         <p className="text-xs text-rose-600 flex items-center gap-1">
-          <AlertCircle size={12} /> {(createVoice.error as Error)?.message ?? 'Upload failed'}
+          <AlertCircle size={12} /> {(createVoice.error as Error)?.message ?? 'Upload failed — check file format'}
         </p>
       )}
       <button
-        onClick={handleUpload}
-        disabled={!name.trim() || files.length === 0 || createVoice.isPending}
+        onClick={() => void handleUpload()}
+        disabled={!name.trim() || files.length === 0 || createVoice.isPending || !!fileError}
         className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
       >
         {createVoice.isPending

@@ -310,8 +310,11 @@ function VoiceUploadForm({ onSuccess }: { onSuccess: (voiceId: string) => void }
         </p>
       </div>
       {createVoice.isError && (
-        <p className="text-xs text-rose-600 flex items-center gap-1">
-          <AlertCircle size={12} /> {(createVoice.error as Error)?.message ?? 'Upload failed — check file format'}
+        <p className="text-xs text-rose-600 flex items-start gap-1">
+          <AlertCircle size={12} className="shrink-0 mt-0.5" />
+          {(createVoice.error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+            ?? (createVoice.error as Error)?.message
+            ?? 'Upload failed'}
         </p>
       )}
       <button

@@ -6,6 +6,14 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// Let FormData requests set their own Content-Type (with boundary)
+api.interceptors.request.use((config) => {
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
+  return config;
+});
+
 api.interceptors.response.use(
   (res) => res,
   (error) => {

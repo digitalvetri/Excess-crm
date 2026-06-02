@@ -26,7 +26,7 @@ from livekit.agents import (
     cli,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import elevenlabs, groq, sarvam, silero
+from livekit.plugins import groq, sarvam, silero
 
 logger = logging.getLogger("excess-crm-agent")
 logger.setLevel(logging.INFO)
@@ -36,7 +36,7 @@ logger.setLevel(logging.INFO)
 CRM_API_URL: str = os.environ["CRM_API_URL"].rstrip("/")
 AGENT_WEBHOOK_SECRET: str = os.environ["AGENT_WEBHOOK_SECRET"]
 
-DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # ElevenLabs Sarah — eleven_multilingual_v2 handles Tanglish
+DEFAULT_SPEAKER = "anushka"  # Sarvam bulbul:v2 Tamil female voice (warm, natural)
 
 # ── Default system prompt ──────────────────────────────────────────────────────
 
@@ -315,7 +315,10 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     system_prompt = DEFAULT_PROMPT
-    voice_id = DEFAULT_VOICE_ID
+    speaker = DEFAULT_SPEAKER
+
+    # Sarvam bulbul:v2 valid speakers — used to validate the configured voice
+    valid_speakers = {"anushka", "manisha", "vidya", "arya", "abhilash", "karun", "hitesh"}
 
     try:
         config_resp = await crm_post("getActiveConfig", call_id, tenant_id, lead_id)
@@ -323,7 +326,10 @@ async def entrypoint(ctx: JobContext) -> None:
         if config_data:
             system_prompt = config_data.get("systemPrompt") or system_prompt
             vc: dict[str, Any] = config_data.get("voiceConfig") or {}
-            voice_id = vc.get("voiceId") or voice_id
+            # voiceId field carries the Sarvam speaker name; fall back if not a valid v2 speaker
+            cfg_voice = vc.get("voiceId")
+            if cfg_voice in valid_speakers:
+                speaker = cfg_voice
             logger.info(
                 "active_config_loaded persona=%s version=%s",
                 persona_id,
@@ -375,18 +381,13 @@ async def entrypoint(ctx: JobContext) -> None:
             flush_signal=True,           # faster STT finalization
         ),
         llm=groq.LLM(model="llama-3.3-70b-versatile"),
-        tts=elevenlabs.TTS(
-            voice_id=voice_id,
-            model="eleven_turbo_v2_5",      # best multilingual model, lower latency
-            voice_settings=elevenlabs.VoiceSettings(
-                stability=0.35,             # expressive, natural variation in tone
-                similarity_boost=0.85,      # stays close to the base voice character
-                style=0.25,                 # adds warmth and personality
-                speed=0.92,                 # slightly slower — clearer word pronunciation
-                use_speaker_boost=True,     # crisper, cleaner audio output
-            ),
-            apply_language_text_normalization=True,  # better number/word pronunciation
-            auto_mode=True,                 # sentence-by-sentence — more natural pacing
+        tts=sarvam.TTS(
+            target_language_code="ta-IN",   # native Tamil — correct pronunciation
+            model="bulbul:v2",              # v2 is the working stable model
+            speaker=speaker,                # Tamil voice character (anushka/vidya/etc)
+            speech_sample_rate=22050,
+            pace=1.0,                       # natural speaking speed
+            enable_preprocessing=True,      # normalises mixed Tamil+English text
         ),
         vad=vad,
         min_endpointing_delay=0.3,       # react faster when customer stops speaking

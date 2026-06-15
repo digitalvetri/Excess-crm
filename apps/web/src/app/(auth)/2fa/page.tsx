@@ -17,7 +17,7 @@ export default function TwoFactorPage() {
     setLoading(true);
     try {
       const preAuthToken = sessionStorage.getItem('preAuthToken') ?? '';
-      await api.post('/auth/2fa/verify', { preAuthToken, totp: code });
+      await api.post('/auth/2fa/verify', { preAuthToken, code });
       sessionStorage.removeItem('preAuthToken');
       router.push('/dashboard');
     } catch {

@@ -25,7 +25,7 @@ function ResetPasswordForm() {
 
     setLoading(true);
     try {
-      await api.post('/auth/reset-password', { token, newPassword: password });
+      await api.post('/auth/reset-password', { token, password });
       toast.success('Password reset successfully');
       router.push('/login');
     } catch (err: unknown) {

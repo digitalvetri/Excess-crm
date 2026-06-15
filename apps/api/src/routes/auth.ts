@@ -4,6 +4,7 @@ import speakeasy from 'speakeasy';
 import qrcode from 'qrcode';
 import { nanoid } from 'nanoid';
 import { prisma } from '@excess/db';
+import type { UserRole } from '@excess/db';
 import { env } from '@excess/config';
 import {
   loginSchema,
@@ -38,6 +39,42 @@ function recordFail(email: string): void {
 }
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
+  function setSessionCookies(
+    reply: { setCookie: (name: string, value: string, opts: object) => void },
+    token: string,
+    role: UserRole,
+    expiresAt: Date,
+  ) {
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    const domainOpt = isProduction ? { domain: env.COOKIE_DOMAIN } : {};
+
+    reply.setCookie('excess_session', token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      ...domainOpt,
+      expires: expiresAt,
+    });
+
+    // Non-httpOnly so Next.js middleware can read role for route protection
+    reply.setCookie('excess_role', role, {
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      ...domainOpt,
+      expires: expiresAt,
+    });
+  }
+
+  async function createSession(userId: string, tenantId: string, role: UserRole, teamId: string | null) {
+    const token = nanoid(32);
+    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+    await prisma.session.create({ data: { userId, tenantId, role, teamId, token, expiresAt } });
+    return { token, expiresAt };
+  }
+
   // POST /auth/login
   app.post('/login', { config: { public: true } }, async (req, reply) => {
     const parsed = loginSchema.safeParse(req.body);
@@ -70,23 +107,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
     if (user.twoFactorSecret) {
       const preAuthToken = nanoid(48);
-      // TODO: store preAuthToken → userId mapping in Redis (5-min TTL)
+      await app.redis.setex(
+        `preauth:${preAuthToken}`,
+        300,
+        JSON.stringify({ userId: user.id, tenantId: user.tenantId, role: user.role, teamId: user.teamId }),
+      );
       return reply.send({ data: { requiresTwoFactor: true, preAuthToken } });
     }
 
-    const token = nanoid(32);
-    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
-
-    await prisma.session.create({
-      data: {
-        userId: user.id,
-        tenantId: user.tenantId,
-        role: user.role,
-        teamId: user.teamId,
-        token,
-        expiresAt,
-      },
-    });
+    const { token, expiresAt } = await createSession(user.id, user.tenantId, user.role, user.teamId);
 
     await Promise.all([
       prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
@@ -104,27 +133,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }),
     ]);
 
-    const isProduction = process.env['NODE_ENV'] === 'production';
-    const domainOpt = isProduction ? { domain: env.COOKIE_DOMAIN } : {};
-
-    reply.setCookie('excess_session', token, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      path: '/',
-      ...domainOpt,
-      expires: expiresAt,
-    });
-
-    // Non-httpOnly cookie so Next.js middleware can read the role for route protection
-    reply.setCookie('excess_role', user.role, {
-      httpOnly: false,
-      secure: isProduction,
-      sameSite: 'lax',
-      path: '/',
-      ...domainOpt,
-      expires: expiresAt,
-    });
+    setSessionCookies(reply, token, user.role, expiresAt);
 
     return reply.send({
       data: {
@@ -164,15 +173,81 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input' } });
     }
-    // TODO: validate preAuthToken from Redis, fetch userId, verify TOTP, create session
-    return reply.code(501).send({ error: { code: 'not_implemented', message: 'Wire Redis preAuthToken store' } });
+
+    const { preAuthToken, code } = parsed.data;
+
+    const stored = await app.redis.get(`preauth:${preAuthToken}`);
+    if (!stored) {
+      return reply.code(401).send({
+        error: { code: 'auth.2fa_expired', message: 'Session expired — please log in again' },
+      });
+    }
+
+    const { userId, tenantId, role, teamId } = JSON.parse(stored) as {
+      userId: string;
+      tenantId: string;
+      role: UserRole;
+      teamId: string | null;
+    };
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { twoFactorSecret: true, isActive: true, name: true, email: true },
+    });
+
+    if (!user?.isActive || !user.twoFactorSecret) {
+      await app.redis.del(`preauth:${preAuthToken}`);
+      return reply.code(401).send({ error: { code: 'auth.invalid', message: 'Invalid session' } });
+    }
+
+    const valid = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token: code,
+      window: 1,
+    });
+
+    if (!valid) {
+      return reply.code(401).send({
+        error: { code: 'auth.2fa_invalid', message: 'Invalid or expired 2FA code' },
+      });
+    }
+
+    await app.redis.del(`preauth:${preAuthToken}`);
+
+    const { token, expiresAt } = await createSession(userId, tenantId, role, teamId);
+
+    await Promise.all([
+      prisma.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } }),
+      prisma.auditLog.create({
+        data: {
+          tenantId,
+          actorUserId: userId,
+          action: 'auth.login_2fa',
+          entityType: 'User',
+          entityId: userId,
+          diff: {},
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'] ?? null,
+        },
+      }),
+    ]);
+
+    setSessionCookies(reply, token, role, expiresAt);
+
+    return reply.send({
+      data: {
+        user: { id: userId, name: user.name, email: user.email, role, tenantId },
+      },
+    });
   });
 
   // POST /auth/logout
   app.post('/logout', async (req, reply) => {
     const token = req.cookies['excess_session'];
     if (token) await prisma.session.deleteMany({ where: { token } });
-    const domainOpt = process.env['NODE_ENV'] === 'production' ? { domain: env.COOKIE_DOMAIN } : {};
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    const domainOpt = isProduction ? { domain: env.COOKIE_DOMAIN } : {};
     reply.clearCookie('excess_session', { path: '/', ...domainOpt });
     reply.clearCookie('excess_role', { path: '/', ...domainOpt });
     return reply.send({ data: { success: true } });
@@ -202,9 +277,36 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid email' } });
     }
-    req.log.info({ email: parsed.data.email }, 'password reset requested');
-    // TODO: generate token, store in Redis 1h, send via Resend
-    return reply.send({ data: { message: 'If that email is registered, a reset link has been sent.' } });
+
+    const { email } = parsed.data;
+    req.log.info({ email }, 'password reset requested');
+
+    // Always respond with success to prevent email enumeration
+    const SAFE_RESPONSE = { data: { message: 'If that email is registered, a reset link has been sent.' } };
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, name: true, isActive: true },
+    });
+
+    if (!user?.isActive) {
+      return reply.send(SAFE_RESPONSE);
+    }
+
+    const resetToken = nanoid(32);
+    await app.redis.setex(`reset:${resetToken}`, 3600, email);
+
+    const resetLink = `${env.APP_URL}/reset-password?token=${resetToken}`;
+
+    await app.queues.emailSend.add('password-reset', {
+      tenantId: 'system',
+      to: email,
+      subject: 'Reset your Excess CRM password',
+      template: 'PASSWORD_RESET',
+      vars: { name: user.name ?? 'User', resetLink },
+    });
+
+    return reply.send(SAFE_RESPONSE);
   });
 
   // POST /auth/reset-password
@@ -213,7 +315,50 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input' } });
     }
-    // TODO: validate token from Redis, hash new password, update user, delete token
-    return reply.code(501).send({ error: { code: 'not_implemented', message: 'Wire Redis token validation' } });
+
+    const { token, password } = parsed.data;
+
+    const email = await app.redis.get(`reset:${token}`);
+    if (!email) {
+      return reply.code(400).send({
+        error: { code: 'auth.reset_invalid', message: 'Reset link is invalid or has expired' },
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, tenantId: true },
+    });
+
+    if (!user) {
+      return reply.code(400).send({
+        error: { code: 'auth.reset_invalid', message: 'Reset link is invalid or has expired' },
+      });
+    }
+
+    const passwordHash = await argon2.hash(password);
+
+    await Promise.all([
+      prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
+      app.redis.del(`reset:${token}`),
+      prisma.auditLog.create({
+        data: {
+          tenantId: user.tenantId,
+          actorUserId: user.id,
+          action: 'auth.password_reset',
+          entityType: 'User',
+          entityId: user.id,
+          diff: {},
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'] ?? null,
+        },
+      }),
+    ]);
+
+    // Invalidate all active sessions for security
+    await prisma.session.deleteMany({ where: { userId: user.id } });
+
+    req.log.info({ userId: user.id }, 'auth.password_reset_complete');
+    return reply.send({ data: { success: true } });
   });
 };

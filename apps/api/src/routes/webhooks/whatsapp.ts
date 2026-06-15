@@ -118,7 +118,7 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/whatsapp', { config: { public: true } }, async (req, reply) => {
     const signature = req.headers['x-hub-signature-256'] as string | undefined;
-    const rawBody = JSON.stringify(req.body);
+    const rawBody = req.rawBody ?? JSON.stringify(req.body);
 
     if (!signature || !verifyWa(rawBody, signature)) {
       req.log.warn('WhatsApp webhook HMAC mismatch');

@@ -15,27 +15,24 @@ import {
 
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 const LOCKOUT_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+const LOCKOUT_DURATION_SEC = 15 * 60;
 
-const loginAttempts = new Map<string, { count: number; firstAt: number }>();
-
-function isLockedOut(email: string): boolean {
-  const r = loginAttempts.get(email);
-  if (!r) return false;
-  if (Date.now() - r.firstAt > LOCKOUT_DURATION_MS) {
-    loginAttempts.delete(email);
-    return false;
-  }
-  return r.count >= LOCKOUT_ATTEMPTS;
+// Redis-backed brute-force protection — survives restarts and works across multiple API instances
+async function isLockedOut(redis: import('ioredis').Redis, email: string): Promise<boolean> {
+  const count = await redis.get(`lockout:${email}`);
+  return count !== null && parseInt(count, 10) >= LOCKOUT_ATTEMPTS;
 }
 
-function recordFail(email: string): void {
-  const r = loginAttempts.get(email);
-  if (!r || Date.now() - r.firstAt > LOCKOUT_DURATION_MS) {
-    loginAttempts.set(email, { count: 1, firstAt: Date.now() });
-  } else {
-    r.count++;
+async function recordFail(redis: import('ioredis').Redis, email: string): Promise<void> {
+  const key = `lockout:${email}`;
+  const count = await redis.incr(key);
+  if (count === 1) {
+    await redis.expire(key, LOCKOUT_DURATION_SEC);
   }
+}
+
+async function clearLockout(redis: import('ioredis').Redis, email: string): Promise<void> {
+  await redis.del(`lockout:${email}`);
 }
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
@@ -86,7 +83,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
     const { email, password } = parsed.data;
 
-    if (isLockedOut(email)) {
+    if (await isLockedOut(app.redis, email)) {
       req.log.warn({ email }, 'login locked out');
       return reply.code(429).send({
         error: { code: 'auth.locked', message: 'Account locked — try again in 15 minutes' },
@@ -99,11 +96,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     });
 
     if (!user?.isActive || !(await argon2.verify(user.passwordHash, password))) {
-      recordFail(email);
+      await recordFail(app.redis, email);
       return reply.code(401).send({ error: { code: 'auth.invalid', message: 'Invalid credentials' } });
     }
 
-    loginAttempts.delete(email);
+    await clearLockout(app.redis, email);
 
     if (user.twoFactorSecret) {
       const preAuthToken = nanoid(48);

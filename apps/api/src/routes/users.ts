@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import argon2 from 'argon2';
 import { z } from 'zod';
-import { prisma } from '@excess/db';
 import { can } from '@excess/shared';
 
 const createUserBody = z.object({
@@ -51,11 +50,13 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
-    const tenants = await prisma.tenant.findMany({
-      where: { type: 'FRANCHISE', status: 'ACTIVE' },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true, tier: true },
-    });
+    const tenants = await req.withTenant(async (tx) =>
+      tx.tenant.findMany({
+        where: { type: 'FRANCHISE', status: 'ACTIVE' },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, tier: true },
+      }),
+    );
 
     return reply.send({ data: tenants });
   });
@@ -82,29 +83,24 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       ];
     }
 
-    const users = await prisma.user.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: limit + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-        isActive: true,
-        lastLoginAt: true,
-        createdAt: true,
-        tenantId: true,
-        teamId: true,
-        tenant: { select: { id: true, name: true, type: true } },
-        team: { select: { id: true, name: true } },
-      },
-    });
+    const allUsers = await req.withTenant(async (tx) =>
+      tx.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: {
+          id: true, name: true, email: true, phone: true, role: true,
+          isActive: true, lastLoginAt: true, createdAt: true,
+          tenantId: true, teamId: true,
+          tenant: { select: { id: true, name: true, type: true } },
+          team: { select: { id: true, name: true } },
+        },
+      }),
+    );
 
-    const hasMore = users.length > limit;
-    const items = hasMore ? users.slice(0, limit) : users;
+    const hasMore = allUsers.length > limit;
+    const items = hasMore ? allUsers.slice(0, limit) : allUsers;
 
     return reply.send({
       data: items,
@@ -135,10 +131,9 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           error: { code: 'validation_error', message: 'tenantId is required for franchise roles' },
         });
       }
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: parsed.data.tenantId },
-        select: { id: true, type: true },
-      });
+      const tenant = await req.withTenant(async (tx) =>
+        tx.tenant.findUnique({ where: { id: parsed.data.tenantId! }, select: { id: true, type: true } }),
+      );
       if (!tenant || tenant.type !== 'FRANCHISE') {
         return reply.code(400).send({
           error: { code: 'validation_error', message: 'Invalid franchise tenant' },
@@ -147,30 +142,36 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       targetTenantId = parsed.data.tenantId;
     }
 
-    const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
-    if (existing) {
+    const passwordHash = await argon2.hash(password);
+
+    const user = await req.withTenant(async (tx) => {
+      const existing = await tx.user.findUnique({ where: { email }, select: { id: true } });
+      if (existing) return null;
+
+      const created = await tx.user.create({
+        data: { tenantId: targetTenantId, email, name, phone: phone ?? null, role, passwordHash, isActive: true },
+        select: { id: true, email: true, name: true, role: true, tenantId: true, isActive: true, createdAt: true },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          actorUserId: req.auth.userId,
+          action: 'users.create',
+          entityType: 'User',
+          entityId: created.id,
+          diff: { email, name, role, tenantId: targetTenantId },
+        },
+      });
+
+      return created;
+    });
+
+    if (!user) {
       return reply.code(409).send({
         error: { code: 'users.email_taken', message: 'A user with this email already exists' },
       });
     }
-
-    const passwordHash = await argon2.hash(password);
-
-    const user = await prisma.user.create({
-      data: { tenantId: targetTenantId, email, name, phone: phone ?? null, role, passwordHash, isActive: true },
-      select: { id: true, email: true, name: true, role: true, tenantId: true, isActive: true, createdAt: true },
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        tenantId: req.auth.tenantId,
-        actorUserId: req.auth.userId,
-        action: 'users.create',
-        entityType: 'User',
-        entityId: user.id,
-        diff: { email, name, role, tenantId: targetTenantId },
-      },
-    });
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, newUserId: user.id }, 'users.create');
 
@@ -185,16 +186,18 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
 
     const { id } = req.params as { id: string };
 
-    const user = await prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true, name: true, email: true, phone: true, role: true,
-        isActive: true, lastLoginAt: true, createdAt: true, updatedAt: true,
-        tenantId: true, teamId: true,
-        tenant: { select: { id: true, name: true, type: true, status: true } },
-        team: { select: { id: true, name: true } },
-      },
-    });
+    const user = await req.withTenant(async (tx) =>
+      tx.user.findUnique({
+        where: { id },
+        select: {
+          id: true, name: true, email: true, phone: true, role: true,
+          isActive: true, lastLoginAt: true, createdAt: true, updatedAt: true,
+          tenantId: true, teamId: true,
+          tenant: { select: { id: true, name: true, type: true, status: true } },
+          team: { select: { id: true, name: true } },
+        },
+      }),
+    );
 
     if (!user) {
       return reply.code(404).send({ error: { code: 'users.not_found', message: 'User not found' } });
@@ -218,36 +221,44 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    const existing = await prisma.user.findUnique({
-      where: { id },
-      select: { id: true, name: true, role: true, phone: true, teamId: true },
-    });
-    if (!existing) {
-      return reply.code(404).send({ error: { code: 'users.not_found', message: 'User not found' } });
-    }
-
     const updateData: Record<string, unknown> = {};
     if (parsed.data.name !== undefined) updateData['name'] = parsed.data.name;
     if (parsed.data.phone !== undefined) updateData['phone'] = parsed.data.phone ?? null;
     if (parsed.data.role !== undefined) updateData['role'] = parsed.data.role;
     if ('teamId' in parsed.data) updateData['teamId'] = parsed.data.teamId ?? null;
 
-    const user = await prisma.user.update({
-      where: { id },
-      data: updateData,
-      select: { id: true, name: true, email: true, phone: true, role: true, isActive: true, teamId: true, updatedAt: true },
+    const userResult = await req.withTenant(async (tx) => {
+      const existing = await tx.user.findUnique({
+        where: { id },
+        select: { id: true, name: true, role: true, phone: true, teamId: true },
+      });
+      if (!existing) return null;
+
+      const updated = await tx.user.update({
+        where: { id },
+        data: updateData,
+        select: { id: true, name: true, email: true, phone: true, role: true, isActive: true, teamId: true, updatedAt: true },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          actorUserId: req.auth.userId,
+          action: 'users.update',
+          entityType: 'User',
+          entityId: id,
+          diff: JSON.parse(JSON.stringify({ before: existing, after: updateData })) as object,
+        },
+      });
+
+      return updated;
     });
 
-    await prisma.auditLog.create({
-      data: {
-        tenantId: req.auth.tenantId,
-        actorUserId: req.auth.userId,
-        action: 'users.update',
-        entityType: 'User',
-        entityId: id,
-        diff: JSON.parse(JSON.stringify({ before: existing, after: updateData })) as object,
-      },
-    });
+    if (!userResult) {
+      return reply.code(404).send({ error: { code: 'users.not_found', message: 'User not found' } });
+    }
+
+    const user = userResult;
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, targetUserId: id }, 'users.update');
 
@@ -269,28 +280,30 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    const existing = await prisma.user.findUnique({ where: { id }, select: { id: true } });
-    if (!existing) {
-      return reply.code(404).send({ error: { code: 'users.not_found', message: 'User not found' } });
-    }
-
     const passwordHash = await argon2.hash(parsed.data.password);
 
-    await prisma.user.update({ where: { id }, data: { passwordHash } });
+    const found = await req.withTenant(async (tx) => {
+      const existing = await tx.user.findUnique({ where: { id }, select: { id: true } });
+      if (!existing) return false;
 
-    // Invalidate all existing sessions for this user
-    await prisma.session.deleteMany({ where: { userId: id } });
-
-    await prisma.auditLog.create({
-      data: {
-        tenantId: req.auth.tenantId,
-        actorUserId: req.auth.userId,
-        action: 'users.reset_password',
-        entityType: 'User',
-        entityId: id,
-        diff: { note: 'Password reset by admin, sessions invalidated' },
-      },
+      await tx.user.update({ where: { id }, data: { passwordHash } });
+      await tx.session.deleteMany({ where: { userId: id } });
+      await tx.auditLog.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          actorUserId: req.auth.userId,
+          action: 'users.reset_password',
+          entityType: 'User',
+          entityId: id,
+          diff: { note: 'Password reset by admin, sessions invalidated' },
+        },
+      });
+      return true;
     });
+
+    if (!found) {
+      return reply.code(404).send({ error: { code: 'users.not_found', message: 'User not found' } });
+    }
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, targetUserId: id }, 'users.reset_password');
 
@@ -318,31 +331,39 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    const existing = await prisma.user.findUnique({ where: { id }, select: { id: true, isActive: true } });
-    if (!existing) {
+    const statusResult = await req.withTenant(async (tx) => {
+      const existing = await tx.user.findUnique({ where: { id }, select: { id: true, isActive: true } });
+      if (!existing) return null;
+
+      const updated = await tx.user.update({
+        where: { id },
+        data: { isActive: body.isActive as boolean },
+        select: { id: true, isActive: true },
+      });
+
+      if (!body.isActive) {
+        await tx.session.deleteMany({ where: { userId: id } });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          actorUserId: req.auth.userId,
+          action: body.isActive ? 'users.activate' : 'users.deactivate',
+          entityType: 'User',
+          entityId: id,
+          diff: { before: { isActive: existing.isActive }, after: { isActive: body.isActive } },
+        },
+      });
+
+      return updated;
+    });
+
+    if (!statusResult) {
       return reply.code(404).send({ error: { code: 'users.not_found', message: 'User not found' } });
     }
 
-    const user = await prisma.user.update({
-      where: { id },
-      data: { isActive: body.isActive },
-      select: { id: true, isActive: true },
-    });
-
-    if (!body.isActive) {
-      await prisma.session.deleteMany({ where: { userId: id } });
-    }
-
-    await prisma.auditLog.create({
-      data: {
-        tenantId: req.auth.tenantId,
-        actorUserId: req.auth.userId,
-        action: body.isActive ? 'users.activate' : 'users.deactivate',
-        entityType: 'User',
-        entityId: id,
-        diff: { before: { isActive: existing.isActive }, after: { isActive: body.isActive } },
-      },
-    });
+    const user = statusResult;
 
     req.log.info(
       { tenantId: req.auth.tenantId, userId: req.auth.userId, targetUserId: id, isActive: body.isActive },

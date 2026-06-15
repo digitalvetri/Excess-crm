@@ -58,27 +58,23 @@ export const payoutsRoutes: FastifyPluginAsync = async (app) => {
 
     const { commissionIds, bankUtr, paidAt } = parsed.data;
 
-    const commissions = await req.withTenant(async (tx) =>
-      tx.commission.findMany({
+    const payoutDate = paidAt ? new Date(paidAt) : new Date();
+
+    const result = await req.withTenant(async (tx) => {
+      // Fetch and lock commissions inside the same transaction to eliminate race window
+      const commissions = await tx.commission.findMany({
         where:  { id: { in: commissionIds }, status: 'APPROVED' },
         select: { id: true, netPayableInr: true, tenantId: true },
-      }),
-    );
+      });
 
-    if (commissions.length === 0) {
-      return reply.code(400).send({ error: { code: 'payout.no_approved_commissions', message: 'No approved commissions found' } });
-    }
+      if (commissions.length === 0) return { error: 'no_approved' as const };
 
-    const tenantIds = [...new Set(commissions.map((c) => c.tenantId))];
-    if (tenantIds.length > 1) {
-      return reply.code(400).send({ error: { code: 'payout.mixed_tenants', message: 'All commissions must belong to the same franchise' } });
-    }
+      const tenantIds = [...new Set(commissions.map((c) => c.tenantId))];
+      if (tenantIds.length > 1) return { error: 'mixed_tenants' as const };
 
-    const totalAmount = commissions.reduce((sum, c) => sum + Number(c.netPayableInr), 0);
-    const payoutDate  = paidAt ? new Date(paidAt) : new Date();
-    const tenantId    = tenantIds[0]!;
+      const totalAmount = commissions.reduce((sum, c) => sum + Number(c.netPayableInr), 0);
+      const tenantId    = tenantIds[0]!;
 
-    const payout = await req.withTenant(async (tx) => {
       const p = await tx.payout.create({
         data: {
           tenantId,
@@ -89,16 +85,26 @@ export const payoutsRoutes: FastifyPluginAsync = async (app) => {
         },
       });
 
+      // Re-confirm status: APPROVED in the UPDATE to guard against concurrent approvals
       await tx.commission.updateMany({
-        where: { id: { in: commissions.map((c) => c.id) } },
+        where: { id: { in: commissions.map((c) => c.id) }, status: 'APPROVED' },
         data:  { status: 'PAID', paidAt: payoutDate, payoutId: p.id },
       });
 
-      return p;
+      return { payout: p };
     });
 
+    if ('error' in result) {
+      if (result.error === 'no_approved') {
+        return reply.code(400).send({ error: { code: 'payout.no_approved_commissions', message: 'No approved commissions found' } });
+      }
+      return reply.code(400).send({ error: { code: 'payout.mixed_tenants', message: 'All commissions must belong to the same franchise' } });
+    }
+
+    const payout = result.payout;
+
     req.log.info(
-      { tenantId: req.auth.tenantId, userId: req.auth.userId, payoutId: payout.id, amount: totalAmount },
+      { tenantId: req.auth.tenantId, userId: req.auth.userId, payoutId: payout.id, amount: payout.amountInr },
       'payout.created',
     );
     return reply.code(201).send({ data: payout });

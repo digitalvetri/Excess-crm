@@ -92,20 +92,24 @@ export const walletRoutes: FastifyPluginAsync = async (app) => {
         create: { tenantId: req.auth.tenantId, balanceInr: 0 },
       });
 
-      // For DEBIT: check sufficient balance before updating
-      if (type === 'DEBIT') {
-        if (wallet.balanceInr.toNumber() < amountInr) {
-          return { error: 'insufficient_balance' as const };
-        }
-      }
+      let updatedWallet: typeof wallet;
 
-      // Update balance atomically using increment/decrement
-      const updatedWallet = await tx.wallet.update({
-        where: { id: wallet.id },
-        data: {
-          balanceInr: type === 'CREDIT' ? { increment: amountInr } : { decrement: amountInr },
-        },
-      });
+      if (type === 'DEBIT') {
+        // Atomic balance check + decrement prevents overdraft under concurrent requests
+        const affected = await tx.$executeRaw`
+          UPDATE wallets
+          SET balance_inr = balance_inr - ${amountInr}
+          WHERE id = ${wallet.id}::uuid
+            AND balance_inr >= ${amountInr}
+        `;
+        if (affected === 0) return { error: 'insufficient_balance' as const };
+        updatedWallet = await tx.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
+      } else {
+        updatedWallet = await tx.wallet.update({
+          where: { id: wallet.id },
+          data: { balanceInr: { increment: amountInr } },
+        });
+      }
 
       // Create the transaction record
       const txnData = Object.fromEntries(

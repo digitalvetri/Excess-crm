@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import { prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
+import { env } from '@excess/config';
 
 interface ExotelMissedCallPayload {
   CallSid?: string;
@@ -22,7 +23,7 @@ function verifyExotelSignature(secret: string, body: string, signature: string):
 export const exotelWebhookRoutes: FastifyPluginAsync = async (app) => {
   app.post('/exotel/missed-call', { config: { public: true } }, async (req, reply) => {
     // Signature check
-    const secret = process.env['EXOTEL_WEBHOOK_SECRET'];
+    const secret = env.EXOTEL_WEBHOOK_SECRET;
     if (secret) {
       const sig = (req.headers['x-exotel-signature'] as string) ?? '';
       const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
@@ -38,8 +39,8 @@ export const exotelWebhookRoutes: FastifyPluginAsync = async (app) => {
     const callSid = payload.CallSid;
     const status = payload.Status?.toLowerCase();
 
-    // Only process missed/no-answer calls
-    if (status && !['no-answer', 'missed', 'busy', 'failed'].includes(status)) {
+    // Only process missed/no-answer calls; discard answered calls and unknown payloads
+    if (!status || !['no-answer', 'missed', 'busy', 'failed'].includes(status)) {
       return reply.code(200).send('ok');
     }
 
@@ -48,10 +49,10 @@ export const exotelWebhookRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(200).send('ok');
     }
 
-    // Find the tenant by matching their virtual number
+    // Find the tenant by matching their PHONE_INBOUND source virtual number
     const sources = await withSystemContext(prisma, SYSTEM_TENANT_ID, (tx) =>
       tx.leadSource.findMany({
-        where: { type: 'MANUAL', isActive: true },
+        where: { type: 'PHONE_INBOUND', isActive: true },
         select: { id: true, tenantId: true, config: true },
       }),
     );
@@ -62,22 +63,11 @@ export const exotelWebhookRoutes: FastifyPluginAsync = async (app) => {
 
     for (const s of sources) {
       const cfg = s.config as Record<string, unknown>;
-      if (cfg['exotelVirtualNumber'] === calledNumber || calledNumber === process.env['EXOTEL_VIRTUAL_NUMBER']) {
+      if (cfg['exotelVirtualNumber'] === calledNumber || calledNumber === env.EXOTEL_VIRTUAL_NUMBER) {
         tenantId = s.tenantId;
         sourceId = s.id;
         break;
       }
-    }
-
-    // Fall back to first active tenant if no match (single-tenant setup)
-    if (!tenantId) {
-      const firstTenant = await withSystemContext(prisma, SYSTEM_TENANT_ID, (tx) =>
-        tx.tenant.findFirst({
-          where: { status: 'ACTIVE', type: 'HQ' },
-          select: { id: true },
-        }),
-      );
-      tenantId = firstTenant?.id ?? null;
     }
 
     if (!tenantId) {

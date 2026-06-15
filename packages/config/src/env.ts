@@ -39,6 +39,7 @@ const envSchema = z.object({
   EXOTEL_API_TOKEN: z.string().optional(),
   EXOTEL_SUBDOMAIN: z.string().optional(),
   EXOTEL_VIRTUAL_NUMBER: z.string().optional(),
+  EXOTEL_WEBHOOK_SECRET: z.string().optional(),
 
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVENLABS_VOICE_ID_RESHMA: z.string().optional(),

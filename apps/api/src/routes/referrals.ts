@@ -1,5 +1,4 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 
@@ -50,28 +49,28 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
 
     const query = req.query as { status?: string };
 
-    const referrals = await req.withTenant(async (tx) =>
-      tx.referral.findMany({
+    const enriched = await req.withTenant(async (tx) => {
+      const referrals = await tx.referral.findMany({
         where: { ...(query.status && { status: query.status as never }) },
         orderBy: { createdAt: 'desc' },
         include: { referredLead: { select: { name: true, phone: true, stage: true } } },
-      }),
-    );
+      });
 
-    // Enrich with referrer name (referrerId is a lead UUID)
-    const referrerIds = [...new Set(referrals.map((r) => r.referrerId))];
-    const referrerLeads = referrerIds.length > 0
-      ? await prisma.lead.findMany({
-          where: { id: { in: referrerIds } },
-          select: { id: true, name: true, phone: true },
-        })
-      : [];
-    const referrerMap = new Map(referrerLeads.map((l) => [l.id, l]));
+      // Enrich with referrer name (referrerId is a lead UUID)
+      const referrerIds = [...new Set(referrals.map((r) => r.referrerId))];
+      const referrerLeads = referrerIds.length > 0
+        ? await tx.lead.findMany({
+            where: { id: { in: referrerIds } },
+            select: { id: true, name: true, phone: true },
+          })
+        : [];
+      const referrerMap = new Map(referrerLeads.map((l) => [l.id, l]));
 
-    const enriched = referrals.map((r) => ({
-      ...r,
-      referrer: referrerMap.get(r.referrerId) ?? null,
-    }));
+      return referrals.map((r) => ({
+        ...r,
+        referrer: referrerMap.get(r.referrerId) ?? null,
+      }));
+    });
 
     return reply.send({ data: enriched });
   });
@@ -182,9 +181,12 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
 
     const result = await req.withTenant(async (tx) => {
       // Verify referral exists and is CONVERTED
-      const existing = await tx.referral.findUnique({ where: { id }, select: { id: true, status: true } });
+      const existing = await tx.referral.findUnique({ where: { id }, select: { id: true, status: true, tenantId: true } });
       if (!existing) return { error: 'not_found' as const };
       if (existing.status !== 'CONVERTED') return { error: 'invalid_status' as const };
+
+      // Credit the franchise that owns the referral, not the HQ caller
+      const referralTenantId = existing.tenantId;
 
       // Update referral to REWARDED
       const referral = await tx.referral.update({
@@ -196,18 +198,18 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
         },
       });
 
-      // Upsert wallet for tenant
+      // Upsert wallet for the franchise tenant
       const wallet = await tx.wallet.upsert({
-        where: { tenantId: req.auth.tenantId },
+        where: { tenantId: referralTenantId },
         update: { balanceInr: { increment: rewardInr } },
-        create: { tenantId: req.auth.tenantId, balanceInr: rewardInr },
+        create: { tenantId: referralTenantId, balanceInr: rewardInr },
       });
 
       // Create wallet transaction
       await tx.walletTransaction.create({
         data: {
           walletId: wallet.id,
-          tenantId: req.auth.tenantId,
+          tenantId: referralTenantId,
           type: 'CREDIT',
           amountInr: rewardInr,
           description: 'Referral reward',

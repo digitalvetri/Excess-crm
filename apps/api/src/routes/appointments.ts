@@ -33,23 +33,25 @@ const completeSurveySchema = z.object({
 // ─── Slot helpers ─────────────────────────────────────────────────────────────
 
 const BUSINESS_START_H = 9;
-const BUSINESS_END_H = 18;
+const BUSINESS_END_H = 21; // matches env.BUSINESS_HOURS_END default
 const TRAVEL_BUFFER_MIN = 30;
 const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
 
 function generateDaySlots(date: Date, durationMin: number): Date[] {
   const slots: Date[] = [];
-  const y = date.getUTCFullYear();
-  const m = date.getUTCMonth();
-  const d = date.getUTCDate();
-  for (let h = BUSINESS_START_H; h + durationMin / 60 <= BUSINESS_END_H; h++) {
-    const slotUtc = new Date(Date.UTC(y, m, d, h - 5, 60 - 30, 0, 0));
+  // Convert the UTC date to its IST calendar components to get the correct local date
+  const istDate = new Date(date.getTime() + IST_OFFSET_MS);
+  const y = istDate.getUTCFullYear();
+  const m = istDate.getUTCMonth();
+  const d = istDate.getUTCDate();
+  // Business end in UTC: subtract IST offset from the IST wall-clock end time
+  const dayEndUtc = new Date(Date.UTC(y, m, d, BUSINESS_END_H, 0, 0) - IST_OFFSET_MS);
+  for (let h = BUSINESS_START_H; h < BUSINESS_END_H; h++) {
+    const slotUtc = new Date(Date.UTC(y, m, d, h, 0, 0) - IST_OFFSET_MS);
+    if (slotUtc.getTime() + durationMin * 60000 > dayEndUtc.getTime()) break;
     slots.push(slotUtc);
-    // 30-min sub-slots
     const halfUtc = new Date(slotUtc.getTime() + 30 * 60 * 1000);
-    if (halfUtc.getTime() + durationMin * 60000 <= new Date(Date.UTC(y, m, d, BUSINESS_END_H - 5, 60 - 30)).getTime()) {
-      slots.push(halfUtc);
-    }
+    if (halfUtc.getTime() + durationMin * 60000 <= dayEndUtc.getTime()) slots.push(halfUtc);
   }
   return slots;
 }
@@ -625,12 +627,14 @@ export const surveyCompletionRoutes: FastifyPluginAsync = async (app) => {
 
       const { estimatedKw, roofCondition, postNotes, surveyPhotoKeys, readyToQuote } = parsed.data;
 
-      const { prisma, withSystemContext, SYSTEM_USER_ID } = await import('@excess/db');
+      const { prisma, withSystemContext, SYSTEM_TENANT_ID, SYSTEM_USER_ID } = await import('@excess/db');
 
-      const existing = await prisma.appointment.findUnique({
-        where: { completionToken: token },
-        select: { id: true, leadId: true, tenantId: true, status: true },
-      });
+      const existing = await withSystemContext(prisma, SYSTEM_TENANT_ID, (tx) =>
+        tx.appointment.findUnique({
+          where: { completionToken: token },
+          select: { id: true, leadId: true, tenantId: true, status: true },
+        }),
+      );
 
       if (!existing) {
         return reply.code(404).send({ error: { code: 'survey.invalid_token', message: 'Invalid or expired survey link' } });

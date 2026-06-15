@@ -60,6 +60,13 @@ export async function buildServer() {
     },
   });
 
+  // Capture raw request body bytes so webhook handlers can verify HMAC signatures
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, function (_req, body, done) {
+    _req.rawBody = body as string;
+    try { done(null, JSON.parse(body as string)); }
+    catch (e) { done(e as Error, undefined); }
+  });
+
   await app.register(requestIdPlugin);
   await app.register(helmet);
   await app.register(cookie);

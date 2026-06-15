@@ -1,8 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { prisma, Prisma } from '@excess/db';
+import { prisma, Prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
+import { env } from '@excess/config';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 import crypto from 'node:crypto';
+import argon2 from 'argon2';
 
 const createFranchiseSchema = z.object({
   name: z.string().min(2).max(200),
@@ -35,20 +37,20 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
-    const [byStatus, pendingComm] = await Promise.all([
-      prisma.tenant.groupBy({
-        by: ['status'],
-        where: { type: 'FRANCHISE', deletedAt: null },
-        _count: true,
-      }),
-      req.withTenant(async (tx) =>
+    const [byStatus, pendingComm] = await req.withTenant(async (tx) =>
+      Promise.all([
+        tx.tenant.groupBy({
+          by: ['status'],
+          where: { type: 'FRANCHISE', deletedAt: null },
+          _count: true,
+        }),
         tx.commission.aggregate({
           where: { status: 'PENDING_APPROVAL' },
           _sum: { netPayableInr: true },
           _count: true,
         }),
-      ),
-    ]);
+      ]),
+    );
 
     const counts = Object.fromEntries(byStatus.map((r) => [r.status, r._count]));
 
@@ -71,16 +73,18 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
-    const franchises = await prisma.tenant.findMany({
-      where: { type: 'FRANCHISE', deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true, name: true, type: true, status: true, tier: true,
-        contactName: true, contactEmail: true, contactPhone: true,
-        territory: true, createdAt: true,
-        _count: { select: { users: true, leads: true } },
-      },
-    });
+    const franchises = await req.withTenant(async (tx) =>
+      tx.tenant.findMany({
+        where: { type: 'FRANCHISE', deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, name: true, type: true, status: true, tier: true,
+          contactName: true, contactEmail: true, contactPhone: true,
+          territory: true, createdAt: true,
+          _count: { select: { users: true, leads: true } },
+        },
+      }),
+    );
 
     return reply.send({ data: franchises });
   });
@@ -92,16 +96,18 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { id } = req.params as { id: string };
-    const franchise = await prisma.tenant.findUnique({
-      where: { id, type: 'FRANCHISE' },
-      select: {
-        id: true, name: true, status: true, tier: true, territory: true,
-        commissionSlabs: true, agentSplitConfig: true,
-        contactName: true, contactEmail: true,
-        contactPhone: true, gstNumber: true, bankAccount: true, createdAt: true,
-        _count: { select: { users: true, leads: true, commissions: true } },
-      },
-    });
+    const franchise = await req.withTenant(async (tx) =>
+      tx.tenant.findUnique({
+        where: { id, type: 'FRANCHISE' },
+        select: {
+          id: true, name: true, status: true, tier: true, territory: true,
+          commissionSlabs: true, agentSplitConfig: true,
+          contactName: true, contactEmail: true,
+          contactPhone: true, gstNumber: true, bankAccount: true, createdAt: true,
+          _count: { select: { users: true, leads: true, commissions: true } },
+        },
+      }),
+    );
 
     if (!franchise) {
       return reply.code(404).send({ error: { code: 'franchise.not_found', message: 'Franchise not found' } });
@@ -123,20 +129,22 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
 
     const { name, tier, territory, contactName, contactEmail, contactPhone, gstNumber, commissionSlabs } = parsed.data;
 
-    const franchise = await prisma.tenant.create({
-      data: {
-        name,
-        type: 'FRANCHISE',
-        status: 'ONBOARDING',
-        ...(tier !== undefined && { tier }),
-        ...(territory !== undefined && { territory: territory as Prisma.InputJsonValue }),
-        ...(contactName !== undefined && { contactName }),
-        ...(contactEmail !== undefined && { contactEmail }),
-        ...(contactPhone !== undefined && { contactPhone }),
-        ...(gstNumber !== undefined && { gstNumber }),
-        ...(commissionSlabs !== undefined && { commissionSlabs: commissionSlabs as Prisma.InputJsonValue }),
-      },
-    });
+    const franchise = await req.withTenant(async (tx) =>
+      tx.tenant.create({
+        data: {
+          name,
+          type: 'FRANCHISE',
+          status: 'ONBOARDING',
+          ...(tier !== undefined && { tier }),
+          ...(territory !== undefined && { territory: territory as Prisma.InputJsonValue }),
+          ...(contactName !== undefined && { contactName }),
+          ...(contactEmail !== undefined && { contactEmail }),
+          ...(contactPhone !== undefined && { contactPhone }),
+          ...(gstNumber !== undefined && { gstNumber }),
+          ...(commissionSlabs !== undefined && { commissionSlabs: commissionSlabs as Prisma.InputJsonValue }),
+        },
+      }),
+    );
 
     req.log.info({ userId: req.auth.userId, franchiseId: franchise.id }, 'franchise.created');
     return reply.code(201).send({ data: franchise });
@@ -162,10 +170,12 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'No fields to update' } });
     }
 
-    const franchise = await prisma.tenant.update({
-      where: { id },
-      data: rawData as Parameters<typeof prisma.tenant.update>[0]['data'],
-    });
+    const franchise = await req.withTenant(async (tx) =>
+      tx.tenant.update({
+        where: { id },
+        data: rawData as Parameters<typeof tx.tenant.update>[0]['data'],
+      }),
+    );
 
     req.log.info({ userId: req.auth.userId, franchiseId: id }, 'franchise.updated');
     return reply.send({ data: franchise });
@@ -178,7 +188,12 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { id } = req.params as { id: string };
-    await prisma.tenant.update({ where: { id }, data: { status: 'ACTIVE' } });
+    const activated = await req.withTenant(async (tx) => {
+      const existing = await tx.tenant.findUnique({ where: { id, type: 'FRANCHISE', deletedAt: null }, select: { id: true } });
+      if (!existing) return null;
+      return tx.tenant.update({ where: { id, type: 'FRANCHISE' }, data: { status: 'ACTIVE' } });
+    });
+    if (!activated) return reply.code(404).send({ error: { code: 'franchise.not_found', message: 'Franchise not found' } });
     req.log.info({ userId: req.auth.userId, franchiseId: id }, 'franchise.activated');
     return reply.send({ data: { success: true, status: 'ACTIVE' } });
   });
@@ -190,7 +205,12 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { id } = req.params as { id: string };
-    await prisma.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } });
+    const suspended = await req.withTenant(async (tx) => {
+      const existing = await tx.tenant.findUnique({ where: { id, type: 'FRANCHISE', deletedAt: null }, select: { id: true } });
+      if (!existing) return null;
+      return tx.tenant.update({ where: { id, type: 'FRANCHISE' }, data: { status: 'SUSPENDED' } });
+    });
+    if (!suspended) return reply.code(404).send({ error: { code: 'franchise.not_found', message: 'Franchise not found' } });
     req.log.info({ userId: req.auth.userId, franchiseId: id }, 'franchise.suspended');
     return reply.send({ data: { success: true, status: 'SUSPENDED' } });
   });
@@ -202,10 +222,12 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { id } = req.params as { id: string };
-    await prisma.tenant.update({
-      where: { id },
-      data: { status: 'TERMINATED', deletedAt: new Date() },
+    const terminated = await req.withTenant(async (tx) => {
+      const existing = await tx.tenant.findUnique({ where: { id, type: 'FRANCHISE', deletedAt: null }, select: { id: true } });
+      if (!existing) return null;
+      return tx.tenant.update({ where: { id, type: 'FRANCHISE' }, data: { status: 'TERMINATED', deletedAt: new Date() } });
     });
+    if (!terminated) return reply.code(404).send({ error: { code: 'franchise.not_found', message: 'Franchise not found' } });
     req.log.info({ userId: req.auth.userId, franchiseId: id }, 'franchise.terminated');
     return reply.send({ data: { success: true, status: 'TERMINATED' } });
   });
@@ -232,18 +254,18 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       since.setHours(0, 0, 0, 0);
     }
 
-    const franchises = await prisma.tenant.findMany({
-      where: { type: 'FRANCHISE', deletedAt: null },
-      select: {
-        id: true, name: true, tier: true, status: true, territory: true,
-        _count: { select: { users: true } },
-      },
-    });
+    const { franchises, leadStats, convertedStats, commissionStats } = await req.withTenant(async (tx) => {
+      const franchises = await tx.tenant.findMany({
+        where: { type: 'FRANCHISE', deletedAt: null },
+        select: {
+          id: true, name: true, tier: true, status: true, territory: true,
+          _count: { select: { users: true } },
+        },
+      });
 
-    const franchiseIds = franchises.map((f) => f.id);
+      const franchiseIds = franchises.map((f) => f.id);
 
-    const [leadStats, convertedStats, commissionStats] = await req.withTenant(async (tx) =>
-      Promise.all([
+      const [leadStats, convertedStats, commissionStats] = await Promise.all([
         tx.lead.groupBy({
           by: ['tenantId'],
           where: { tenantId: { in: franchiseIds }, receivedAt: { gte: since } },
@@ -259,8 +281,10 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
           where: { tenantId: { in: franchiseIds }, status: { in: ['APPROVED', 'PAID'] }, createdAt: { gte: since } },
           _sum: { netPayableInr: true },
         }),
-      ]),
-    );
+      ]);
+
+      return { franchises, leadStats, convertedStats, commissionStats };
+    });
 
     const leadMap      = new Map(leadStats.map((s) => [s.tenantId, s._count.id]));
     const convertedMap = new Map(convertedStats.map((s) => [s.tenantId, s._count.id]));
@@ -301,8 +325,8 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const [agents, leadStats, splitStats] = await req.withTenant(async (tx) =>
-      Promise.all([
+    const { enriched, pendingInvites } = await req.withTenant(async (tx) => {
+      const [agents, leadStats, splitStats, pendingInvites] = await Promise.all([
         tx.user.findMany({
           where: { tenantId: id, isActive: true },
           select: { id: true, name: true, email: true, phone: true, role: true, agentRole: true, createdAt: true },
@@ -318,23 +342,23 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
           _sum: { amountInr: true },
           _count: { id: true },
         }),
-      ]),
-    );
+        tx.franchiseInvite.findMany({
+          where: { tenantId: id, acceptedAt: null, expiresAt: { gte: new Date() } },
+          select: { id: true, email: true, name: true, agentRole: true, createdAt: true, expiresAt: true },
+        }),
+      ]);
 
-    const leadMap  = new Map(leadStats.map((s) => [s.ownerUserId!, s._count.id]));
-    const splitMap = new Map(splitStats.map((s) => [s.userId, { count: s._count.id, earned: Number(s._sum.amountInr ?? 0) }]));
+      const leadMap  = new Map(leadStats.map((s) => [s.ownerUserId!, s._count.id]));
+      const splitMap = new Map(splitStats.map((s) => [s.userId, { count: s._count.id, earned: Number(s._sum.amountInr ?? 0) }]));
 
-    const enriched = agents.map((a) => ({
-      ...a,
-      leadsThisMonth: leadMap.get(a.id)  ?? 0,
-      splitsCount:    splitMap.get(a.id)?.count   ?? 0,
-      totalEarnedInr: splitMap.get(a.id)?.earned  ?? 0,
-    }));
+      const enriched = agents.map((a) => ({
+        ...a,
+        leadsThisMonth: leadMap.get(a.id) ?? 0,
+        splitsCount:    splitMap.get(a.id)?.count  ?? 0,
+        totalEarnedInr: splitMap.get(a.id)?.earned ?? 0,
+      }));
 
-    // Also include pending invites
-    const pendingInvites = await prisma.franchiseInvite.findMany({
-      where: { tenantId: id, acceptedAt: null, expiresAt: { gte: new Date() } },
-      select: { id: true, email: true, name: true, agentRole: true, createdAt: true, expiresAt: true },
+      return { enriched, pendingInvites };
     });
 
     return reply.send({ data: { agents: enriched, pendingInvites } });
@@ -358,24 +382,41 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
     }
 
-    const franchise = await prisma.tenant.findUnique({ where: { id, type: 'FRANCHISE' }, select: { name: true } });
-    if (!franchise) {
-      return reply.code(404).send({ error: { code: 'franchise.not_found', message: 'Franchise not found' } });
-    }
-
     const { email, name, agentRole } = parsed.data;
     const token     = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-    // Revoke any existing pending invite for this email+franchise
-    await prisma.franchiseInvite.deleteMany({ where: { tenantId: id, email, acceptedAt: null } });
+    const result = await req.withTenant(async (tx) => {
+      const franchise = await tx.tenant.findUnique({ where: { id, type: 'FRANCHISE' }, select: { name: true } });
+      if (!franchise) return { error: 'not_found' as const };
 
-    const invite = await prisma.franchiseInvite.create({
-      data: { tenantId: id, email, name, agentRole, token, expiresAt },
+      // Revoke any existing pending invite for this email+franchise
+      await tx.franchiseInvite.deleteMany({ where: { tenantId: id, email, acceptedAt: null } });
+
+      const invite = await tx.franchiseInvite.create({
+        data: { tenantId: id, email, name, agentRole, token, expiresAt },
+      });
+
+      return { invite, franchiseName: franchise.name };
+    });
+
+    if ('error' in result) {
+      return reply.code(404).send({ error: { code: 'franchise.not_found', message: 'Franchise not found' } });
+    }
+
+    const { invite, franchiseName } = result;
+    const acceptUrl = `${env.APP_URL}/onboard/agent/${token}`;
+
+    await app.queues.emailSend.add('franchise-agent-invite', {
+      tenantId: id,
+      to: email,
+      subject: `You're invited to join ${franchiseName} on Excess CRM`,
+      template: 'FRANCHISE_INVITE',
+      vars: { name, franchiseName, agentRole, acceptUrl },
     });
 
     req.log.info({ userId: req.auth.userId, franchiseId: id, email, agentRole }, 'franchise.agent.invited');
-    return reply.code(201).send({ data: { invite, acceptUrl: `/onboard/agent/${token}` } });
+    return reply.code(201).send({ data: { invite, acceptUrl } });
   });
 
   // PATCH /franchise/:id/agents/:userId — update agent role or deactivate
@@ -395,14 +436,16 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
     }
 
-    const user = await prisma.user.update({
-      where: { id: userId, tenantId: id },
-      data: {
-        ...(parsed.data.agentRole !== undefined && { agentRole: parsed.data.agentRole }),
-        ...(parsed.data.isActive  !== undefined && { isActive: parsed.data.isActive }),
-      },
-      select: { id: true, name: true, email: true, role: true, agentRole: true, isActive: true },
-    });
+    const user = await req.withTenant(async (tx) =>
+      tx.user.update({
+        where: { id: userId, tenantId: id },
+        data: {
+          ...(parsed.data.agentRole !== undefined && { agentRole: parsed.data.agentRole }),
+          ...(parsed.data.isActive  !== undefined && { isActive: parsed.data.isActive }),
+        },
+        select: { id: true, name: true, email: true, role: true, agentRole: true, isActive: true },
+      }),
+    );
 
     req.log.info({ userId: req.auth.userId, franchiseId: id, targetUserId: userId }, 'franchise.agent.updated');
     return reply.send({ data: user });
@@ -412,10 +455,12 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
   app.get('/agents/accept/:token', async (req, reply) => {
     const { token } = req.params as { token: string };
 
-    const invite = await prisma.franchiseInvite.findUnique({
-      where: { token },
-      include: { tenant: { select: { name: true, territory: true } } },
-    });
+    const invite = await withSystemContext(prisma, SYSTEM_TENANT_ID, (tx) =>
+      tx.franchiseInvite.findUnique({
+        where: { token },
+        include: { tenant: { select: { name: true, territory: true } } },
+      }),
+    );
 
     if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
       return reply.code(404).send({ error: { code: 'invite.invalid', message: 'Invite is invalid or expired' } });
@@ -443,29 +488,32 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Password must be at least 8 characters' } });
     }
 
-    const invite = await prisma.franchiseInvite.findUnique({ where: { token } });
+    const invite = await withSystemContext(prisma, SYSTEM_TENANT_ID, (tx) =>
+      tx.franchiseInvite.findUnique({ where: { token } }),
+    );
     if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
       return reply.code(404).send({ error: { code: 'invite.invalid', message: 'Invite is invalid or expired' } });
     }
 
-    const { createHash } = await import('node:crypto');
-    const passwordHash = createHash('sha256').update(parsed.data.password).digest('hex');
+    const passwordHash = await argon2.hash(parsed.data.password);
 
     const userRole = invite.agentRole === 'OWNER' ? 'FRANCHISE_OWNER' as const : 'FRANCHISE_USER' as const;
 
-    const user = await prisma.user.create({
-      data: {
-        tenantId:     invite.tenantId,
-        email:        invite.email,
-        name:         invite.name,
-        agentRole:    invite.agentRole,
-        role:         userRole,
-        passwordHash,
-      },
-      select: { id: true, name: true, email: true, role: true, agentRole: true },
+    const user = await withSystemContext(prisma, invite.tenantId, async (tx) => {
+      const u = await tx.user.create({
+        data: {
+          tenantId:     invite.tenantId,
+          email:        invite.email,
+          name:         invite.name,
+          agentRole:    invite.agentRole,
+          role:         userRole,
+          passwordHash,
+        },
+        select: { id: true, name: true, email: true, role: true, agentRole: true },
+      });
+      await tx.franchiseInvite.update({ where: { id: invite.id }, data: { acceptedAt: new Date() } });
+      return u;
     });
-
-    await prisma.franchiseInvite.update({ where: { id: invite.id }, data: { acceptedAt: new Date() } });
 
     req.log.info({ franchiseId: invite.tenantId, userId: user.id }, 'franchise.agent.accepted');
     return reply.code(201).send({ data: user });

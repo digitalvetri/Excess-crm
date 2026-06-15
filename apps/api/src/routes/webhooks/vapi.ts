@@ -39,7 +39,7 @@ interface VapiFunctionCallPayload extends VapiCallBase {
 }
 
 function verifyVapi(rawBody: string, signature: string): boolean {
-  if (!env.VAPI_WEBHOOK_SECRET) return true; // dev: skip if not set
+  if (!env.VAPI_WEBHOOK_SECRET) return false;
   const expected = crypto
     .createHmac('sha256', env.VAPI_WEBHOOK_SECRET)
     .update(rawBody)
@@ -54,7 +54,7 @@ function verifyVapi(rawBody: string, signature: string): boolean {
 export const vapiWebhookRoutes: FastifyPluginAsync = async (app) => {
   app.post('/vapi', { config: { public: true } }, async (req, reply) => {
     const signature = (req.headers['x-vapi-signature'] as string | undefined) ?? '';
-    const rawBody = JSON.stringify(req.body);
+    const rawBody = req.rawBody ?? JSON.stringify(req.body);
 
     if (!verifyVapi(rawBody, signature)) {
       req.log.warn('Vapi webhook HMAC mismatch');

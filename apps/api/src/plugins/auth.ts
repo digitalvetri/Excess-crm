@@ -13,6 +13,7 @@ export interface RequestAuth {
 declare module 'fastify' {
   interface FastifyRequest {
     auth: RequestAuth;
+    rawBody?: string;
   }
   interface FastifyContextConfig {
     public?: boolean;

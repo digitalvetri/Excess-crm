@@ -3,11 +3,6 @@ import crypto from 'crypto';
 import { env } from '@excess/config';
 import { prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
 
-interface MetaLeadEntry {
-  id: string;
-  field_data: { name: string; values: string[] }[];
-}
-
 interface MetaWebhookBody {
   object: string;
   entry: {
@@ -22,7 +17,7 @@ interface MetaWebhookBody {
         ad_name?: string;
         campaign_name?: string;
         created_time: number;
-        field_data?: MetaLeadEntry['field_data'];
+        field_data?: { name: string; values: string[] }[];
       };
       field: string;
     }[];
@@ -54,7 +49,7 @@ export const metaWebhookRoutes: FastifyPluginAsync = async (app) => {
   // POST /webhooks/meta — lead ad events
   app.post('/meta', { config: { public: true } }, async (req, reply) => {
     const signature = req.headers['x-hub-signature-256'] as string | undefined;
-    const rawBody = JSON.stringify(req.body);
+    const rawBody = req.rawBody ?? JSON.stringify(req.body);
 
     if (!signature || !verifyMeta(rawBody, signature)) {
       req.log.warn('Meta webhook HMAC mismatch');
@@ -83,21 +78,22 @@ export const metaWebhookRoutes: FastifyPluginAsync = async (app) => {
         });
         if (!source) continue;
 
-        const fields: Record<string, string> = {};
-        for (const f of v.field_data ?? []) {
-          fields[f.name] = f.values[0] ?? '';
-        }
-
+        // field_data is not present in real Meta webhooks — the worker fetches
+        // actual lead fields from the Graph API using the pageAccessToken.
+        const cfg = source.config as Record<string, unknown>;
         await req.server.queues.leadIngest.add('lead-ingest', {
           sourceType: 'META',
           sourceId: source.id,
           tenantId: source.tenantId,
           externalId: v.leadgen_id,
-          name: fields['full_name'] ?? fields['first_name'] ?? 'Unknown',
-          phone: fields['phone_number'] ?? fields['phone'] ?? '',
-          email: fields['email'],
-          city: fields['city'],
-          rawData: { ...v, resolvedFields: fields },
+          name: 'Pending',
+          phone: '',
+          rawData: {
+            leadgenId:        v.leadgen_id,
+            formId:           v.form_id,
+            pageId:           v.page_id,
+            pageAccessToken:  (cfg['pageAccessToken'] as string | undefined) ?? null,
+          },
         });
       }
     }

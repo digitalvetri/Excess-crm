@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { prisma } from '@excess/db';
+import { Prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 
@@ -13,6 +13,7 @@ const createCommissionSchema = z.object({
 
 async function enrichCommissions(
   commissions: { leadId: string; tenantId: string; [k: string]: unknown }[],
+  tx: Prisma.TransactionClient,
 ) {
   if (commissions.length === 0) return commissions;
 
@@ -20,11 +21,11 @@ async function enrichCommissions(
   const tenantIds = [...new Set(commissions.map((c) => c.tenantId))];
 
   const [leads, tenants] = await Promise.all([
-    prisma.lead.findMany({
+    tx.lead.findMany({
       where: { id: { in: leadIds } },
       select: { id: true, name: true, phone: true },
     }),
-    prisma.tenant.findMany({
+    tx.tenant.findMany({
       where: { id: { in: tenantIds } },
       select: { id: true, name: true },
     }),
@@ -77,8 +78,8 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
     const query = req.query as { status?: string; franchiseId?: string; cursor?: string; limit?: string };
     const limit = Math.min(Number(query.limit ?? 50), 100);
 
-    const commissions = await req.withTenant(async (tx) =>
-      tx.commission.findMany({
+    const { items, hasMore, nextCursor } = await req.withTenant(async (tx) => {
+      const commissions = await tx.commission.findMany({
         where: {
           ...(query.status      && { status: query.status as never }),
           ...(query.franchiseId && { tenantId: query.franchiseId }),
@@ -92,14 +93,15 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
           gstInr: true, deductionsInr: true, status: true,
           approvedByUserId: true, paidAt: true, payoutId: true, createdAt: true,
         },
-      }),
-    );
+      });
 
-    const hasMore = commissions.length > limit;
-    const raw     = hasMore ? commissions.slice(0, limit) : commissions;
-    const items   = await enrichCommissions(raw);
+      const hm  = commissions.length > limit;
+      const raw = hm ? commissions.slice(0, limit) : commissions;
+      const enriched = await enrichCommissions(raw, tx);
+      return { items: enriched, hasMore: hm, nextCursor: hm ? (raw.at(-1)?.id ?? null) : null };
+    });
 
-    return reply.send({ data: { commissions: items, hasMore, nextCursor: hasMore ? (raw.at(-1)?.id ?? null) : null } });
+    return reply.send({ data: { commissions: items, hasMore, nextCursor } });
   });
 
   // GET /commissions/:id
@@ -170,7 +172,7 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
       });
 
       // Auto-calculate per-agent splits from franchise's agentSplitConfig
-      const franchise = await prisma.tenant.findUnique({
+      const franchise = await tx.tenant.findUnique({
         where: { id: updated.tenantId },
         select: { agentSplitConfig: true },
       });

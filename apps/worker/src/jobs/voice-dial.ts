@@ -308,6 +308,12 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
     return;
   }
 
+  // L3: Meta leads arrive with phone="" until Graph API enrichment runs — skip rather than retry-storm
+  if (!lead.phone) {
+    await job.log(`Lead ${leadId} has no phone number (pending enrichment), skipping dial`);
+    return;
+  }
+
   if (!env.ENABLE_LIVEKIT && !env.VAPI_API_KEY) {
     throw new Error('Neither LIVEKIT nor VAPI is configured — set ENABLE_LIVEKIT=true or VAPI_API_KEY');
   }

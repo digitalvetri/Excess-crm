@@ -1,8 +1,14 @@
 import type { Job } from 'bullmq';
-import { prisma, withSystemContext } from '@excess/db';
+import { prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
 import type { LeadSourceType } from '@excess/db';
+import { env } from '@excess/config';
 import { queues } from '../queues.js';
 import { assignLead } from '../lib/assignment-engine.js';
+
+// L6: Read from env so any operator change takes effect without a code deploy
+const BUSINESS_HOURS_START = parseInt(env.BUSINESS_HOURS_START.split(':')[0]!, 10);
+const BUSINESS_HOURS_END   = parseInt(env.BUSINESS_HOURS_END.split(':')[0]!, 10);
+const IST_OFFSET_MS        = (5 * 60 + 30) * 60 * 1000;
 
 /**
  * If the originating tenant is HQ and the lead has a pincode, look up which
@@ -12,16 +18,19 @@ import { assignLead } from '../lib/assignment-engine.js';
 async function resolveLeadTenant(hqTenantId: string, pincode: string | undefined): Promise<string> {
   if (!pincode) return hqTenantId;
 
-  const hqTenant = await prisma.tenant.findUnique({
-    where: { id: hqTenantId },
-    select: { type: true },
+  // L5: Use withSystemContext — tenant table has RLS enforced
+  const [hqTenant, franchises] = await withSystemContext(prisma, SYSTEM_TENANT_ID, async (tx) => {
+    const hq = await tx.tenant.findUnique({ where: { id: hqTenantId }, select: { type: true } });
+    const frs = hq?.type === 'HQ'
+      ? await tx.tenant.findMany({
+          where: { type: 'FRANCHISE', status: 'ACTIVE', deletedAt: null },
+          select: { id: true, territory: true },
+        })
+      : [];
+    return [hq, frs] as const;
   });
-  if (hqTenant?.type !== 'HQ') return hqTenantId;
 
-  const franchises = await prisma.tenant.findMany({
-    where: { type: 'FRANCHISE', status: 'ACTIVE', deletedAt: null },
-    select: { id: true, territory: true },
-  });
+  if (hqTenant?.type !== 'HQ') return hqTenantId;
 
   for (const f of franchises) {
     const territory = f.territory as { pinCodes?: string[] } | null;
@@ -49,13 +58,33 @@ export interface LeadIngestPayload {
   rawData: Record<string, unknown>;
 }
 
-const BUSINESS_HOURS_START = 9;
-const BUSINESS_HOURS_END = 21;
-
 function isBusinessHours(): boolean {
   const now = new Date();
   const istHour = (now.getUTCHours() + 5 + Math.floor((now.getUTCMinutes() + 30) / 60)) % 24;
   return istHour >= BUSINESS_HOURS_START && istHour < BUSINESS_HOURS_END;
+}
+
+// L1: Fixed — computes UTC equivalent of IST BUSINESS_HOURS_START correctly.
+// IST 09:00 = UTC 03:30; IST 21:00 = UTC 15:30.
+function msUntilNextBusinessHour(): number {
+  const nowMs = Date.now();
+  const nowIst = new Date(nowMs + IST_OFFSET_MS);
+
+  // Convert IST start hour to UTC: subtract 5h30m
+  const utcHour = (BUSINESS_HOURS_START * 60 - 330 + 1440) % 1440;
+  const targetUtcH = Math.floor(utcHour / 60);
+  const targetUtcM = utcHour % 60;
+
+  const target = new Date(Date.UTC(
+    nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate(),
+    targetUtcH, targetUtcM, 0, 0,
+  ));
+
+  if (target.getTime() <= nowMs) {
+    target.setUTCDate(target.getUTCDate() + 1);
+  }
+
+  return target.getTime() - nowMs;
 }
 
 export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<void> {
@@ -129,6 +158,12 @@ export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<vo
 
   if (!lead) return;
 
+  // L4: Only enqueue voice-dial when the global kill-switch is on
+  if (!env.ENABLE_AI_DIAL) {
+    await job.log('AI dialing disabled (ENABLE_AI_DIAL=false), skipping voice-dial enqueue');
+    return;
+  }
+
   if (!dnd && isBusinessHours()) {
     await queues.voiceDial.add(
       'voice-dial',
@@ -142,16 +177,4 @@ export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<vo
       { delay: msUntilNextBusinessHour(), priority: 2 },
     );
   }
-}
-
-function msUntilNextBusinessHour(): number {
-  const now = new Date();
-  const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
-  const nowIst = new Date(now.getTime() + istOffsetMs);
-  const nextStart = new Date(nowIst);
-  nextStart.setUTCHours(BUSINESS_HOURS_START, 0, 0, 0);
-  if (nextStart <= nowIst) {
-    nextStart.setUTCDate(nextStart.getUTCDate() + 1);
-  }
-  return nextStart.getTime() - nowIst.getTime();
 }

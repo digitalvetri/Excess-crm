@@ -56,11 +56,13 @@ async function main() {
   const todayLeads: string[] = [];
   for (let i = 0; i < 7; i++) {
     const name = makeName();
+    const ph = phone();
     const l = await prisma.lead.create({
       data: {
         tenantId: HQ,
         name,
-        phone: phone(),
+        phone: ph,
+        phoneRaw: ph,
         city: rand(CITIES),
         stage: 'NEW',
         sourceType: rand(SOURCES),
@@ -76,11 +78,13 @@ async function main() {
   // ─── 2. Leads for yesterday (5 leads) ────────────────────────────────────
   console.log('Seeding yesterday\'s leads…');
   for (let i = 0; i < 5; i++) {
+    const ph = phone();
     await prisma.lead.create({
       data: {
         tenantId: HQ,
         name: makeName(),
-        phone: phone(),
+        phone: ph,
+        phoneRaw: ph,
         city: rand(CITIES),
         stage: rand(['NEW', 'QUALIFIED', 'NOT_ANSWERED'] as const),
         sourceType: rand(SOURCES),
@@ -97,11 +101,13 @@ async function main() {
   for (let day = 2; day <= 7; day++) {
     const count = 3 + Math.floor(Math.random() * 5);
     for (let i = 0; i < count; i++) {
+      const ph = phone();
       await prisma.lead.create({
         data: {
           tenantId: HQ,
           name: makeName(),
-          phone: phone(),
+          phone: ph,
+          phoneRaw: ph,
           city: rand(CITIES),
           stage: rand(['NEW', 'QUALIFIED', 'NOT_ANSWERED', 'FOLLOW_UP'] as const),
           sourceType: rand(SOURCES),
@@ -277,11 +283,12 @@ async function main() {
       data: {
         tenantId: franchiseTenantId,
         leadId,
-        grossDealInr: 150000 + i * 50000,
-        commissionRatePercent: 5 + (i % 2),
+        dealValueInr: 150000 + i * 50000,
+        ratePercent: 5 + (i % 2),
         commissionInr: (150000 + i * 50000) * (5 + (i % 2)) / 100,
+        netPayableInr: (150000 + i * 50000) * (5 + (i % 2)) / 100,
         status: 'PENDING_APPROVAL',
-        calculatedAt: daysAgo(i + 1, 14),
+        createdAt: daysAgo(i + 1, 14),
       },
     });
   }

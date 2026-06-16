@@ -22,6 +22,7 @@ import { startConversationIntelScheduler } from './jobs/conversation-intel.js';
 import { startLeadScoringScheduler } from './jobs/lead-scoring.js';
 import { startBroadcastScheduler } from './jobs/broadcast-scheduler.js';
 import { startReengagementScheduler } from './jobs/reengagement-scheduler.js';
+import { processDndScrub } from './jobs/dnd-scrub.js';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
@@ -50,6 +51,7 @@ mkWorker('email-send', processEmailSend);
 mkWorker('pdf-render', processPdfRender);
 mkWorker('csv-import', processCsvImport);
 mkWorker('broadcast-send', processBroadcastSend);
+mkWorker('dnd-scrub', processDndScrub);
 
 startFollowUpScheduler();
 startDailyScheduler();
@@ -63,7 +65,7 @@ startLeadScoringScheduler();
 startBroadcastScheduler();
 startReengagementScheduler();
 
-log.info('Worker started — listening on: lead-ingest, voice-dial, call-webhook, human-handoff, commission-calc, whatsapp-send, email-send, pdf-render + follow-up scheduler + daily-compliance-scheduler');
+log.info('Worker started — listening on: lead-ingest, voice-dial, call-webhook, human-handoff, commission-calc, whatsapp-send, email-send, pdf-render, dnd-scrub + follow-up scheduler + daily-compliance-scheduler');
 
 async function shutdown() {
   log.info('Shutting down workers...');

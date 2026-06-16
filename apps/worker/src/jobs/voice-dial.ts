@@ -314,6 +314,14 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
     return;
   }
 
+  // Re-check DND list before every dial — the weekly scrub may have added this number
+  // after the lead was ingested. dnd_list has no RLS so we query prisma directly.
+  const dnd = await prisma.dndList.findFirst({ where: { phone: lead.phone } });
+  if (dnd) {
+    await job.log(`Lead ${leadId} phone is on DND list — aborting dial (TRAI compliance)`);
+    return;
+  }
+
   if (!env.ENABLE_LIVEKIT && !env.VAPI_API_KEY) {
     throw new Error('Neither LIVEKIT nor VAPI is configured — set ENABLE_LIVEKIT=true or VAPI_API_KEY');
   }

@@ -97,6 +97,9 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/excess_crm_test
 
+      - name: Apply RLS policies
+        run: psql postgres://postgres:postgres@localhost:5432/excess_crm_test -f packages/db/prisma/rls-policies.sql
+
       - name: Run tests
         run: pnpm test
 

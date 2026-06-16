@@ -7,11 +7,11 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   PORT: z.coerce.number().default(8000),
 
-  DATABASE_URL: z.string().min(1),
+  DATABASE_URL: z.string().min(1).default('postgres://postgres:postgres@localhost:5432/excess_crm'),
   DATABASE_URL_REPLICA: z.string().optional(),
-  REDIS_URL: z.string().min(1),
+  REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
 
-  SESSION_SECRET: z.string().min(32),
+  SESSION_SECRET: z.string().min(32).default('local-dev-secret-change-in-production-00000'),
   COOKIE_DOMAIN: z.string().default('localhost'),
 
   AWS_REGION: z.string().default('ap-south-1'),
@@ -92,12 +92,7 @@ export type Env = z.infer<typeof envSchema>;
 function loadEnv(): Env {
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
-    const errors = JSON.stringify(result.error.flatten().fieldErrors, null, 2);
-    const msg = `Invalid environment variables:\n${errors}`;
-    process.stderr.write(msg + '\n');
-    if (process.env['NODE_ENV'] === 'test') {
-      throw new Error(msg);
-    }
+    process.stderr.write(`Invalid environment variables:\n${JSON.stringify(result.error.flatten().fieldErrors, null, 2)}\n`);
     process.exit(1);
   }
   return result.data;

@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
+import { fileURLToPath } from 'url';
 import { env } from '@excess/config';
 import { requestIdPlugin } from './plugins/request-id.js';
 import { authPlugin } from './plugins/auth.js';
@@ -145,4 +146,7 @@ async function main() {
   }
 }
 
-main();
+// Only run when executed directly, not when imported by tests
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  void main();
+}

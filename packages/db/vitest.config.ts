@@ -5,5 +5,6 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     timeout: 30000,
+    setupFiles: ['./src/tests/setup.ts'],
   },
 });

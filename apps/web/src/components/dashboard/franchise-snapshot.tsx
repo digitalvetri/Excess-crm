@@ -3,9 +3,13 @@
 import Link from 'next/link';
 import { Building2, AlertCircle, Loader } from 'lucide-react';
 import { useNetworkSummary } from '@/hooks/use-franchise';
+import { useAuth } from '@/hooks/use-auth';
 
 export function FranchiseSnapshot() {
+  const { role } = useAuth();
   const { data, isLoading } = useNetworkSummary();
+
+  if (role !== 'ADMIN') return null;
 
   if (isLoading) {
     return (

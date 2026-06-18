@@ -6,7 +6,7 @@ const AVG_DEAL_VALUE_INR = 300_000;
 export const reportsRoutes: FastifyPluginAsync = async (app) => {
   // GET /reports/funnel — lead funnel stats for current month
   app.get('/funnel', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -33,7 +33,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // GET /reports/calls — call analytics (KPIs + daily trend + persona breakdown)
   app.get('/calls', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -117,7 +117,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // GET /reports/sources — lead source breakdown for current month
   app.get('/sources', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -144,7 +144,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // GET /reports/daily — daily lead ingest trend for last 30 days
   app.get('/daily', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -167,7 +167,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // GET /reports/agents — agent performance for current month
   app.get('/agents', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -230,7 +230,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // GET /reports/revenue-pipeline — revenue pipeline estimate
   app.get('/revenue-pipeline', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -275,7 +275,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get('/nps', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -326,7 +326,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // Acquisition cohorts — leads grouped by when they were created
   app.get('/cohorts', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -391,7 +391,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // Weighted pipeline forecast — open leads valued by stage win-probability
   app.get('/forecast', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -471,7 +471,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // Conversation intelligence — aggregate sentiment + objections from analyzed calls
   app.get('/conversations', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.all')) {
+    if (!can(req.auth.role, 'leads.read.team')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 

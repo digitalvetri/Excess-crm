@@ -53,7 +53,7 @@ interface PortalProject {
 }
 
 async function fetchProject(token: string): Promise<PortalProject | null> {
-  const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:8000';
+  const apiUrl = process.env['INTERNAL_API_URL'] ?? 'http://localhost:8000';
   try {
     const res = await fetch(`${apiUrl}/api/v1/portal/project/${encodeURIComponent(token)}`, {
       cache: 'no-store',

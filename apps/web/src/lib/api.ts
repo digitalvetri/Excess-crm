@@ -1,7 +1,9 @@
 import axios from 'axios';
 
 export const api = axios.create({
-  baseURL: (process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:8000') + '/api/v1',
+  // Relative baseURL: browser calls /api/v1/... on same origin.
+  // Next.js rewrites in next.config.mjs proxy these to INTERNAL_API_URL at runtime.
+  baseURL: '/api/v1',
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });

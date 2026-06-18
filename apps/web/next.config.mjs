@@ -7,6 +7,18 @@ const nextConfig = {
       { protocol: 'https', hostname: '**.amazonaws.com' },
     ],
   },
+  // Proxy /api/v1/* to the Fastify API server at runtime.
+  // INTERNAL_API_URL is set in Coolify env vars (no build-arg needed).
+  // Falls back to localhost:8000 for local dev.
+  async rewrites() {
+    const apiUrl = process.env.INTERNAL_API_URL ?? 'http://localhost:8000';
+    return [
+      {
+        source: '/api/v1/:path*',
+        destination: `${apiUrl}/api/v1/:path*`,
+      },
+    ];
+  },
   async headers() {
     return [
       {

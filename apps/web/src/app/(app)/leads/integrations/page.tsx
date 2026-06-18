@@ -97,7 +97,7 @@ function JustDialPanel({ source }: { source: IntegrationSource | undefined }) {
   const verify = useVerifyIntegration();
   const del = useDeleteIntegration();
 
-  const webhookUrl = source?.config.webhookUrl ?? `${process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:8000'}/webhooks/justdial`;
+  const webhookUrl = source?.config.webhookUrl ?? `${process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:8000'}/api/v1/webhooks/justdial`;
 
   async function save() {
     if (!secret || secret.length < 8) {

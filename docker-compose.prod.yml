@@ -56,6 +56,9 @@ services:
     environment:
       PORT: 3000
       HOSTNAME: '0.0.0.0'
+      # Proxy target: web container reaches api container via Docker internal network.
+      # Without this it falls back to http://localhost:8000 which doesn't exist in-container.
+      INTERNAL_API_URL: http://api:8000
     networks:
       - default
       - coolify

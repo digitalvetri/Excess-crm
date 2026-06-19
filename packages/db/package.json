@@ -14,7 +14,10 @@
     "db:studio": "prisma studio",
     "seed": "tsx src/seed.ts",
     "seed:leads": "tsx src/seed-leads.ts",
+    "seed:appointments": "tsx src/seed-appointments.ts",
+    "seed:projects": "tsx src/seed-projects.ts",
     "seed:dashboard": "tsx src/seed-dashboard.ts",
+    "seed:demo": "tsx src/seed.ts && tsx src/seed-leads.ts && tsx src/seed-appointments.ts && tsx src/seed-projects.ts && tsx src/seed-dashboard.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

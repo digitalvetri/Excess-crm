@@ -24,6 +24,7 @@ import {
   useCallAnalytics,
   useNps,
 } from '@/hooks/use-reports';
+import { useTerritoryRevenue, useProfitability } from '@/hooks/use-financial';
 
 const STAGE_COLORS: Record<string, string> = {
   NEW: 'bg-slate-100 text-slate-700',
@@ -54,6 +55,8 @@ export default function ReportsPage() {
   const agents = useAgentPerformance();
   const callAnalytics = useCallAnalytics();
   const nps = useNps();
+  const territory = useTerritoryRevenue();
+  const profitability = useProfitability();
 
   const totalLeads =
     funnel.data?.stages.reduce((sum, s) => sum + s.count, 0) ?? 0;
@@ -381,6 +384,127 @@ export default function ReportsPage() {
                 <Bar dataKey="count" fill="#0B7A3D" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
+          </div>
+        )}
+      </section>
+
+      {/* Section 4a: Territory Revenue */}
+      <section>
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">Territory Revenue</h2>
+        {territory.loading ? (
+          <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />
+        ) : territory.error ? (
+          <p className="text-sm text-red-500">{territory.error}</p>
+        ) : !territory.data || territory.data.territories.length === 0 ? (
+          <p className="text-sm text-slate-400">No territory data yet — appears once projects are handed over.</p>
+        ) : (
+          <div className="bg-white rounded-xl border border-border overflow-hidden">
+            <div className="flex gap-6 px-5 py-3 bg-slate-50 border-b border-border text-xs text-slate-500">
+              <span>{territory.data.totalInstalled} installations</span>
+              <span>Total: {formatCurrency(territory.data.totalValueInr)}</span>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-slate-50">
+                  <th className="text-left px-4 py-3 font-semibold text-slate-600">Pincode</th>
+                  <th className="text-left px-4 py-3 font-semibold text-slate-600">City</th>
+                  <th className="text-right px-4 py-3 font-semibold text-slate-600">Projects</th>
+                  <th className="text-right px-4 py-3 font-semibold text-slate-600">Revenue</th>
+                  <th className="text-right px-4 py-3 font-semibold text-slate-600">Received</th>
+                  <th className="text-right px-4 py-3 font-semibold text-slate-600">Collection</th>
+                </tr>
+              </thead>
+              <tbody>
+                {territory.data.territories.slice(0, 15).map((t) => (
+                  <tr key={t.pincode} className="border-b border-border last:border-0">
+                    <td className="px-4 py-3 font-mono text-slate-800">{t.pincode}</td>
+                    <td className="px-4 py-3 text-slate-600">{t.city ?? '—'}</td>
+                    <td className="px-4 py-3 text-right text-slate-800">{t.projectCount}</td>
+                    <td className="px-4 py-3 text-right font-medium text-slate-800">{formatCurrency(t.totalValueInr)}</td>
+                    <td className="px-4 py-3 text-right text-slate-600">{formatCurrency(t.totalReceivedInr)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                        t.collectionRate >= 90 ? 'bg-green-100 text-green-700' :
+                        t.collectionRate >= 70 ? 'bg-amber-100 text-amber-700' :
+                        'bg-red-100 text-red-600'
+                      }`}>{t.collectionRate}%</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Section 4b: Project Profitability */}
+      <section>
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">Project Profitability (This Year)</h2>
+        {profitability.loading ? (
+          <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />
+        ) : profitability.error ? (
+          <p className="text-sm text-red-500">{profitability.error}</p>
+        ) : !profitability.data || profitability.data.projects.length === 0 ? (
+          <p className="text-sm text-slate-400">No handed-over projects this year yet.</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-xl border border-border bg-white p-4">
+                <p className="text-xs text-slate-500">Total Value</p>
+                <p className="text-xl font-bold text-slate-900">{formatCurrency(profitability.data.summary.totalValueInr)}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-white p-4">
+                <p className="text-xs text-slate-500">Total Received</p>
+                <p className="text-xl font-bold text-green-700">{formatCurrency(profitability.data.summary.totalReceivedInr)}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-white p-4">
+                <p className="text-xs text-slate-500">Outstanding</p>
+                <p className="text-xl font-bold text-red-600">{formatCurrency(profitability.data.summary.totalOutstandingInr)}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-white p-4">
+                <p className="text-xs text-slate-500">Avg Collection</p>
+                <p className="text-xl font-bold text-slate-900">{profitability.data.summary.avgCollectionPct}%</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-slate-50">
+                    <th className="text-left px-4 py-3 font-semibold text-slate-600">Project</th>
+                    <th className="text-left px-4 py-3 font-semibold text-slate-600">Customer</th>
+                    <th className="text-right px-4 py-3 font-semibold text-slate-600">kW</th>
+                    <th className="text-right px-4 py-3 font-semibold text-slate-600">Value</th>
+                    <th className="text-right px-4 py-3 font-semibold text-slate-600">Received</th>
+                    <th className="text-right px-4 py-3 font-semibold text-slate-600">Outstanding</th>
+                    <th className="text-right px-4 py-3 font-semibold text-slate-600">Collection</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profitability.data.projects.slice(0, 20).map((p) => (
+                    <tr key={p.id} className="border-b border-border last:border-0">
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{p.number}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-slate-800">{p.customerName}</p>
+                        {p.city && <p className="text-xs text-slate-400">{p.city}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">{p.systemKw}</td>
+                      <td className="px-4 py-3 text-right font-medium text-slate-800">{formatCurrency(p.totalValueInr)}</td>
+                      <td className="px-4 py-3 text-right text-green-700">{formatCurrency(p.totalReceivedInr)}</td>
+                      <td className={`px-4 py-3 text-right font-medium ${p.outstandingInr > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                        {p.outstandingInr > 0 ? formatCurrency(p.outstandingInr) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                          p.collectionPct >= 90 ? 'bg-green-100 text-green-700' :
+                          p.collectionPct >= 70 ? 'bg-amber-100 text-amber-700' :
+                          'bg-red-100 text-red-600'
+                        }`}>{p.collectionPct}%</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </section>

@@ -3,6 +3,27 @@ import { Prisma } from '@excess/db';
 import type { LeadSourceType, LeadStage } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
+import Anthropic from '@anthropic-ai/sdk';
+import { env } from '@excess/config';
+
+let anthropicClient: Anthropic | null = null;
+function getAnthropic(): Anthropic | null {
+  if (!env.ANTHROPIC_API_KEY) return null;
+  if (!anthropicClient) anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  return anthropicClient;
+}
+
+const reEngagementSchema = z.object({
+  daysInactive: z.number().int().min(1).max(90).default(7),
+  messageTemplate: z.string().default('solar_reengagement'),
+  scheduleAt: z.string().datetime().optional(),
+});
+
+const generateMessageSchema = z.object({
+  goal: z.enum(['re_engage', 'subsidy_info', 'followup_nudge', 'amc_renewal', 'referral_ask', 'festival_offer']),
+  audienceDescription: z.string().max(200).optional(),
+  language: z.enum(['tamil', 'english', 'mixed']).default('mixed'),
+});
 
 const MAX_RECIPIENTS = 5000;
 const PER_SECOND = Math.max(1, Number(process.env['BROADCAST_PER_SECOND'] ?? 10));
@@ -373,6 +394,181 @@ export const broadcastsRoutes: FastifyPluginAsync = async (app) => {
     await req.withTenant((tx) => tx.broadcast.delete({ where: { id } }));
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, broadcastId: id }, 'broadcast.deleted');
     return reply.code(204).send();
+  });
+
+  // GET /broadcasts/audience-presets — pre-built smart segments
+  app.get('/audience-presets', async (req, reply) => {
+    if (!can(req.auth.role, 'broadcasts.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+    const sevenDaysAgo  = new Date(Date.now() - 7  * 86400000);
+    const in30          = new Date(Date.now() + 30 * 86400000);
+
+    const [coldLeads, hotLeads, notAnswered7d, followUp, amcExpiring] = await req.withTenant((tx) =>
+      Promise.all([
+        tx.lead.count({ where: { stage: 'NOT_ANSWERED', stageChangedAt: { lte: thirtyDaysAgo } } }),
+        tx.lead.count({ where: { stage: 'QUALIFIED' } }),
+        tx.lead.count({ where: { stage: 'NOT_ANSWERED', stageChangedAt: { gte: sevenDaysAgo } } }),
+        tx.lead.count({ where: { stage: 'FOLLOW_UP' } }),
+        tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: in30, gte: new Date() } } }),
+      ]),
+    );
+
+    const presets = [
+      {
+        id: 'cold-leads',
+        name: 'Re-engage Cold Leads',
+        description: 'Leads that stopped responding > 30 days ago',
+        icon: '🧊',
+        audienceSize: coldLeads,
+        filter: { stage: 'NOT_ANSWERED' },
+        suggestedTemplate: 'solar_reengagement',
+        daysInactive: 30,
+      },
+      {
+        id: 'hot-qualified',
+        name: 'Push Qualified Leads',
+        description: 'Leads qualified but not yet converted',
+        icon: '🔥',
+        audienceSize: hotLeads,
+        filter: { stage: 'QUALIFIED' },
+        suggestedTemplate: 'solar_subsidy_reminder',
+        daysInactive: 0,
+      },
+      {
+        id: 'not-answered-recent',
+        name: 'Recent No-Answers',
+        description: "Leads that didn't answer in the last 7 days",
+        icon: '📵',
+        audienceSize: notAnswered7d,
+        filter: { stage: 'NOT_ANSWERED' },
+        suggestedTemplate: 'solar_callback_request',
+        daysInactive: 7,
+      },
+      {
+        id: 'follow-up',
+        name: 'Follow-Up Pipeline',
+        description: 'Leads scheduled for follow-up',
+        icon: '📅',
+        audienceSize: followUp,
+        filter: { stage: 'FOLLOW_UP' },
+        suggestedTemplate: 'solar_followup_nudge',
+        daysInactive: 0,
+      },
+      {
+        id: 'amc-expiring',
+        name: 'AMC Renewal Campaign',
+        description: 'Customers with AMC expiring in 30 days',
+        icon: '🛡️',
+        audienceSize: amcExpiring,
+        filter: { amcWindow: 'expiring30' },
+        suggestedTemplate: 'amc_renewal_reminder',
+        daysInactive: 0,
+      },
+    ];
+
+    return reply.send({ data: { presets } });
+  });
+
+  // POST /broadcasts/re-engagement — quick-launch re-engagement draft
+  app.post('/re-engagement', async (req, reply) => {
+    if (!can(req.auth.role, 'broadcasts.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const parsed = reEngagementSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input' } });
+    }
+    const { daysInactive, messageTemplate, scheduleAt } = parsed.data;
+
+    const cutoff = new Date(Date.now() - daysInactive * 86400000);
+    const audienceSize = await req.withTenant((tx) =>
+      tx.lead.count({ where: { stage: 'NOT_ANSWERED', stageChangedAt: { lte: cutoff } } }),
+    );
+
+    const broadcast = await req.withTenant((tx) =>
+      tx.broadcast.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          createdByUserId: req.auth.userId,
+          name: `Re-engagement Campaign – ${new Date().toLocaleDateString('en-IN')}`,
+          channel: 'WHATSAPP',
+          status: scheduleAt ? 'SCHEDULED' : 'DRAFT',
+          templateName: messageTemplate,
+          audienceFilter: { stage: 'NOT_ANSWERED', daysInactive } as Prisma.InputJsonValue,
+          scheduledAt: scheduleAt ? new Date(scheduleAt) : null,
+          templateParams: {} as Prisma.InputJsonValue,
+        },
+      }),
+    );
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, broadcastId: broadcast.id }, 'broadcast.re_engagement_created');
+    return reply.code(201).send({ data: { broadcast, audienceSize } });
+  });
+
+  // POST /broadcasts/generate-message — AI-powered message generation
+  app.post('/generate-message', async (req, reply) => {
+    if (!can(req.auth.role, 'broadcasts.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const parsed = generateMessageSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input' } });
+    }
+    const { goal, audienceDescription, language } = parsed.data;
+
+    const goalContext: Record<string, string> = {
+      re_engage:      'Re-engage a cold solar lead who stopped responding',
+      subsidy_info:   'Inform about PM Surya Ghar subsidy up to ₹78,000',
+      followup_nudge: 'Nudge a warm lead to take the next step',
+      amc_renewal:    'Remind customer their annual maintenance contract is expiring',
+      referral_ask:   'Ask a happy customer to refer friends and earn ₹5,000',
+      festival_offer: 'Announce a festival special offer on solar installation',
+    };
+
+    const fallbacks: Record<string, string> = {
+      re_engage:      'Vanakkam! Ungal solar enquiry-oda follow up pannuren. Free estimate kedaikum - call pannal mattum. ☀️',
+      subsidy_info:   'Government subsidy up to ₹78,000 for solar! Last chance to apply this year. Call us for details.',
+      followup_nudge: 'Hi! Your solar proposal is ready. Install now and start saving ₹3,000/month. Shall we schedule a visit?',
+      amc_renewal:    'Your solar AMC is expiring soon. Renew now to keep your system running at peak efficiency. Call us today!',
+      referral_ask:   'Enjoying solar savings? Refer a friend and earn ₹5,000! Share your referral link now.',
+      festival_offer: 'Festival special: ₹10,000 off on solar installation this month only! Book your free survey today.',
+    };
+
+    const client = getAnthropic();
+    if (!client) {
+      return reply.send({ data: { message: fallbacks[goal] ?? 'Contact us for solar savings!', generated: false } });
+    }
+
+    try {
+      const prompt = `You are a WhatsApp message writer for Excess Renew Solar, a solar energy company in Tamil Nadu, India.
+Write a WhatsApp message for the following goal: ${goalContext[goal] ?? goal}
+${audienceDescription ? `Audience: ${audienceDescription}` : ''}
+Language preference: ${language === 'tamil' ? 'Tamil using Tamil script' : language === 'mixed' ? 'Tanglish (Tamil words written in English) mixed with English' : 'English'}
+Requirements:
+- Maximum 160 characters
+- Conversational and warm tone
+- Include a clear call to action
+- For Indian solar context (Tamil Nadu)
+- Do NOT use emojis excessively (max 2)
+Output ONLY the message text, no explanation.`;
+
+      const response = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const block = response.content[0];
+      const message = block && block.type === 'text' ? block.text.trim() : (fallbacks[goal] ?? 'Contact us for solar savings!');
+      return reply.send({ data: { message, generated: true } });
+    } catch {
+      return reply.send({ data: { message: fallbacks[goal] ?? 'Contact us for solar savings!', generated: false } });
+    }
   });
 
   // POST /broadcasts/:id/enroll-sequence — enrol SENT recipients into a follow-up sequence

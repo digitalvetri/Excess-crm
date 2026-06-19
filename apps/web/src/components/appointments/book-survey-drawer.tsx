@@ -212,7 +212,7 @@ function LeadSearch({ value, onChange }: LeadSearchProps) {
 
       {open && query.length >= 2 && !isFetching && leads.length === 0 && (
         <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-white shadow-lg px-4 py-3 text-sm text-slate-400">
-          No leads found for "{query}"
+          No leads found for &quot;{query}&quot;
         </div>
       )}
     </div>

@@ -105,6 +105,7 @@ export function AppointmentReports() {
         noShow:    dayAppts.filter((a) => a.status === 'NO_SHOW').length,
       };
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, days]);
 
   // ── Status breakdown ────────────────────────────────────────────────────────

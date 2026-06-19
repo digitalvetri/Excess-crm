@@ -467,7 +467,7 @@ export function AppointmentDrawer({ appointment, open, onClose }: AppointmentDra
                 </p>
               )}
               {appointment.postNotes && (
-                <p className="text-sm text-slate-600 italic">"{appointment.postNotes}"</p>
+                <p className="text-sm text-slate-600 italic">&quot;{appointment.postNotes}&quot;</p>
               )}
               {appointment.completedAt && (
                 <p className="text-xs text-slate-400">

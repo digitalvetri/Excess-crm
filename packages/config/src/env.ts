@@ -75,6 +75,8 @@ const envSchema = z.object({
 
   INDIAMART_PULL_FALLBACK_INTERVAL_MIN: z.coerce.number().default(5),
   GOOGLE_MAPS_API_KEY: z.string().optional(),
+  GA4_MEASUREMENT_ID: z.string().optional(),
+  GA4_API_SECRET: z.string().optional(),
 
   RESEND_API_KEY: z.string().optional(),
   FROM_EMAIL: z.string().email().default('noreply@excessindia.com'),

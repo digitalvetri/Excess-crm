@@ -5,7 +5,7 @@ import { processLeadIngest } from './jobs/lead-ingest.js';
 import { processVoiceDial } from './jobs/voice-dial.js';
 import { processCallWebhook } from './jobs/call-webhook.js';
 import { startFollowUpScheduler } from './jobs/followup-scheduler.js';
-import { startDailyScheduler } from './jobs/daily-scheduler.js';
+import { startDailyScheduler, startIndiamartPullScheduler } from './jobs/daily-scheduler.js';
 import { processHumanHandoff } from './jobs/human-handoff.js';
 import { processCommissionCalc } from './jobs/commission-calc.js';
 import { processWhatsappSend } from './jobs/whatsapp-send.js';
@@ -23,6 +23,7 @@ import { startLeadScoringScheduler } from './jobs/lead-scoring.js';
 import { startBroadcastScheduler } from './jobs/broadcast-scheduler.js';
 import { startReengagementScheduler } from './jobs/reengagement-scheduler.js';
 import { processDndScrub } from './jobs/dnd-scrub.js';
+import { processIndiamartPull } from './jobs/indiamart-pull.js';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
@@ -52,6 +53,7 @@ mkWorker('pdf-render', processPdfRender);
 mkWorker('csv-import', processCsvImport);
 mkWorker('broadcast-send', processBroadcastSend);
 mkWorker('dnd-scrub', processDndScrub);
+mkWorker('indiamart-pull', processIndiamartPull);
 
 startFollowUpScheduler();
 startDailyScheduler();
@@ -64,6 +66,7 @@ startConversationIntelScheduler();
 startLeadScoringScheduler();
 startBroadcastScheduler();
 startReengagementScheduler();
+startIndiamartPullScheduler();
 
 log.info('Worker started — listening on: lead-ingest, voice-dial, call-webhook, human-handoff, commission-calc, whatsapp-send, email-send, pdf-render, dnd-scrub + follow-up scheduler + daily-compliance-scheduler');
 

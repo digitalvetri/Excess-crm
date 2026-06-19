@@ -50,6 +50,7 @@ import { reportBuilderRoutes } from './routes/report-builder.js';
 import { engagementRoutes } from './routes/engagement.js';
 import { settingsWebhooksRoutes } from './routes/settings-webhooks.js';
 import { notificationsRoutes } from './routes/notifications.js';
+import { callsRoutes } from './routes/calls.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -124,6 +125,7 @@ export async function buildServer() {
     await api.register(reportBuilderRoutes, { prefix: '/report-builder' });
     await api.register(settingsWebhooksRoutes, { prefix: '/settings/webhooks' });
     await api.register(notificationsRoutes, { prefix: '/notifications' });
+    await api.register(callsRoutes, { prefix: '/calls' });
   }, { prefix: '/api/v1' });
 
   app.setErrorHandler((error, _req, reply) => {

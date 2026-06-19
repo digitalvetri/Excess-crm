@@ -429,7 +429,7 @@ export function ProjectPaymentTracker({
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-10 text-center">
             <Wallet size={24} className="text-slate-200 mb-2" />
             <p className="text-sm text-slate-400">No payments recorded yet</p>
-            <p className="text-xs text-slate-300 mt-0.5">Click "Record" to add the first payment</p>
+            <p className="text-xs text-slate-300 mt-0.5">Click &quot;Record&quot; to add the first payment</p>
           </div>
         ) : (
           <div>

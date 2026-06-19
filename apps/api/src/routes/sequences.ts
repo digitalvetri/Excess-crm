@@ -155,6 +155,63 @@ export const sequencesRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(204).send();
   });
 
+  // GET /sequences/:id/analytics — enrollment funnel + stats
+  app.get('/:id/analytics', async (req, reply) => {
+    if (!can(req.auth.role, 'sequences.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+    const sequence = await req.withTenant((tx) =>
+      tx.sequence.findUnique({
+        where: { id },
+        select: { id: true, name: true, steps: { orderBy: { stepOrder: 'asc' }, select: { stepOrder: true, templateName: true, delayHours: true } } },
+      }),
+    );
+    if (!sequence) {
+      return reply.code(404).send({ error: { code: 'sequence.not_found', message: 'Not found' } });
+    }
+
+    const [totalEnrolled, active, completed, optedOut, cancelled] = await req.withTenant((tx) =>
+      Promise.all([
+        tx.sequenceEnrollment.count({ where: { sequenceId: id } }),
+        tx.sequenceEnrollment.count({ where: { sequenceId: id, status: 'ACTIVE' } }),
+        tx.sequenceEnrollment.count({ where: { sequenceId: id, status: 'COMPLETED' } }),
+        tx.sequenceEnrollment.count({ where: { sequenceId: id, status: 'OPTED_OUT' } }),
+        tx.sequenceEnrollment.count({ where: { sequenceId: id, status: 'CANCELLED' } }),
+      ]),
+    );
+
+    const completionRate = totalEnrolled > 0 ? Math.round((completed / totalEnrolled) * 100) : 0;
+    const optOutRate     = totalEnrolled > 0 ? Math.round((optedOut  / totalEnrolled) * 100) : 0;
+
+    const stepCount = sequence.steps.length;
+    const stepFunnel: { step: number; count: number }[] = [];
+    for (let step = 0; step <= stepCount; step++) {
+      const count = await req.withTenant((tx) =>
+        tx.sequenceEnrollment.count({
+          where: { sequenceId: id, currentStep: { gte: step }, status: { not: 'CANCELLED' } },
+        }),
+      );
+      stepFunnel.push({ step, count });
+    }
+
+    return reply.send({
+      data: {
+        sequenceId: id,
+        name: sequence.name,
+        totalEnrolled,
+        active,
+        completed,
+        optedOut,
+        cancelled,
+        completionRate,
+        optOutRate,
+        stepFunnel,
+      },
+    });
+  });
+
   // POST /sequences/:id/enroll — manually enrol a lead
   app.post('/:id/enroll', async (req, reply) => {
     if (!can(req.auth.role, 'sequences.write')) {

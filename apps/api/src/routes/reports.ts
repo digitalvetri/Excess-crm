@@ -324,6 +324,139 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  // GET /reports/territory-revenue — revenue by pincode for installed projects
+  app.get('/territory-revenue', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.team')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const cacheKey = `reports:territory-revenue:${req.auth.tenantId}`;
+    const cached = await app.redis?.get(cacheKey);
+    if (cached) return reply.send(JSON.parse(cached) as object);
+
+    const projects = await req.withTenant((tx) =>
+      tx.project.findMany({
+        where: { stage: 'HANDED_OVER' },
+        select: {
+          totalValueInr: true,
+          systemKw: true,
+          lead: { select: { pincode: true, city: true } },
+          payments: { select: { amountInr: true } },
+        },
+      }),
+    );
+
+    type TerritoryEntry = {
+      pincode: string;
+      city: string | null;
+      projectCount: number;
+      totalValueInr: number;
+      totalSystemKw: number;
+      totalReceivedInr: number;
+    };
+    const byPincode = new Map<string, TerritoryEntry>();
+
+    for (const p of projects) {
+      const pincode = p.lead.pincode ?? 'Unknown';
+      const entry: TerritoryEntry = byPincode.get(pincode) ?? {
+        pincode,
+        city: p.lead.city,
+        projectCount: 0,
+        totalValueInr: 0,
+        totalSystemKw: 0,
+        totalReceivedInr: 0,
+      };
+      entry.projectCount++;
+      entry.totalValueInr    += Number(p.totalValueInr);
+      entry.totalSystemKw    += Number(p.systemKw);
+      entry.totalReceivedInr += p.payments.reduce((s, pay) => s + Number(pay.amountInr), 0);
+      byPincode.set(pincode, entry);
+    }
+
+    const territories = [...byPincode.values()]
+      .filter((t) => t.pincode !== 'Unknown')
+      .sort((a, b) => b.totalValueInr - a.totalValueInr)
+      .slice(0, 30)
+      .map((t) => ({
+        ...t,
+        collectionRate: t.totalValueInr > 0
+          ? Math.min(100, Math.max(0, Math.round((t.totalReceivedInr / t.totalValueInr) * 100)))
+          : 0,
+      }));
+
+    const totalInstalled  = projects.length;
+    const totalValueInr   = projects.reduce((s, p) => s + Number(p.totalValueInr), 0);
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId }, 'reports.territory_revenue');
+    const result = { data: { territories, totalInstalled, totalValueInr } };
+    void app.redis?.setex(cacheKey, 300, JSON.stringify(result));
+    return reply.send(result);
+  });
+
+  // GET /reports/profitability — per-project revenue collection for current year
+  app.get('/profitability', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.team')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const profCacheKey = `reports:profitability:${req.auth.tenantId}`;
+    const profCached = await app.redis?.get(profCacheKey);
+    if (profCached) return reply.send(JSON.parse(profCached) as object);
+
+    const yearStart = new Date(new Date().getFullYear(), 0, 1);
+    const projects = await req.withTenant((tx) =>
+      tx.project.findMany({
+        where: { handedOverAt: { gte: yearStart } },
+        select: {
+          id: true,
+          number: true,
+          totalValueInr: true,
+          systemKw: true,
+          handedOverAt: true,
+          lead: { select: { name: true, city: true } },
+          payments: { select: { amountInr: true, type: true } },
+        },
+        orderBy: { handedOverAt: 'desc' },
+        take: 50,
+      }),
+    );
+
+    const enriched = projects.map((p) => {
+      const totalReceived = p.payments.reduce((s, pay) => s + Number(pay.amountInr), 0);
+      const totalValue    = Number(p.totalValueInr);
+      const outstanding   = Math.max(0, totalValue - totalReceived);
+      const collectionPct = totalValue > 0 ? Math.round((totalReceived / totalValue) * 100) : 0;
+      return {
+        id:               p.id,
+        number:           p.number,
+        customerName:     p.lead.name,
+        city:             p.lead.city,
+        systemKw:         Number(p.systemKw),
+        totalValueInr:    totalValue,
+        totalReceivedInr: totalReceived,
+        outstandingInr:   outstanding,
+        collectionPct,
+        handedOverAt:     p.handedOverAt?.toISOString() ?? null,
+        revenuePerKw:     Number(p.systemKw) > 0 ? Math.round(totalValue / Number(p.systemKw)) : 0,
+      };
+    });
+
+    const summary = {
+      totalProjects:       enriched.length,
+      totalValueInr:       enriched.reduce((s, p) => s + p.totalValueInr, 0),
+      totalReceivedInr:    enriched.reduce((s, p) => s + p.totalReceivedInr, 0),
+      totalOutstandingInr: enriched.reduce((s, p) => s + p.outstandingInr, 0),
+      avgCollectionPct:    enriched.length > 0
+        ? Math.round(enriched.reduce((s, p) => s + p.collectionPct, 0) / enriched.length)
+        : 0,
+    };
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId }, 'reports.profitability');
+    const profResult = { data: { projects: enriched, summary } };
+    void app.redis?.setex(profCacheKey, 300, JSON.stringify(profResult));
+    return reply.send(profResult);
+  });
+
   // Acquisition cohorts — leads grouped by when they were created
   app.get('/cohorts', async (req, reply) => {
     if (!can(req.auth.role, 'leads.read.team')) {

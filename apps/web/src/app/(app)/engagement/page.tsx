@@ -8,6 +8,8 @@ import {
   UserPlus,
   Wallet,
   Trophy,
+  MapPin,
+  Award,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -25,17 +27,22 @@ import {
   useWalletData,
   useWalletTransactions,
   useCreateTransaction,
+  useAmbassadors,
+  useColonyClusters,
   type EngagementSummary,
   type Referral,
   type Review,
   type WalletTransaction,
   type ReviewSummary,
+  type Ambassador,
+  type AmbassadorTier,
+  type ColonyCluster,
 } from '@/hooks/use-engagement';
 import { getApiErrorMessage } from '@/lib/api-error';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Tab = 'leaderboard' | 'referrals' | 'reviews' | 'wallet';
+type Tab = 'leaderboard' | 'referrals' | 'ambassadors' | 'reviews' | 'wallet' | 'colony';
 type ReferralStatusFilter = 'ALL' | 'PENDING' | 'CONVERTED' | 'REWARDED';
 type TxTypeFilter = 'CREDIT' | 'DEBIT' | undefined;
 
@@ -181,8 +188,10 @@ function KpiStrip() {
 const TABS: { label: string; value: Tab }[] = [
   { label: 'Leaderboard', value: 'leaderboard' },
   { label: 'Referrals', value: 'referrals' },
+  { label: 'Ambassadors', value: 'ambassadors' as Tab },
   { label: 'Reviews & NPS', value: 'reviews' },
   { label: 'Wallet', value: 'wallet' },
+  { label: 'Colony Map', value: 'colony' },
 ];
 
 function TabBar({ active, onSelect }: { active: Tab; onSelect: (t: Tab) => void }) {
@@ -1049,13 +1058,209 @@ function WalletTab() {
   );
 }
 
+// ─── Ambassador Leaderboard Tab ───────────────────────────────────────────────
+
+const TIER_STYLES: Record<AmbassadorTier, { badge: string; label: string }> = {
+  BRONZE:   { badge: 'bg-amber-100 text-amber-800',   label: 'Bronze'   },
+  SILVER:   { badge: 'bg-slate-100 text-slate-700',   label: 'Silver'   },
+  GOLD:     { badge: 'bg-yellow-100 text-yellow-800', label: 'Gold'     },
+  PLATINUM: { badge: 'bg-purple-100 text-purple-800', label: 'Platinum' },
+};
+
+function AmbassadorBadge({ tier }: { tier: AmbassadorTier }) {
+  const s = TIER_STYLES[tier];
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${s.badge}`}>
+      <Award className="h-3 w-3" />
+      {s.label}
+    </span>
+  );
+}
+
+function AmbassadorsTab() {
+  const { data: ambassadors, isLoading } = useAmbassadors();
+
+  if (isLoading) {
+    return <PulseSkeleton rows={8} />;
+  }
+
+  if (!ambassadors || ambassadors.length === 0) {
+    return (
+      <div className="py-16 text-center text-sm text-slate-400">
+        No ambassadors yet — start recording referrals to build your community.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500">
+        Customers who referred the most converted leads. Tiers: Bronze (1+), Silver (3+), Gold (5+), Platinum (10+).
+        Use the Referrals tab to issue rewards.
+      </p>
+      <div className="bg-white rounded-xl border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 border-b border-border text-xs font-medium text-slate-500 uppercase tracking-wide">
+              <th className="text-left px-4 py-3 w-10">#</th>
+              <th className="text-left px-4 py-3">Customer</th>
+              <th className="text-left px-4 py-3">City</th>
+              <th className="text-left px-4 py-3">Referrals</th>
+              <th className="text-left px-4 py-3">Tier</th>
+              <th className="text-left px-4 py-3">Lead</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(ambassadors as Ambassador[]).map((a) => (
+              <tr key={a.referrerId} className="border-b border-border last:border-0 hover:bg-slate-50">
+                <td className="px-4 py-3 text-slate-500 text-center">{medalOrRank(a.rank)}</td>
+                <td className="px-4 py-3">
+                  <p className="font-medium text-slate-800">{a.referrer?.name ?? '—'}</p>
+                  {a.referrer?.phone && (
+                    <p className="text-xs text-slate-400">{a.referrer.phone}</p>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-slate-500 text-xs">
+                  {a.referrer?.city ?? '—'}
+                </td>
+                <td className="px-4 py-3">
+                  <span className="font-bold text-slate-800">{a.referralCount}</span>
+                </td>
+                <td className="px-4 py-3">
+                  <AmbassadorBadge tier={a.tier} />
+                </td>
+                <td className="px-4 py-3">
+                  <Link
+                    href={`/leads/${a.referrerId}`}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    View lead
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Colony Map Tab ───────────────────────────────────────────────────────────
+
+function ColonyScoreBar({ score }: { score: number }) {
+  const color =
+    score >= 60 ? 'bg-green-500' :
+    score >= 30 ? 'bg-amber-400' :
+    'bg-slate-200';
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${score}%` }} />
+      </div>
+      <span className="text-xs font-medium text-slate-600 w-8 text-right">{score}</span>
+    </div>
+  );
+}
+
+function ColonyTab() {
+  const { data: clusters, isLoading } = useColonyClusters();
+
+  if (isLoading) {
+    return <PulseSkeleton rows={8} />;
+  }
+
+  if (!clusters || clusters.length === 0) {
+    return (
+      <div className="py-16 text-center text-sm text-slate-400">
+        No pincode data yet. Add city/pincode to leads to see colony clusters.
+      </div>
+    );
+  }
+
+  const stages = ['NEW', 'QUALIFIED', 'FOLLOW_UP', 'NOT_ANSWERED', 'CONVERTED', 'INVALID', 'WRONG_ENQUIRY'];
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500">
+        Pincode-level heat map. Colony Score = (Converted + Qualified×0.5) ÷ Total × 100. Higher is hotter.
+      </p>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white rounded-xl border border-border p-3 text-center">
+          <p className="text-2xl font-bold text-slate-800">{clusters.length}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Pincodes active</p>
+        </div>
+        <div className="bg-white rounded-xl border border-border p-3 text-center">
+          <p className="text-2xl font-bold text-slate-800">
+            {clusters.reduce((s, c) => s + c.total, 0)}
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">Total leads</p>
+        </div>
+        <div className="bg-white rounded-xl border border-border p-3 text-center">
+          <p className="text-2xl font-bold text-green-600">
+            {clusters.filter((c) => c.colonyScore >= 60).length}
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">Hot zones</p>
+        </div>
+        <div className="bg-white rounded-xl border border-border p-3 text-center">
+          <p className="text-2xl font-bold text-amber-600">
+            {clusters.filter((c) => c.colonyScore < 30).length}
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">Cold zones</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-border overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 border-b border-border text-xs font-medium text-slate-500 uppercase tracking-wide">
+              <th className="text-left px-4 py-3">Pincode</th>
+              <th className="text-left px-4 py-3">City</th>
+              <th className="text-left px-4 py-3">Total</th>
+              <th className="text-left px-4 py-3 min-w-[140px]">Colony Score</th>
+              {stages.map((s) => (
+                <th key={s} className="text-right px-2 py-3 text-xs">{s.slice(0, 3)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {(clusters as ColonyCluster[]).map((c) => (
+              <tr key={c.pincode} className="border-b border-border last:border-0 hover:bg-slate-50">
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center gap-1 font-mono text-slate-700">
+                    <MapPin className="h-3 w-3 text-slate-400" />
+                    {c.pincode}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-slate-500">{c.city ?? '—'}</td>
+                <td className="px-4 py-3 font-medium text-slate-800">{c.total}</td>
+                <td className="px-4 py-3">
+                  <ColonyScoreBar score={c.colonyScore} />
+                </td>
+                {stages.map((s) => (
+                  <td key={s} className="px-2 py-3 text-right text-xs text-slate-500">
+                    {c.stages[s] ?? 0}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Inner page (needs useSearchParams) ──────────────────────────────────────
 
 function EngagementPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const raw = searchParams.get('tab');
-  const VALID_TABS: Tab[] = ['leaderboard', 'referrals', 'reviews', 'wallet'];
+  const VALID_TABS: Tab[] = ['leaderboard', 'referrals', 'ambassadors', 'reviews', 'wallet', 'colony'];
   const activeTab: Tab = VALID_TABS.includes(raw as Tab) ? (raw as Tab) : 'leaderboard';
 
   function setTab(t: Tab) {
@@ -1081,8 +1286,10 @@ function EngagementPageInner() {
         <div className="p-5">
           {activeTab === 'leaderboard' && <LeaderboardTab />}
           {activeTab === 'referrals' && <ReferralsTab />}
+          {activeTab === 'ambassadors' && <AmbassadorsTab />}
           {activeTab === 'reviews' && <ReviewsTab />}
           {activeTab === 'wallet' && <WalletTab />}
+          {activeTab === 'colony' && <ColonyTab />}
         </div>
       </div>
     </div>

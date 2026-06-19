@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { can } from '@excess/shared';
 import { z } from 'zod';
+import { env } from '@excess/config';
+import { signNpsToken } from '../lib/nps-token.js';
 
 const createReviewSchema = z.object({
   leadId: z.string().uuid(),
@@ -119,5 +121,61 @@ export const reviewsRoutes: FastifyPluginAsync = async (app) => {
       'review.created',
     );
     return reply.code(201).send({ data: review });
+  });
+
+  // POST /reviews/:leadId/request-nps — send NPS survey link to customer via WhatsApp
+  app.post('/:leadId/request-nps', async (req, reply) => {
+    if (!can(req.auth.role, 'reviews.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { leadId } = req.params as { leadId: string };
+
+    const lead = await req.withTenant((tx) =>
+      tx.lead.findUnique({ where: { id: leadId }, select: { id: true, name: true, phone: true } }),
+    );
+    if (!lead) {
+      return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
+    }
+
+    // Find or create Review record
+    const existing = await req.withTenant((tx) =>
+      tx.review.findFirst({ where: { leadId }, select: { id: true } }),
+    );
+
+    let reviewId: string;
+    if (existing) {
+      await req.withTenant((tx) =>
+        tx.review.update({ where: { id: existing.id }, data: { npsRequestedAt: new Date() } }),
+      );
+      reviewId = existing.id;
+    } else {
+      const created = await req.withTenant((tx) =>
+        tx.review.create({
+          data: { tenantId: req.auth.tenantId, leadId, npsRequestedAt: new Date() },
+          select: { id: true },
+        }),
+      );
+      reviewId = created.id;
+    }
+
+    const npsToken = signNpsToken({ reviewId, leadId, tenantId: req.auth.tenantId });
+    const npsUrl   = `${env.APP_URL}/portal/nps/${npsToken}`;
+
+    // Fire-and-forget WhatsApp via queue
+    if (lead.phone) {
+      void app.queues.whatsappSend.add('whatsapp-send', {
+        tenantId: req.auth.tenantId,
+        leadId,
+        phone:    lead.phone.replace(/\D/g, '').replace(/^(?!91)/, '91'),
+        template: 'DIRECT_MESSAGE',
+        vars: {
+          message: `Hi ${lead.name}! Thank you for choosing Excess Renew Solar ☀️ Could you rate your experience? It takes just 30 seconds: ${npsUrl}`,
+        },
+      });
+    }
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId }, 'reviews.nps_requested');
+    return reply.send({ data: { npsUrl, reviewId } });
   });
 };

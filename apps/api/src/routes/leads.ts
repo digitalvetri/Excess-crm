@@ -1,11 +1,14 @@
+import { createHmac } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import type { FastifyPluginAsync } from 'fastify';
 import type { LeadSourceType, LeadStage, ActivityType } from '@excess/db';
 import { can } from '@excess/shared';
 import { fireWebhooks } from '../lib/fire-webhook.js';
+import { fireGoogleAdsConversion } from '../lib/google-ads-conversion.js';
 import { notifyUser } from '../lib/notify-user.js';
-import { prisma } from '@excess/db';
+import { prisma, withSystemContext } from '@excess/db';
 import { enrollLeadInSequences } from '../lib/sequences.js';
+import { env } from '@excess/config';
 import {
   updateLeadSchema,
   assignLeadSchema,
@@ -27,6 +30,99 @@ function generateProjectNumber(): string {
 }
 
 export const leadsRoutes: FastifyPluginAsync = async (app) => {
+  // POST /leads/refer — PUBLIC referral landing page submission (no auth)
+  app.post('/refer', { config: { public: true, rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const body = req.body as {
+      name?: unknown;
+      phone?: unknown;
+      city?: unknown;
+      referralToken?: unknown;
+    };
+
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const phone = typeof body.phone === 'string' ? body.phone.trim() : '';
+    const city = typeof body.city === 'string' ? body.city.trim() : null;
+    const referralToken = typeof body.referralToken === 'string' ? body.referralToken.trim() : '';
+
+    if (!name || !phone || !referralToken) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'name, phone, and referralToken are required' } });
+    }
+    if (!/^\d{10}$/.test(phone)) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'phone must be a 10-digit number' } });
+    }
+
+    // Token format: ${leadId}-${hmac16}
+    const dashIdx = referralToken.lastIndexOf('-');
+    if (dashIdx < 0) {
+      return reply.code(400).send({ error: { code: 'invalid_token', message: 'Invalid referral token' } });
+    }
+    const leadId = referralToken.substring(0, dashIdx);
+    const hmac = referralToken.substring(dashIdx + 1);
+
+    const expected = createHmac('sha256', env.SESSION_SECRET).update(leadId).digest('hex').substring(0, 16);
+    if (expected !== hmac) {
+      return reply.code(400).send({ error: { code: 'invalid_token', message: 'Invalid referral token' } });
+    }
+
+    // Look up referrer to get tenantId
+    const referrer = await prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { tenantId: true, name: true },
+    });
+    if (!referrer) {
+      return reply.code(400).send({ error: { code: 'invalid_token', message: 'Invalid referral token' } });
+    }
+
+    const { tenantId, name: referrerName } = referrer;
+
+    // Dedup check
+    const existing = await withSystemContext(prisma, tenantId, (tx) =>
+      tx.lead.findFirst({ where: { tenantId, phone }, select: { id: true } }),
+    );
+    if (existing) {
+      return reply.send({ data: { message: 'Thank you! We will call you shortly.' } });
+    }
+
+    const newLead = await withSystemContext(prisma, tenantId, async (tx) => {
+      const created = await tx.lead.create({
+        data: {
+          tenantId,
+          name,
+          phone,
+          phoneRaw: phone,
+          city: city || null,
+          stage: 'NEW',
+          sourceType: 'WEBSITE' as LeadSourceType,
+          rawPayload: { referredBy: referrerName, referralLeadId: leadId } as object,
+        },
+      });
+
+      await tx.referral.create({
+        data: {
+          tenantId,
+          referrerId: leadId,
+          referredLeadId: created.id,
+          status: 'PENDING',
+        },
+      });
+
+      return created;
+    });
+
+    // Enqueue voice dial if AI dial is enabled
+    if (env.ENABLE_AI_DIAL) {
+      await app.queues.voiceDial.add('voice-dial', {
+        leadId: newLead.id,
+        tenantId,
+        personaId: 'EXCESS_AGENT',
+      });
+    }
+
+    req.log.info({ tenantId, leadId: newLead.id, referrerId: leadId }, 'referral.lead_created');
+
+    return reply.send({ data: { message: 'Thank you! We will call you shortly.' } });
+  });
+
   // GET /leads — list with filters + cursor pagination
   app.get('/', async (req, reply) => {
     if (!can(req.auth.role, 'leads.read.own')) {
@@ -201,6 +297,44 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(csv);
   });
 
+  // GET /leads/colony-clusters — group leads by pincode, return heat-map data
+  app.get('/colony-clusters', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.all')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const raw = await req.withTenant(async (tx) => {
+      return tx.lead.findMany({
+        where: { pincode: { not: null } },
+        select: { pincode: true, stage: true, city: true },
+      });
+    });
+
+    type StageKey = string;
+    type ClusterMap = Map<string, { pincode: string; city: string | null; stages: Record<StageKey, number>; total: number }>;
+
+    const clusters: ClusterMap = new Map();
+    for (const lead of raw) {
+      const pin = lead.pincode!;
+      if (!clusters.has(pin)) {
+        clusters.set(pin, { pincode: pin, city: lead.city, stages: {}, total: 0 });
+      }
+      const c = clusters.get(pin)!;
+      c.stages[lead.stage] = (c.stages[lead.stage] ?? 0) + 1;
+      c.total += 1;
+    }
+
+    const result = [...clusters.values()].map((c) => {
+      const converted = c.stages['CONVERTED'] ?? 0;
+      const qualified = c.stages['QUALIFIED'] ?? 0;
+      const colonyScore = c.total === 0 ? 0 : Math.round(((converted + qualified * 0.5) / c.total) * 100);
+      return { ...c, colonyScore };
+    }).sort((a, b) => b.total - a.total);
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, clusters: result.length }, 'leads.colony_clusters');
+    return reply.send({ data: result });
+  });
+
   // GET /leads/:id — single lead with activities
   app.get('/:id', async (req, reply) => {
     if (!can(req.auth.role, 'leads.read.own')) {
@@ -342,7 +476,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
           ...(stage && { stage, stageChangedAt: new Date() }),
           ...(factSheet && { factSheet: factSheet as object }),
         },
-        select: { id: true, stage: true, tenantId: true },
+        select: { id: true, stage: true, tenantId: true, phone: true, createdAt: true },
       });
 
       if (notes) {
@@ -434,6 +568,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
           body: `Lead ${id} has been marked as converted.`,
           linkHref: `/leads/${id}`,
         });
+        void fireGoogleAdsConversion({ id, phone: lead.phone, createdAt: lead.createdAt });
       }
     }
 
@@ -864,5 +999,87 @@ Respond in English. Be brief and actionable.`;
     );
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id }, 'lead.email_sent');
     return reply.send({ data: { sent: true } });
+  });
+
+  // ── GET /leads/:id/score — compute & persist lead quality score ───────────────
+  app.get('/:id/score', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!can(req.auth.role, 'leads.read.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const [lead, calls, referral] = await req.withTenant((tx) =>
+      Promise.all([
+        tx.lead.findUniqueOrThrow({
+          where: { id },
+          select: { id: true, stage: true, sourceType: true, createdAt: true },
+        }),
+        tx.call.findMany({
+          where: { leadId: id },
+          select: { status: true, durationSec: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        }),
+        tx.referral.findFirst({ where: { referredLeadId: id }, select: { id: true } }),
+      ])
+    );
+
+    let score = 40;
+    const sourceBonus: Record<string, number> = {
+      WEBSITE: 20, REFERRAL: 25, INDIAMART: 15, JUSTDIAL: 10, META: 8, MANUAL: 5, CSV: 3,
+    };
+    const sourcePts = sourceBonus[lead.sourceType] ?? 5;
+    score += sourcePts;
+
+    const referralPts = referral ? 10 : 0;
+    score += referralPts;
+
+    const completedCalls = calls.filter((c) => c.status === 'COMPLETED' && (c.durationSec ?? 0) > 30);
+    let callPts = 0;
+    if (completedCalls.length > 0) callPts += 10;
+    if (completedCalls.length > 1) callPts += 5;
+    score += callPts;
+
+    const firstCall = calls[0];
+    let speedPts = 0;
+    if (firstCall) {
+      const lag = firstCall.createdAt.getTime() - lead.createdAt.getTime();
+      if (lag < 5 * 60_000) speedPts = 5;
+      else if (lag < 60 * 60_000) speedPts = 3;
+    }
+    score += speedPts;
+
+    const stageBonus: Record<string, number> = { QUALIFIED: 10, FOLLOW_UP: 5, CONVERTED: 20 };
+    const stagePts = stageBonus[lead.stage] ?? 0;
+    score += stagePts;
+
+    let deductions = 0;
+    if (calls.length === 0) deductions += 10;
+    else if (calls.every((c) => c.status === 'NO_ANSWER')) deductions += 15;
+    score -= deductions;
+
+    score = Math.max(0, Math.min(100, score));
+
+    const label = score >= 76 ? 'Burning' : score >= 51 ? 'Hot' : score >= 31 ? 'Warm' : 'Cold';
+    const color = score >= 76 ? 'red' : score >= 51 ? 'orange' : score >= 31 ? 'amber' : 'slate';
+
+    const breakdown = {
+      sourceBonus: sourcePts,
+      referralBonus: referralPts,
+      callEngagement: callPts,
+      speedToContact: speedPts,
+      stageBonus: stagePts,
+      deductions,
+    };
+
+    // Persist to DB so lead list and detail view reflect the fresh score
+    await req.withTenant((tx) =>
+      tx.lead.update({
+        where: { id },
+        data: { aiScore: score, aiScoreBreakdown: breakdown as object },
+      })
+    );
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id, score }, 'lead.score_computed');
+    return reply.send({ data: { score, label, color, breakdown } });
   });
 };

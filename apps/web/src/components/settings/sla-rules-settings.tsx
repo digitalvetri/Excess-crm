@@ -24,7 +24,7 @@ const ACTION_LABELS: Record<string, string> = {
   REASSIGN: 'Reassign lead to user',
 };
 
-function usesSlaRules() {
+function useSlaRules() {
   return useQuery({
     queryKey: ['sla-rules'],
     queryFn: () => api.get<{ data: SlaRule[] }>('/sla-rules').then((r) => r.data.data),
@@ -58,7 +58,7 @@ function useToggleSlaRule() {
 }
 
 export function SlaRulesSettings() {
-  const { data: rules, isLoading } = usesSlaRules();
+  const { data: rules, isLoading } = useSlaRules();
   const { data: users } = useUsers();
   const createRule = useCreateSlaRule();
   const deleteRule = useDeleteSlaRule();

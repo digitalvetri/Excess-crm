@@ -113,3 +113,55 @@ export function useDeleteSavedReport() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['insights', 'saved-reports'] }),
   });
 }
+
+// ── Lead Score ────────────────────────────────────────────────────────────────
+
+export interface LeadScoreBreakdown {
+  sourceBonus: number;
+  referralBonus: number;
+  callEngagement: number;
+  speedToContact: number;
+  stageBonus: number;
+  deductions: number;
+}
+
+export interface LeadScore {
+  score: number;
+  label: 'Cold' | 'Warm' | 'Hot' | 'Burning';
+  color: 'slate' | 'amber' | 'orange' | 'red';
+  breakdown: LeadScoreBreakdown;
+}
+
+export function useComputeLeadScore() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (leadId: string) =>
+      api.get<{ data: LeadScore }>(`/leads/${leadId}/score`).then((r) => r.data.data),
+    onSuccess: (_data, leadId) => {
+      // Invalidate the lead so its aiScore refreshes in the detail view
+      void qc.invalidateQueries({ queryKey: ['leads', leadId] });
+    },
+  });
+}
+
+// ── Call Insights ─────────────────────────────────────────────────────────────
+
+export interface CallInsights {
+  callId: string;
+  durationSec: number | null;
+  interestLevel: 'High' | 'Medium' | 'Low' | 'Unknown';
+  painPoints: string[];
+  objections: string[];
+  nextAction: string;
+  sentiment: string;
+  transcriptLength: number;
+}
+
+export function useCallInsights(callId: string | null) {
+  return useQuery({
+    queryKey: ['calls', callId, 'insights'],
+    queryFn: () =>
+      api.get<{ data: CallInsights }>(`/calls/${callId}/insights`).then((r) => r.data.data),
+    enabled: !!callId,
+  });
+}

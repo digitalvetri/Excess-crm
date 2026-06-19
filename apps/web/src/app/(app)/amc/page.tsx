@@ -15,6 +15,7 @@ import {
   useCancelAmcContract,
   useRenewAmcContract,
   useBulkRenewAmc,
+  useAmcRevenueSummary,
   type AmcContract,
   type AmcWindow,
 } from '@/hooks/use-amc-contracts';
@@ -286,6 +287,7 @@ export default function AmcPage() {
   const bulkMode  = BULK_WINDOWS.includes(window);
 
   const { data, isLoading, isError } = useAmcContracts({ window });
+  const { data: revSummary } = useAmcRevenueSummary();
   const contracts = data?.contracts ?? [];
   const stats     = data?.stats;
 
@@ -338,6 +340,26 @@ export default function AmcPage() {
         >
           <Plus size={15} /> New Contract
         </button>
+      </div>
+
+      {/* Revenue summary */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="rounded-2xl border bg-primary/5 p-4">
+          <p className="text-xs text-slate-500">Active Contract Value</p>
+          <p className="text-xl font-bold text-primary">₹{((revSummary?.totalActiveValueInr ?? 0) / 100000).toFixed(1)}L</p>
+        </div>
+        <div className="rounded-2xl border bg-amber-50 p-4">
+          <p className="text-xs text-slate-500">Expiring in 30 days</p>
+          <p className="text-xl font-bold text-amber-600">{revSummary?.expiringIn30 ?? 0}</p>
+        </div>
+        <div className="rounded-2xl border bg-green-50 p-4">
+          <p className="text-xs text-slate-500">Renewed This Year</p>
+          <p className="text-xl font-bold text-success">{revSummary?.renewedThisYearCount ?? 0}</p>
+        </div>
+        <div className="rounded-2xl border bg-red-50 p-4">
+          <p className="text-xs text-slate-500">Expired (Action needed)</p>
+          <p className="text-xl font-bold text-danger">{revSummary?.expiredCount ?? 0}</p>
+        </div>
       </div>
 
       {/* Stats */}

@@ -360,4 +360,51 @@ export const amcContractsRoutes: FastifyPluginAsync = async (app) => {
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, oldId: id, newId: newContract.id }, 'amc_contract.renewed');
     return reply.code(201).send({ data: newContract });
   });
+
+  // ── GET /amc-contracts/revenue-summary ───────────────────────────────────────
+  app.get('/revenue-summary', async (req, reply) => {
+    if (!can(req.auth.role, 'service_tickets.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const now = new Date();
+    const thirtyDaysOut = new Date(now.getTime() + 30  * 86400000);
+    const sixtyDaysOut  = new Date(now.getTime() + 60  * 86400000);
+    const ninetyDaysOut = new Date(now.getTime() + 90  * 86400000);
+    const yearStart     = new Date(now.getFullYear(), 0, 1);
+
+    const [activeContracts, expiringIn30, expiringIn60, expiringIn90, expiredCount, renewedThisYear] =
+      await req.withTenant((tx) =>
+        Promise.all([
+          tx.amcContract.findMany({ where: { status: 'ACTIVE' }, select: { valueInr: true } }),
+          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: thirtyDaysOut, gte: now } } }),
+          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: sixtyDaysOut,  gte: now } } }),
+          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: ninetyDaysOut, gte: now } } }),
+          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lt: now } } }),
+          tx.amcContract.findMany({ where: { status: 'RENEWED', updatedAt: { gte: yearStart } }, select: { valueInr: true } }),
+        ]),
+      );
+
+    const totalActiveValueInr = activeContracts.reduce(
+      (s, c) => s + (c.valueInr !== null ? Number(c.valueInr) : 0),
+      0,
+    );
+    const renewedThisYearValueInr = renewedThisYear.reduce(
+      (s, c) => s + (c.valueInr !== null ? Number(c.valueInr) : 0),
+      0,
+    );
+
+    return reply.send({
+      data: {
+        totalActive:            activeContracts.length,
+        totalActiveValueInr,
+        expiringIn30,
+        expiringIn60,
+        expiringIn90,
+        expiredCount,
+        renewedThisYearCount:   renewedThisYear.length,
+        renewedThisYearValueInr,
+      },
+    });
+  });
 };

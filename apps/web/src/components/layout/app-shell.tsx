@@ -42,6 +42,7 @@ import {
   Timer,
   Shuffle,
   Shield,
+  Zap,
   Workflow,
   Webhook,
   FlaskConical,
@@ -98,6 +99,7 @@ const GROUPS: NavGroup[] = [
     roles: ['ADMIN', 'EMPLOYEE'],
     items: [
       { href: '/projects',        label: 'Projects',        icon: Hammer },
+      { href: '/projects/upsell', label: 'Upsell Pipeline', icon: Zap },
       { href: '/service-tickets', label: 'Service Tickets', icon: Wrench },
       { href: '/amc',             label: 'AMC Contracts',   icon: ClipboardList },
     ],

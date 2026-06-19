@@ -146,3 +146,43 @@ export function useBroadcastEnrollSequence() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['broadcasts'] }),
   });
 }
+
+export interface AudiencePreset {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  audienceSize: number;
+  filter: Partial<AudienceFilter>;
+  suggestedTemplate: string;
+  daysInactive: number;
+}
+
+export function useAudiencePresets() {
+  return useQuery({
+    queryKey: ['broadcast-audience-presets'],
+    queryFn: () =>
+      api.get<{ data: { presets: AudiencePreset[] } }>('/broadcasts/audience-presets').then((r) => r.data.data.presets),
+    staleTime: 60_000,
+  });
+}
+
+export function useReEngagementLaunch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { daysInactive: number; messageTemplate?: string }) =>
+      api
+        .post<{ data: { broadcast: BroadcastListItem; audienceSize: number } }>('/broadcasts/re-engagement', args)
+        .then((r) => r.data.data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['broadcasts'] }),
+  });
+}
+
+export function useGenerateMessage() {
+  return useMutation({
+    mutationFn: (args: { goal: string; audienceDescription?: string; language?: string }) =>
+      api
+        .post<{ data: { message: string; generated: boolean } }>('/broadcasts/generate-message', args)
+        .then((r) => r.data.data),
+  });
+}

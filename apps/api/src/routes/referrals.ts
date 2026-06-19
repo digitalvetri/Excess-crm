@@ -41,6 +41,55 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  // GET /referrals/ambassadors — top referrers with tier badges
+  app.get('/ambassadors', async (req, reply) => {
+    if (!can(req.auth.role, 'referrals.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const referrals = await req.withTenant(async (tx) =>
+      tx.referral.groupBy({
+        by: ['referrerId'],
+        _count: { _all: true },
+        where: { status: { in: ['CONVERTED', 'REWARDED'] } },
+        orderBy: { _count: { referrerId: 'desc' } },
+        take: 50,
+      }),
+    );
+
+    if (referrals.length === 0) {
+      return reply.send({ data: [] });
+    }
+
+    const referrerIds = referrals.map((r) => r.referrerId);
+    const leads = await req.withTenant((tx) =>
+      tx.lead.findMany({
+        where: { id: { in: referrerIds } },
+        select: { id: true, name: true, phone: true, city: true },
+      }),
+    );
+
+    const leadMap = new Map(leads.map((l) => [l.id, l]));
+
+    function tier(count: number): 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM' {
+      if (count >= 10) return 'PLATINUM';
+      if (count >= 5)  return 'GOLD';
+      if (count >= 3)  return 'SILVER';
+      return 'BRONZE';
+    }
+
+    const ambassadors = referrals.map((r, idx) => ({
+      rank:        idx + 1,
+      referrerId:  r.referrerId,
+      referrer:    leadMap.get(r.referrerId) ?? null,
+      referralCount: r._count._all,
+      tier:        tier(r._count._all),
+    }));
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId }, 'referrals.ambassadors');
+    return reply.send({ data: ambassadors });
+  });
+
   // GET /referrals — list referrals with referrer lead name enrichment
   app.get('/', async (req, reply) => {
     if (!can(req.auth.role, 'referrals.read')) {
@@ -232,6 +281,78 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
     req.log.info(
       { tenantId: req.auth.tenantId, userId: req.auth.userId, referralId: id, rewardInr },
       'referral.rewarded',
+    );
+    return reply.send({ data: result.referral });
+  });
+
+  // POST /referrals/:id/auto-reward — derive tier reward from referred lead stage and credit wallet
+  app.post('/:id/auto-reward', async (req, reply) => {
+    if (!can(req.auth.role, 'referrals.reward')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+
+    const result = await req.withTenant(async (tx) => {
+      const referral = await tx.referral.findUnique({
+        where: { id },
+        select: { id: true, status: true, tenantId: true, referredLeadId: true },
+      });
+      if (!referral) return { error: 'not_found' as const };
+      if (referral.status !== 'CONVERTED') return { error: 'invalid_status' as const };
+
+      // Derive reward slab from referred lead's current stage
+      const lead = await tx.lead.findUnique({
+        where: { id: referral.referredLeadId },
+        select: { stage: true },
+      });
+
+      let rewardInr = 500;
+      if (lead?.stage === 'CONVERTED') {
+        rewardInr = 5000;
+      } else if (lead?.stage === 'QUALIFIED' || lead?.stage === 'FOLLOW_UP') {
+        rewardInr = 2000;
+      }
+
+      const referralTenantId = referral.tenantId;
+
+      const updated = await tx.referral.update({
+        where: { id },
+        data: { status: 'REWARDED', rewardInr, rewardedAt: new Date() },
+      });
+
+      const wallet = await tx.wallet.upsert({
+        where: { tenantId: referralTenantId },
+        update: { balanceInr: { increment: rewardInr } },
+        create: { tenantId: referralTenantId, balanceInr: rewardInr },
+      });
+
+      await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          tenantId: referralTenantId,
+          type: 'CREDIT',
+          amountInr: rewardInr,
+          description: `Auto-reward (${lead?.stage ?? 'UNKNOWN'})`,
+          referenceId: updated.id,
+        },
+      });
+
+      return { referral: updated, rewardInr };
+    });
+
+    if ('error' in result) {
+      if (result.error === 'not_found') {
+        return reply.code(404).send({ error: { code: 'referral.not_found', message: 'Referral not found' } });
+      }
+      return reply.code(409).send({
+        error: { code: 'referral.invalid_transition', message: 'Referral must be CONVERTED before rewarding' },
+      });
+    }
+
+    req.log.info(
+      { tenantId: req.auth.tenantId, userId: req.auth.userId, referralId: id, rewardInr: result.rewardInr },
+      'referral.auto_rewarded',
     );
     return reply.send({ data: result.referral });
   });

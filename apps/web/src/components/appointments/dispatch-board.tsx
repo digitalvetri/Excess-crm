@@ -385,7 +385,7 @@ export function DispatchBoard({ onAppointmentClick }: DispatchBoardProps) {
   const { data: apptData, isLoading: apptLoading } = useAppointments({ from, to });
   const { data: usersData, isLoading: usersLoading } = useUsers();
 
-  const appointments = apptData ?? [];
+  const appointments = useMemo(() => apptData ?? [], [apptData]);
   const engineers = useMemo(
     () => (usersData ?? []).filter((u) => u.role === 'ENGINEER' && (u as CrmUser & { isActive?: boolean }).isActive !== false),
     [usersData],

@@ -533,7 +533,7 @@ export function VoiceCloningPanel() {
               <Mic size={20} className="text-violet-500" />
             </div>
             <p className="text-sm font-medium text-slate-700">No cloned voices yet</p>
-            <p className="text-xs text-slate-400 mt-1">Click "Clone New Voice" to upload audio samples and create a custom voice.</p>
+            <p className="text-xs text-slate-400 mt-1">Click &quot;Clone New Voice&quot; to upload audio samples and create a custom voice.</p>
           </div>
         )}
 

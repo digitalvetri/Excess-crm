@@ -50,9 +50,11 @@
 
 | # | Question | Status | Owner | Notes |
 |---|----------|--------|-------|-------|
-| IG-01 | IndiaMART API key — which account/GLI? | 🔴 BLOCKING | Excess Sales | Needed for webhook auth |
+| IG-01 | IndiaMART API key — which account/GLI? | 🔴 BLOCKING | Excess Sales | Needed for webhook auth and pull mode (`INDIAMART_PULL_FALLBACK_INTERVAL_MIN`) |
 | IG-02 | JustDial API credentials | 🔴 BLOCKING | Excess Sales | |
 | IG-03 | Exotel account — for fallback telephony | 🟡 IMPORTANT | Excess team | Required if Vapi outages occur |
+| IG-04 | Google Analytics 4 Measurement ID and API Secret — for conversion tracking | 🟢 NICE-TO-HAVE | Excess Marketing | Required env: `GA4_MEASUREMENT_ID`, `GA4_API_SECRET`; fires on lead CONVERTED |
+| IG-05 | Anthropic API key — for AI message generation in broadcast composer | 🟡 IMPORTANT | DigitalVetri | Required env: `ANTHROPIC_API_KEY`; broadcast AI generator falls back to static templates if missing |
 
 ## UX / Content
 
@@ -64,5 +66,5 @@
 
 ---
 
-*Last updated: 2026-05-18 by DigitalVetri*
+*Last updated: 2026-06-19 by DigitalVetri*
 *Next review: Before UAT sign-off*

@@ -136,8 +136,8 @@ export function ServiceTicketAnalytics() {
   const { data: current, isLoading } = useServiceTickets({ from, to, limit: 2000 });
   const { data: prev }               = useServiceTickets({ from: prevFrom, to: prevTo, limit: 2000 });
 
-  const tickets     = current?.tickets ?? [];
-  const prevTickets = prev?.tickets    ?? [];
+  const tickets     = useMemo(() => current?.tickets ?? [], [current?.tickets]);
+  const prevTickets = useMemo(() => prev?.tickets    ?? [], [prev?.tickets]);
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {

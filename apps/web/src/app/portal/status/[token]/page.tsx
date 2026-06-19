@@ -1,4 +1,5 @@
-import { Sun, Check, Clock, CalendarClock, ImageOff } from 'lucide-react';
+import { Sun, Check, Clock, CalendarClock, ImageOff, Wrench, Star } from 'lucide-react';
+import { IssueForm } from './issue-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -218,6 +219,42 @@ export default async function PortalStatusPage({ params }: { params: Promise<{ t
             </div>
           )}
         </div>
+        {/* Report an Issue — show for all stages except SURVEY */}
+        {project.stage !== 'SURVEY' && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <Wrench size={16} className="text-slate-500" />
+              <h2 className="text-sm font-semibold text-slate-700">Report an Issue</h2>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">
+              Having a problem? Let us know and our team will reach out to you.
+            </p>
+            <IssueForm token={token} />
+          </div>
+        )}
+
+        {/* Rate Us — show only after handover */}
+        {project.stage === 'HANDED_OVER' && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
+            <div className="flex items-center justify-center gap-1 mb-2">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <Star key={s} size={22} className="fill-[#F39C12] text-[#F39C12]" />
+              ))}
+            </div>
+            <h2 className="text-sm font-semibold text-slate-800 mb-1">Happy with our work?</h2>
+            <p className="text-xs text-slate-400 mb-4">
+              Your review helps others in your area discover clean solar energy.
+            </p>
+            <a
+              href="https://g.page/r/excess-renew-solar"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl bg-[#F39C12] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#d68910]"
+            >
+              Leave a Google Review
+            </a>
+          </div>
+        )}
       </div>
     </PortalShell>
   );

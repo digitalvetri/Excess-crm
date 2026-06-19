@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Megaphone, Plus, Loader2, X, Send, Trash2, Users, BarChart2, Sparkles, Clock, GitMerge } from 'lucide-react';
+import { Megaphone, Plus, Loader2, X, Send, Trash2, Users, BarChart2, Sparkles, Clock, GitMerge, Zap, Wand2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -13,6 +13,9 @@ import {
   useDeleteBroadcast,
   useBroadcastTemplates,
   useBroadcastEnrollSequence,
+  useAudiencePresets,
+  useReEngagementLaunch,
+  useGenerateMessage,
   type BroadcastStatus,
   type AudienceFilter,
   type BroadcastTemplate,
@@ -108,6 +111,9 @@ export default function BroadcastsPage() {
       </div>
 
       {showForm && <CreateBroadcastModal onClose={() => setShowForm(false)} />}
+
+      {/* Audience Presets */}
+      <AudiencePresetsPanel />
 
       {/* Enroll-in-sequence modal */}
       {enrollTarget && (
@@ -247,10 +253,67 @@ export default function BroadcastsPage() {
   );
 }
 
+function AudiencePresetsPanel() {
+  const { data: presets = [], isLoading } = useAudiencePresets();
+  const launch = useReEngagementLaunch();
+
+  async function handleLaunch(daysInactive: number, template: string) {
+    try {
+      const res = await launch.mutateAsync({ daysInactive, messageTemplate: template });
+      toast.success(`Draft created — ${res.audienceSize} recipients. Review and start it below.`);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to create broadcast'));
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {[1,2,3].map(i => <div key={i} className="h-24 bg-white rounded-xl border border-border animate-pulse" />)}
+      </div>
+    );
+  }
+
+  if (presets.length === 0) return null;
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-slate-600 mb-3 flex items-center gap-1.5">
+        <Zap size={14} className="text-accent" /> Quick Launch Campaigns
+      </h2>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {presets.map((p) => (
+          <div key={p.id} className="bg-white rounded-xl border border-border p-4 flex flex-col gap-2">
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xl">{p.icon}</span>
+              <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                {p.audienceSize.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800 leading-tight">{p.name}</p>
+              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{p.description}</p>
+            </div>
+            <button
+              onClick={() => void handleLaunch(p.daysInactive || 7, p.suggestedTemplate)}
+              disabled={launch.isPending || p.audienceSize === 0}
+              className="mt-auto inline-flex items-center justify-center gap-1 text-xs bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors font-medium"
+            >
+              {launch.isPending ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+              Quick Launch
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
   const modalRef = useFocusTrap(onClose);
-  const create   = useCreateBroadcast();
-  const preview  = usePreviewAudience();
+  const create      = useCreateBroadcast();
+  const preview     = usePreviewAudience();
+  const generateMsg = useGenerateMessage();
   const { data: templates = [] } = useBroadcastTemplates();
 
   const [name, setName]             = useState('');
@@ -258,10 +321,27 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
   const [templateName, setTplName]  = useState('');
   const [params, setParams]         = useState('');
   const [bodyText, setBodyText]     = useState('');
+  const [aiGenerated, setAiGenerated] = useState(false);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [aiGoal, setAiGoal]           = useState('re_engage');
+  const [aiLang, setAiLang]           = useState('mixed');
   const [scheduledAt, setScheduled] = useState('');
   const [filter, setFilter]         = useState<AudienceFilter>({});
   const [previewCount, setPreview]  = useState<number | null>(null);
   const [showTpl, setShowTpl] = useState(false);
+
+  async function handleGenerateMessage() {
+    try {
+      const res = await generateMsg.mutateAsync({ goal: aiGoal, language: aiLang });
+      setBodyText(res.message);
+      setAiGenerated(res.generated);
+      setShowAiPanel(false);
+      if (mode !== 'text') setMode('text');
+      toast.success(res.generated ? 'Message generated with AI ✨' : 'Using template message');
+    } catch {
+      toast.error('Failed to generate message');
+    }
+  }
 
   function setF(key: keyof AudienceFilter, value: string) {
     setFilter((f) => {
@@ -404,10 +484,69 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
               </Field>
             </>
           ) : (
-            <Field label="Message text">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-slate-500">
+                  Message text
+                  {aiGenerated && (
+                    <span className="ml-2 inline-flex items-center gap-0.5 text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full">
+                      <Sparkles size={9} /> AI-generated
+                    </span>
+                  )}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowAiPanel((v) => !v)}
+                  className="inline-flex items-center gap-1 text-[11px] text-violet-600 border border-violet-200 bg-violet-50 px-2 py-1 rounded-lg hover:bg-violet-100 transition-colors"
+                >
+                  <Wand2 size={11} /> Generate with AI
+                </button>
+              </div>
+              {showAiPanel && (
+                <div className="mb-2 border border-violet-200 bg-violet-50 rounded-xl p-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-500 mb-1">Goal</label>
+                      <select
+                        value={aiGoal}
+                        onChange={(e) => setAiGoal(e.target.value)}
+                        className="w-full text-xs border border-border rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="re_engage">Re-engage cold lead</option>
+                        <option value="subsidy_info">Subsidy information</option>
+                        <option value="followup_nudge">Follow-up nudge</option>
+                        <option value="amc_renewal">AMC renewal</option>
+                        <option value="referral_ask">Referral ask</option>
+                        <option value="festival_offer">Festival offer</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-500 mb-1">Language</label>
+                      <select
+                        value={aiLang}
+                        onChange={(e) => setAiLang(e.target.value)}
+                        className="w-full text-xs border border-border rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="mixed">Tanglish (Mixed)</option>
+                        <option value="tamil">Tamil</option>
+                        <option value="english">English</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleGenerateMessage()}
+                    disabled={generateMsg.isPending}
+                    className="inline-flex items-center gap-1 text-xs bg-violet-600 text-white px-3 py-1.5 rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                  >
+                    {generateMsg.isPending ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                    Generate
+                  </button>
+                </div>
+              )}
               <textarea
                 value={bodyText}
-                onChange={(e) => setBodyText(e.target.value)}
+                onChange={(e) => { setBodyText(e.target.value); setAiGenerated(false); }}
                 rows={3}
                 maxLength={2000}
                 className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary resize-y"
@@ -415,7 +554,7 @@ function CreateBroadcastModal({ onClose }: { onClose: () => void }) {
               <p className="text-[11px] text-amber-600 mt-1">
                 Free-form text only delivers to leads with an open 24h WhatsApp session.
               </p>
-            </Field>
+            </div>
           )}
 
           {/* Scheduled send */}

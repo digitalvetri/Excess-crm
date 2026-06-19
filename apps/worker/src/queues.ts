@@ -29,6 +29,7 @@ export const queues = {
   pdfRender: mkQueue('pdf-render'),
   csvImport: mkQueue('csv-import'),
   broadcastSend: mkQueue('broadcast-send'),
+  indiamartPull: mkQueue('indiamart-pull'),
 } as const;
 
 export type QueueName = keyof typeof queues;

@@ -100,7 +100,7 @@ export function NotificationPanel() {
             {notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10">
                 <Bell size={28} className="mb-2 text-slate-200" />
-                <p className="text-xs text-slate-400">You're all caught up!</p>
+                <p className="text-xs text-slate-400">You&apos;re all caught up!</p>
               </div>
             ) : (
               notifications.map((n) => {

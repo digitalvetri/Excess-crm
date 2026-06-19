@@ -8,6 +8,7 @@ import {
   DollarSign,
   X,
   CreditCard,
+  TrendingUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -19,6 +20,7 @@ import {
   type CommissionStatus,
 } from '@/hooks/use-franchise';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { useCommissionProjections } from '@/hooks/use-financial';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -173,6 +175,59 @@ function TableSkeleton() {
   );
 }
 
+// ─── Projection banner ────────────────────────────────────────────────────────
+
+function ProjectionBanner() {
+  const { data, loading } = useCommissionProjections();
+  const proj = data;
+
+  if (loading) return <div className="h-24 rounded-2xl bg-slate-100 animate-pulse mb-6" />;
+  if (!proj) return null;
+
+  const confidenceColor =
+    proj.confidence === 'high' ? 'text-green-600' :
+    proj.confidence === 'medium' ? 'text-amber-600' : 'text-slate-500';
+
+  return (
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 mb-2">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+          <TrendingUp size={18} className="text-primary" />
+          30-Day Commission Projection
+        </h3>
+        <span className={`text-xs font-medium uppercase ${confidenceColor}`}>
+          {proj.confidence} confidence
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <p className="text-2xl font-bold text-primary">
+            ₹{(proj.projectedCommissionInr / 100000).toFixed(1)}L
+          </p>
+          <p className="text-xs text-slate-500">Projected commission</p>
+        </div>
+        <div>
+          <p className="text-2xl font-bold text-slate-900">
+            {proj.expectedConversions.toFixed(1)}
+          </p>
+          <p className="text-xs text-slate-500">Expected conversions</p>
+        </div>
+        <div>
+          <p className="text-2xl font-bold text-slate-900">
+            {proj.avgRatePercent.toFixed(1)}%
+          </p>
+          <p className="text-xs text-slate-500">Avg commission rate</p>
+        </div>
+      </div>
+      <div className="flex gap-4 mt-3 text-xs text-slate-500">
+        <span>{proj.pipeline.qualified} Qualified</span>
+        <span>{proj.pipeline.followUp} Follow-up</span>
+        <span>{proj.pipeline.new} New</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CommissionsPage() {
@@ -185,7 +240,7 @@ export default function CommissionsPage() {
   const approve        = useApproveCommission();
   const dispute        = useDisputeCommission();
 
-  const commissions = commissionsQuery.data?.commissions ?? [];
+  const commissions = useMemo(() => commissionsQuery.data?.commissions ?? [], [commissionsQuery.data?.commissions]);
   const summary     = summaryQuery.data;
 
   // Only APPROVED commissions can be selected for batch payout
@@ -246,6 +301,8 @@ export default function CommissionsPage() {
           Review, approve and pay out franchise commissions.
         </p>
       </div>
+
+      <ProjectionBanner />
 
       {/* KPI strip */}
       {summary ? (

@@ -134,6 +134,34 @@ export function useMetaPageForms(pageId: string | null) {
   });
 }
 
+export interface IntegrationHealthEntry {
+  sourceId: string;
+  type: string;
+  isActive: boolean;
+  leadsToday: number;
+  leadsThisWeek: number;
+  lastLeadAt: string | null;
+  status: 'healthy' | 'slow' | 'stale' | 'inactive';
+}
+
+export interface IntegrationHealthSummary {
+  health: IntegrationHealthEntry[];
+  totalLeadsToday: number;
+  totalLeadsThisWeek: number;
+}
+
+export function useIntegrationHealth() {
+  return useQuery({
+    queryKey: ['integration-health'],
+    queryFn: () =>
+      api
+        .get<{ data: IntegrationHealthSummary }>('/integrations/health')
+        .then((r) => r.data.data),
+    refetchInterval: 30_000,
+    staleTime: 25_000,
+  });
+}
+
 export function useMetaConnect() {
   const qc = useQueryClient();
   return useMutation({

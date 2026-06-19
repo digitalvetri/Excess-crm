@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import {
   useIntegrations,
+  useIntegrationHealth,
   useCreateIntegration,
   useUpdateIntegration,
   useDeleteIntegration,
@@ -34,6 +35,7 @@ import {
   useMetaConnect,
   type IntegrationSource,
   type IntegrationType,
+  type IntegrationHealthEntry,
 } from '@/hooks/use-integrations';
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
@@ -349,7 +351,7 @@ function IndiaMartPanel({ source }: { source: IntegrationSource | undefined }) {
           <option value="daily">Daily (recommended)</option>
           <option value="manual">Manual only</option>
         </select>
-        <p className="text-xs text-slate-500 mt-1">We'll also capture leads via webhook in real time.</p>
+        <p className="text-xs text-slate-500 mt-1">We&apos;ll also capture leads via webhook in real time.</p>
       </div>
 
       {source?.lastSyncAt && (
@@ -697,6 +699,73 @@ function FacebookPanel({ source }: { source: IntegrationSource | undefined }) {
   );
 }
 
+// ─── Health panel ─────────────────────────────────────────────────────────────
+
+const SOURCE_ICON: Record<string, string> = {
+  META: '📱', INDIAMART: '🏭', JUSTDIAL: '📞', WEBSITE: '🌐', MANUAL: '✏️', CSV: '📄',
+};
+
+const STATUS_DOT: Record<IntegrationHealthEntry['status'], string> = {
+  healthy:  'bg-green-500',
+  slow:     'bg-amber-400',
+  stale:    'bg-red-500',
+  inactive: 'bg-slate-300',
+};
+
+const STATUS_LABEL: Record<IntegrationHealthEntry['status'], string> = {
+  healthy: 'Healthy', slow: 'Slow', stale: 'Stale', inactive: 'Inactive',
+};
+
+function IntegrationHealthPanel() {
+  const { data, isLoading } = useIntegrationHealth();
+  const health = data?.health ?? [];
+
+  if (isLoading) return <div className="h-20 rounded-xl bg-slate-100 animate-pulse" />;
+  if (health.length === 0) return null;
+
+  const healthyCount = health.filter((h) => h.status === 'healthy').length;
+
+  return (
+    <div className="rounded-xl border border-border bg-white p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-slate-700">Integration Health</h2>
+        <span className="text-xs text-slate-500">
+          {healthyCount}/{health.length} healthy · auto-refreshes
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {health.map((h) => (
+          <div key={h.sourceId} className="flex items-start gap-2 rounded-lg bg-slate-50 p-3">
+            <span className="text-lg leading-none">{SOURCE_ICON[h.type] ?? '🔌'}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[h.status]}`} />
+                <span className="text-xs font-medium text-slate-700 truncate">{h.type}</span>
+              </div>
+              <p className="text-xs text-slate-500">
+                {h.leadsToday} today · {h.leadsThisWeek} this week
+              </p>
+              {h.lastLeadAt && (
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Last: {formatDistanceToNow(new Date(h.lastLeadAt), { addSuffix: true })}
+                </p>
+              )}
+              <span className="inline-block mt-1 text-xs text-slate-400">
+                {STATUS_LABEL[h.status]}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+      {data && (
+        <p className="mt-3 text-xs text-slate-500 text-right">
+          Total today: {data.totalLeadsToday} leads · This week: {data.totalLeadsThisWeek}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Integration card ─────────────────────────────────────────────────────────
 
 function IntegrationCard({
@@ -801,6 +870,9 @@ export default function IntegrationsPage() {
           </div>
         )}
       </div>
+
+      {/* Health panel */}
+      <IntegrationHealthPanel />
 
       {/* Cards */}
       {isLoading ? (

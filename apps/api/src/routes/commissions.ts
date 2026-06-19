@@ -222,4 +222,66 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, commissionId: id }, 'commission.disputed');
     return reply.send({ data: commission });
   });
+
+  // GET /commissions/projections — pipeline-based commission forecast
+  app.get('/projections', async (req, reply) => {
+    if (!can(req.auth.role, 'commissions.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const cutoff90d = new Date(Date.now() - 90 * 86400000);
+
+    const [pipelineLeads, last90dCommissions] = await req.withTenant((tx) =>
+      Promise.all([
+        tx.lead.findMany({
+          where: { stage: { in: ['QUALIFIED', 'FOLLOW_UP', 'NEW'] } },
+          select: { stage: true },
+        }),
+        tx.commission.findMany({
+          where: { createdAt: { gte: cutoff90d } },
+          select: { dealValueInr: true, netPayableInr: true, status: true },
+        }),
+      ]),
+    );
+
+    const paidCommissions = last90dCommissions.filter((c) => c.status !== 'DISPUTED');
+
+    const avgRatePercent =
+      paidCommissions.length > 0
+        ? paidCommissions.reduce(
+            (s, c) => s + (Number(c.netPayableInr) / Number(c.dealValueInr)) * 100,
+            0,
+          ) / paidCommissions.length
+        : 3.5;
+
+    const avgDealValueInr =
+      paidCommissions.length > 0
+        ? paidCommissions.reduce((s, c) => s + Number(c.dealValueInr), 0) / paidCommissions.length
+        : 350000;
+
+    const qualified = pipelineLeads.filter((l) => l.stage === 'QUALIFIED').length;
+    const followUp  = pipelineLeads.filter((l) => l.stage === 'FOLLOW_UP').length;
+    const newLeads  = pipelineLeads.filter((l) => l.stage === 'NEW').length;
+
+    const expectedConversions =
+      qualified * 0.45 + followUp * 0.2 + newLeads * 0.05;
+    const projectedRevenueInr    = expectedConversions * avgDealValueInr;
+    const projectedCommissionInr = projectedRevenueInr * (avgRatePercent / 100);
+
+    const confidence =
+      paidCommissions.length >= 20 ? 'high' : paidCommissions.length >= 5 ? 'medium' : 'low';
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId }, 'commissions.projections');
+    return reply.send({
+      data: {
+        pipeline: { qualified, followUp, new: newLeads },
+        expectedConversions: Math.round(expectedConversions * 10) / 10,
+        projectedRevenueInr:    Math.round(projectedRevenueInr),
+        projectedCommissionInr: Math.round(projectedCommissionInr),
+        avgRatePercent: Math.round(avgRatePercent * 10) / 10,
+        avgDealValueInr: Math.round(avgDealValueInr),
+        confidence,
+      },
+    });
+  });
 };

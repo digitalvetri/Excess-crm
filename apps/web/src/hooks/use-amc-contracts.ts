@@ -123,3 +123,24 @@ export function useBulkRenewAmc() {
     },
   });
 }
+
+export interface AmcRevenueSummary {
+  totalActive: number;
+  totalActiveValueInr: number;
+  expiringIn30: number;
+  expiringIn60: number;
+  expiringIn90: number;
+  expiredCount: number;
+  renewedThisYearCount: number;
+  renewedThisYearValueInr: number;
+}
+
+export function useAmcRevenueSummary() {
+  return useQuery({
+    queryKey: ['amc-contracts', 'revenue-summary'],
+    queryFn: () =>
+      api
+        .get<{ data: AmcRevenueSummary }>('/amc-contracts/revenue-summary')
+        .then((r) => r.data.data),
+  });
+}

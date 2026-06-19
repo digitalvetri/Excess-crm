@@ -564,6 +564,73 @@ export const integrationsRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(422).send({ error: { code: 'integrations.unsupported_type', message: 'Verification not supported for this integration type' } });
   });
 
+  // GET /integrations/health — per-source lead activity health
+  app.get('/health', async (req, reply) => {
+    if (!can(req.auth.role, 'integrations.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekStart  = new Date(now.getTime() - 7 * 86400000);
+
+    const [sources, leadsToday, leadsThisWeek] = await req.withTenant((tx) =>
+      Promise.all([
+        tx.leadSource.findMany({
+          where: { tenantId: req.auth.tenantId },
+          select: { id: true, type: true, isActive: true, createdAt: true },
+        }),
+        tx.lead.groupBy({
+          by: ['sourceId'],
+          where: { tenantId: req.auth.tenantId, createdAt: { gte: todayStart }, sourceId: { not: null } },
+          _count: { id: true },
+        }),
+        tx.lead.groupBy({
+          by: ['sourceId'],
+          where: { tenantId: req.auth.tenantId, createdAt: { gte: weekStart }, sourceId: { not: null } },
+          _count: { id: true },
+        }),
+      ]),
+    );
+
+    const lastLeads = await req.withTenant((tx) =>
+      tx.lead.findMany({
+        where: { tenantId: req.auth.tenantId, sourceId: { in: sources.map((s) => s.id) } },
+        orderBy: { createdAt: 'desc' },
+        select: { sourceId: true, createdAt: true },
+        distinct: ['sourceId'],
+      }),
+    );
+
+    const todayMap = new Map(leadsToday.map((l) => [l.sourceId, l._count.id]));
+    const weekMap  = new Map(leadsThisWeek.map((l) => [l.sourceId, l._count.id]));
+    const lastMap  = new Map(lastLeads.map((l) => [l.sourceId, l.createdAt]));
+
+    const health = sources.map((s) => {
+      const lastAt  = lastMap.get(s.id);
+      const isRecent = lastAt ? lastAt > new Date(now.getTime() - 48 * 3600000) : false;
+      const hasWeek  = (weekMap.get(s.id) ?? 0) > 0;
+      const status = !s.isActive ? 'inactive'
+        : isRecent   ? 'healthy'
+        : hasWeek    ? 'slow'
+        : 'stale';
+      return {
+        sourceId:      s.id,
+        type:          s.type,
+        isActive:      s.isActive,
+        leadsToday:    todayMap.get(s.id) ?? 0,
+        leadsThisWeek: weekMap.get(s.id) ?? 0,
+        lastLeadAt:    lastAt?.toISOString() ?? null,
+        status,
+      };
+    });
+
+    const totalLeadsToday    = health.reduce((s, h) => s + h.leadsToday, 0);
+    const totalLeadsThisWeek = health.reduce((s, h) => s + h.leadsThisWeek, 0);
+
+    return reply.send({ data: { health, totalLeadsToday, totalLeadsThisWeek } });
+  });
+
   // POST /integrations/:id/sync — trigger manual pull (IndiaMART only)
   app.post('/:id/sync', async (req, reply) => {
     if (!can(req.auth.role, 'integrations.sync')) {

@@ -256,3 +256,58 @@ export function useCreateTransaction() {
     },
   });
 }
+
+// ─── Ambassadors ──────────────────────────────────────────────────────────────
+
+export type AmbassadorTier = 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM';
+
+export interface Ambassador {
+  rank: number;
+  referrerId: string;
+  referrer: { id: string; name: string; phone: string; city: string | null } | null;
+  referralCount: number;
+  tier: AmbassadorTier;
+}
+
+export function useAmbassadors() {
+  return useQuery({
+    queryKey: ['ambassadors'],
+    queryFn: () =>
+      api.get<{ data: Ambassador[] }>('/referrals/ambassadors').then((r) => r.data.data),
+    staleTime: 60_000,
+  });
+}
+
+export function useAutoReward() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<{ data: Referral }>(`/referrals/${id}/auto-reward`).then((r) => r.data.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['referrals'] });
+      void qc.invalidateQueries({ queryKey: ['referral-summary'] });
+      void qc.invalidateQueries({ queryKey: ['ambassadors'] });
+      void qc.invalidateQueries({ queryKey: ['wallet'] });
+      void qc.invalidateQueries({ queryKey: ['engagement-summary'] });
+    },
+  });
+}
+
+// ─── Colony Clusters ──────────────────────────────────────────────────────────
+
+export interface ColonyCluster {
+  pincode: string;
+  city: string | null;
+  total: number;
+  colonyScore: number;
+  stages: Record<string, number>;
+}
+
+export function useColonyClusters() {
+  return useQuery({
+    queryKey: ['colony-clusters'],
+    queryFn: () =>
+      api.get<{ data: ColonyCluster[] }>('/leads/colony-clusters').then((r) => r.data.data),
+    staleTime: 120_000,
+  });
+}

@@ -9,6 +9,8 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { enrollLeadInSequences } from '../lib/sequences.js';
 import { signPortalToken } from '../lib/portal-token.js';
+import { signNpsToken } from '../lib/nps-token.js';
+import { prisma as globalPrisma, withSystemContext } from '@excess/db';
 
 const s3 = new S3Client({ region: env.AWS_REGION });
 
@@ -825,5 +827,171 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, projectId: id, stage: project.stage, to }, 'project.notified');
     return reply.send({ data: { sent: true, stage: project.stage } });
+  });
+
+  // ── GET /projects/upsell-candidates ─────────────────────────────────────────
+  app.get('/upsell-candidates', async (req, reply) => {
+    if (!can(req.auth.role, 'projects.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const sixMonthsAgo = new Date(Date.now() - 6 * 30 * 24 * 60 * 60 * 1000);
+
+    const projects = await req.withTenant((tx) =>
+      tx.project.findMany({
+        where: { stage: 'HANDED_OVER', handedOverAt: { lte: sixMonthsAgo } },
+        select: {
+          id: true,
+          number: true,
+          systemKw: true,
+          totalValueInr: true,
+          handedOverAt: true,
+          generationLog: true,
+          lead: { select: { id: true, name: true, phone: true, city: true } },
+          amcContracts: {
+            where: { status: 'ACTIVE' },
+            select: { id: true, endDate: true, valueInr: true },
+          },
+        },
+        orderBy: { handedOverAt: 'asc' },
+        take: 50,
+      }),
+    );
+
+    interface GenEntry { month: string; kwhGenerated: number }
+
+    const candidates = projects.map((p) => {
+      const rawLog = Array.isArray(p.generationLog) ? p.generationLog : [];
+      const log = (rawLog as unknown[]).filter(
+        (e): e is GenEntry =>
+          typeof e === 'object' && e !== null &&
+          'month' in e && 'kwhGenerated' in e &&
+          typeof (e as GenEntry).kwhGenerated === 'number',
+      );
+      const totalKwh = log.reduce((s, r) => s + r.kwhGenerated, 0);
+      const avgMonthlyKwhGenerated = log.length > 0 ? Math.round(totalKwh / log.length) : 0;
+      const kw = Number(p.systemKw);
+      const estimatedBatteryKwh = kw * 2;
+      const batteryRoiYears =
+        avgMonthlyKwhGenerated > 0
+          ? Math.round(((kw * 50000) / (avgMonthlyKwhGenerated * 12 * 7.5)) * 10) / 10
+          : 0;
+      return {
+        id: p.id,
+        number: p.number,
+        systemKw: kw,
+        totalValueInr: Number(p.totalValueInr),
+        handedOverAt: p.handedOverAt,
+        avgMonthlyKwhGenerated,
+        estimatedBatteryKwh,
+        batteryRoiYears,
+        lead: p.lead,
+        amcContracts: p.amcContracts.map((a) => ({
+          id: a.id,
+          endDate: a.endDate,
+          valueInr: a.valueInr !== null ? Number(a.valueInr) : null,
+        })),
+      };
+    });
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, count: candidates.length }, 'projects.upsell_candidates');
+    return reply.send({ data: { candidates, total: candidates.length } });
+  });
+
+  // ── POST /projects/:id/start-upsell ─────────────────────────────────────────
+  app.post('/:id/start-upsell', async (req, reply) => {
+    if (!can(req.auth.role, 'projects.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+
+    const project = await req.withTenant((tx) =>
+      tx.project.findUnique({
+        where: { id },
+        select: { id: true, leadId: true, notes: true, systemKw: true },
+      }),
+    );
+
+    if (!project) {
+      return reply.code(404).send({ error: { code: 'project.not_found', message: 'Project not found' } });
+    }
+
+    const upsellNote = `\n[UPSELL-INITIATED] Battery expansion upsell started on ${new Date().toISOString()}`;
+    await req.withTenant((tx) =>
+      tx.project.update({
+        where: { id },
+        data: { notes: (project.notes ?? '') + upsellNote },
+      }),
+    );
+
+    await app.queues.voiceDial.add(
+      'voice-dial',
+      { leadId: project.leadId, tenantId: req.auth.tenantId, personaId: 'EXCESS_AGENT' },
+      { delay: 0, priority: 1 },
+    );
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, projectId: project.id }, 'project.upsell_started');
+    return reply.send({ data: { message: 'Upsell call queued' } });
+  });
+
+  // ── POST /projects/:id/send-nps — trigger NPS survey for converted customer ──
+  app.post('/:id/send-nps', async (req, reply) => {
+    if (!can(req.auth.role, 'projects.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+    const tenantId = req.auth.tenantId;
+
+    const project = await req.withTenant((tx) =>
+      tx.project.findUnique({
+        where: { id },
+        select: { leadId: true, lead: { select: { name: true, phone: true } } },
+      }),
+    );
+    if (!project) {
+      return reply.code(404).send({ error: { code: 'project.not_found', message: 'Project not found' } });
+    }
+
+    const { leadId, lead } = project;
+
+    const existing = await withSystemContext(globalPrisma, tenantId, (tx) =>
+      tx.review.findFirst({ where: { leadId }, select: { id: true } }),
+    );
+
+    let reviewId: string;
+    if (existing) {
+      await withSystemContext(globalPrisma, tenantId, (tx) =>
+        tx.review.update({ where: { id: existing.id }, data: { npsRequestedAt: new Date() } }),
+      );
+      reviewId = existing.id;
+    } else {
+      const created = await withSystemContext(globalPrisma, tenantId, (tx) =>
+        tx.review.create({
+          data: { tenantId, leadId, npsRequestedAt: new Date() },
+          select: { id: true },
+        }),
+      );
+      reviewId = created.id;
+    }
+
+    const npsToken = signNpsToken({ reviewId, leadId, tenantId });
+    const npsUrl   = `${env.APP_URL}/portal/nps/${npsToken}`;
+
+    if (lead.phone) {
+      void app.queues.whatsappSend.add('whatsapp-send', {
+        tenantId,
+        leadId,
+        phone: lead.phone.replace(/\D/g, '').replace(/^(?!91)/, '91'),
+        template: 'DIRECT_MESSAGE',
+        vars: {
+          message: `Hi ${lead.name}! Your solar system is running great ☀️ Could you share your experience? It takes 30 seconds: ${npsUrl}`,
+        },
+      });
+    }
+
+    req.log.info({ tenantId, userId: req.auth.userId, projectId: id }, 'project.nps_sent');
+    return reply.send({ data: { npsUrl } });
   });
 };

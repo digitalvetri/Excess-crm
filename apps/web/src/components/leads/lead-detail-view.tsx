@@ -34,10 +34,12 @@ import {
   Zap,
   TrendingUp,
   Leaf,
+  Share2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMergeLeads, useSendLeadEmail } from '@/hooks/use-leads';
 import { useQuery } from '@tanstack/react-query';
+import { useComputeLeadScore, useCallInsights } from '@/hooks/use-insights';
 import { api } from '@/lib/api';
 import { useMessages, useSendMessage } from '@/hooks/use-whatsapp';
 import { StageBadge } from './stage-badge';
@@ -374,7 +376,7 @@ function DuplicatesCard({ masterId }: { masterId: string }) {
         ))}
       </div>
       <p className="text-xs text-amber-600 mt-3">
-        Merging keeps this lead's history and marks the duplicate as invalid.
+        Merging keeps this lead&apos;s history and marks the duplicate as invalid.
       </p>
     </div>
   );
@@ -699,6 +701,122 @@ function AiSolarProposal({ leadId, city, factSheet }: QuickProposalProps) {
   );
 }
 
+function ReferralLinkCard({ leadId }: { leadId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function generate() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/referral-link?leadId=${encodeURIComponent(leadId)}`);
+      const data = (await res.json()) as { url: string };
+      setUrl(data.url);
+    } catch {
+      toast.error('Failed to generate referral link');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function copyLink() {
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const waText = url
+    ? encodeURIComponent(
+        `I switched to solar with Excess Renew and I'm saving ₹3000/month! Get your free estimate: ${url}`,
+      )
+    : '';
+
+  return (
+    <div className="bg-white rounded-xl border border-border p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <Share2 size={15} className="text-[#0F4C81]" />
+        <h3 className="text-sm font-semibold text-slate-700">Referral Link</h3>
+      </div>
+
+      {!url ? (
+        <button
+          onClick={() => void generate()}
+          disabled={loading}
+          className="w-full py-2 text-sm bg-[#0F4C81] text-white rounded-lg hover:bg-[#0a3a63] font-medium disabled:opacity-60"
+        >
+          {loading ? 'Generating…' : 'Generate Link'}
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={url}
+              className="flex-1 text-xs px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-600 truncate"
+            />
+            <button
+              onClick={() => void copyLink()}
+              className="px-3 py-2 text-xs bg-slate-100 hover:bg-slate-200 rounded-lg font-medium text-slate-700 whitespace-nowrap"
+            >
+              {copied ? 'Copied!' : <Copy size={13} />}
+            </button>
+          </div>
+          <a
+            href={`https://wa.me/?text=${waText}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-2 text-sm bg-[#25D366] text-white rounded-lg hover:bg-[#1db855] font-medium"
+          >
+            <MessageSquare size={13} /> Share on WhatsApp
+          </a>
+        </div>
+      )}
+      <p className="text-[10px] text-slate-400 mt-2">Earn ₹5,000 for every successful installation via your link</p>
+    </div>
+  );
+}
+
+function CallInsightsMini({ callId }: { callId: string }) {
+  const [open, setOpen] = useState(false);
+  const { data: insights, isLoading } = useCallInsights(open ? callId : null);
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-[10px] text-primary hover:underline mt-1 inline-flex items-center gap-1"
+      >
+        {open ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+        {open ? 'Hide insights' : 'View insights'}
+      </button>
+      {open && (
+        <div className="mt-2 rounded-lg bg-slate-50 border border-border p-3 text-xs space-y-1.5">
+          {isLoading && <p className="text-slate-400">Loading…</p>}
+          {insights && (
+            <>
+              <p className="font-medium text-slate-700">Interest: <span className={
+                insights.interestLevel === 'High' ? 'text-success' :
+                insights.interestLevel === 'Medium' ? 'text-amber-600' : 'text-slate-500'
+              }>{insights.interestLevel}</span></p>
+              {insights.painPoints.length > 0 && (
+                <p className="text-slate-600"><span className="font-medium">Pain points:</span> {insights.painPoints.join(', ')}</p>
+              )}
+              {insights.objections.length > 0 && (
+                <p className="text-slate-600"><span className="font-medium">Objections:</span> {insights.objections.join(', ')}</p>
+              )}
+              <p className="text-primary font-medium">→ {insights.nextAction}</p>
+            </>
+          )}
+          {!isLoading && !insights && (
+            <p className="text-slate-400">No transcript available</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface LeadDetailViewProps {
   id: string;
 }
@@ -706,6 +824,7 @@ interface LeadDetailViewProps {
 export function LeadDetailView({ id }: LeadDetailViewProps) {
   const { data: lead, isLoading, isError } = useLeadDetail(id);
   const { mutate: updateLead, isPending } = useUpdateLead();
+  const computeScore = useComputeLeadScore();
   const [editingStage, setEditingStage] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [addingNote, setAddingNote] = useState(false);
@@ -1005,11 +1124,22 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
               </div>
               <div className="flex justify-between items-center">
                 <dt className="text-slate-500">AI Score</dt>
-                <dd>
+                <dd className="flex items-center gap-2">
                   <ScoreWithBreakdown
                     score={lead.aiScore}
                     breakdown={lead.aiScoreBreakdown}
                   />
+                  <button
+                    onClick={() => computeScore.mutate(lead.id, {
+                      onSuccess: () => toast.success('Score refreshed'),
+                      onError: () => toast.error('Failed to refresh score'),
+                    })}
+                    disabled={computeScore.isPending}
+                    className="text-slate-400 hover:text-primary transition-colors"
+                    title="Refresh score"
+                  >
+                    <RefreshCw size={12} className={computeScore.isPending ? 'animate-spin' : ''} />
+                  </button>
                 </dd>
               </div>
               <div className="flex justify-between items-center">
@@ -1054,6 +1184,7 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
                     <span>{format(new Date(call.initiatedAt), 'MMM d, h:mm a')}</span>
                     {call.durationSec && <span>· {Math.floor(call.durationSec / 60)}m {call.durationSec % 60}s</span>}
                   </div>
+                  {call.status === 'COMPLETED' && <CallInsightsMini callId={call.id} />}
                 </div>
               ))}
             </div>
@@ -1093,6 +1224,11 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
             city={lead.city}
             factSheet={lead.factSheet}
           />
+
+          {/* Referral Link — only for converted customers */}
+          {lead.stage === 'CONVERTED' && (
+            <ReferralLinkCard leadId={lead.id} />
+          )}
         </div>
       </div>
     </div>

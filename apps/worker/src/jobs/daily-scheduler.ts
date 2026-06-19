@@ -1,4 +1,5 @@
 import pino from 'pino';
+import { prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
 import { queues } from '../queues.js';
 import { runDailyCompliance } from './data-retention.js';
 
@@ -51,4 +52,35 @@ export function startDailyScheduler(): void {
   };
 
   scheduleNext();
+}
+
+const INDIAMART_PULL_INTERVAL_MS = (parseInt(process.env['INDIAMART_PULL_FALLBACK_INTERVAL_MIN'] ?? '5', 10)) * 60 * 1000;
+
+/** Polls all active IndiaMART sources every INDIAMART_PULL_FALLBACK_INTERVAL_MIN minutes. */
+export function startIndiamartPullScheduler(): void {
+  const run = async () => {
+    try {
+      const sources = await withSystemContext(prisma, SYSTEM_TENANT_ID, (tx) =>
+        tx.leadSource.findMany({
+          where: { type: 'INDIAMART', isActive: true },
+          select: { id: true, tenantId: true },
+        }),
+      );
+      for (const src of sources) {
+        await queues.indiamartPull.add(
+          'indiamart-pull',
+          { sourceId: src.id, tenantId: src.tenantId },
+          { attempts: 2, backoff: { type: 'fixed', delay: 60_000 } },
+        );
+      }
+      if (sources.length > 0) {
+        log.info({ count: sources.length }, 'indiamart_pull_scheduler.enqueued');
+      }
+    } catch (err) {
+      log.error({ err }, 'indiamart_pull_scheduler.error');
+    }
+  };
+
+  void run(); // run immediately on start
+  setInterval(() => { void run(); }, INDIAMART_PULL_INTERVAL_MS);
 }

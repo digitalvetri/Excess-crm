@@ -44,7 +44,15 @@ async function proxy(
 
   const resHeaders = new Headers();
   upstream.headers.forEach((v, k) => {
-    if (!DROP_RES_HEADERS.has(k)) resHeaders.set(k, v);
+    if (!DROP_RES_HEADERS.has(k)) {
+      // set-cookie must use append — set() would overwrite the first cookie with the
+      // second, dropping the httpOnly excess_session cookie and breaking login.
+      if (k === 'set-cookie') {
+        resHeaders.append(k, v);
+      } else {
+        resHeaders.set(k, v);
+      }
+    }
   });
 
   return new NextResponse(upstream.body, {

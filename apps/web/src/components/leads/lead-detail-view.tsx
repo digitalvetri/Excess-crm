@@ -30,6 +30,10 @@ import {
   GitMerge,
   Link2,
   Send,
+  Sun,
+  Zap,
+  TrendingUp,
+  Leaf,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMergeLeads, useSendLeadEmail } from '@/hooks/use-leads';
@@ -400,6 +404,297 @@ function UtmCard({ lead }: { lead: { utmSource: string | null; utmMedium: string
           </div>
         ))}
       </dl>
+    </div>
+  );
+}
+
+// ─── Solar Score Card ─────────────────────────────────────────────────────────
+
+interface SolarApiResult {
+  city: string;
+  coordinates: { lat: number; lng: number } | null;
+  solarInsights: { maxArrayPanels: number; maxAreaM2: number; sunshineHoursPerYear: number } | null;
+  proposal: {
+    systemKw: number;
+    totalCostInr: number;
+    subsidyInr: number;
+    netPayable: number;
+    annualSavingsInr: number;
+    paybackYears: number;
+    roi25yr: number;
+    emiMonthly: number;
+    annualGenerationKwh: number;
+    maxSunshineHoursPerYear: number;
+    maxPanels: number;
+    carbonOffsetKgPerYear: number;
+  };
+}
+
+function SolarScoreCard({ lead }: { lead: { city?: string | null; factSheet?: Record<string, unknown> | null } }) {
+  const [enabled, setEnabled] = useState(false);
+  const monthlyBill = (() => {
+    const p = lead.factSheet;
+    if (!p) return 2000;
+    const raw = p['monthly_bill'] ?? p['monthlyBill'] ?? p['bill'] ?? p['electricity_bill'] ?? '';
+    const num = parseInt(String(raw).replace(/[^0-9]/g, ''), 10);
+    return isNaN(num) || num < 500 ? 2000 : num;
+  })();
+
+  const { data, isLoading, isError } = useQuery<SolarApiResult>({
+    queryKey: ['solar-score', lead.city, monthlyBill],
+    queryFn: async () => {
+      const res = await fetch(`/api/solar?city=${encodeURIComponent(lead.city ?? 'Coimbatore')}&monthlyBill=${monthlyBill}`);
+      if (!res.ok) throw new Error('Solar API failed');
+      return res.json() as Promise<SolarApiResult>;
+    },
+    enabled: enabled && !!lead.city,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+
+  return (
+    <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-200 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+          <Sun size={14} className="text-amber-500" /> Solar Rooftop Score
+        </h3>
+        {!enabled && (
+          <button
+            onClick={() => setEnabled(true)}
+            disabled={!lead.city}
+            className="text-xs bg-amber-500 text-white px-3 py-1 rounded-lg hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Estimate
+          </button>
+        )}
+      </div>
+
+      {!enabled && (
+        <p className="text-xs text-amber-700 opacity-70">
+          {lead.city
+            ? `Get Google Solar API rooftop analysis for ${lead.city}`
+            : 'Add a city to this lead to enable solar scoring'}
+        </p>
+      )}
+
+      {enabled && isLoading && (
+        <div className="flex items-center gap-2 py-3">
+          <Loader2 size={14} className="animate-spin text-amber-600" />
+          <span className="text-xs text-amber-700">Analysing rooftop potential…</span>
+        </div>
+      )}
+
+      {enabled && isError && (
+        <p className="text-xs text-danger mt-1">Solar API unavailable. Configure GOOGLE_MAPS_API_KEY.</p>
+      )}
+
+      {enabled && data && (
+        <div className="mt-3 space-y-3">
+          {data.solarInsights && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-white rounded-lg p-2 text-center">
+                <p className="text-xs text-amber-700 font-medium">Sunshine</p>
+                <p className="text-sm font-bold text-slate-800">{data.solarInsights.sunshineHoursPerYear}h/yr</p>
+              </div>
+              <div className="bg-white rounded-lg p-2 text-center">
+                <p className="text-xs text-amber-700 font-medium">Max Panels</p>
+                <p className="text-sm font-bold text-slate-800">{data.solarInsights.maxArrayPanels}</p>
+              </div>
+            </div>
+          )}
+          <div className="bg-white rounded-lg p-3 space-y-2">
+            <p className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+              <Zap size={11} className="text-amber-500" /> Recommended System
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <span className="text-slate-500">System Size</span>
+              <span className="font-semibold text-slate-800 text-right">{data.proposal.systemKw} kW</span>
+              <span className="text-slate-500">Annual Generation</span>
+              <span className="font-semibold text-slate-800 text-right">{data.proposal.annualGenerationKwh.toLocaleString()} kWh</span>
+              <span className="text-slate-500">Total Cost</span>
+              <span className="font-semibold text-slate-800 text-right">{fmt(data.proposal.totalCostInr)}</span>
+              <span className="text-slate-500">PM Subsidy</span>
+              <span className="font-semibold text-green-700 text-right">−{fmt(data.proposal.subsidyInr)}</span>
+              <span className="text-slate-500">Net Payable</span>
+              <span className="font-bold text-primary text-right">{fmt(data.proposal.netPayable)}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-green-50 rounded-lg p-2">
+              <p className="text-[10px] text-green-700 font-medium flex items-center justify-center gap-0.5">
+                <TrendingUp size={9} /> Savings/yr
+              </p>
+              <p className="text-xs font-bold text-green-800">{fmt(data.proposal.annualSavingsInr)}</p>
+            </div>
+            <div className="bg-blue-50 rounded-lg p-2">
+              <p className="text-[10px] text-blue-700 font-medium">Payback</p>
+              <p className="text-xs font-bold text-blue-800">{data.proposal.paybackYears} yrs</p>
+            </div>
+            <div className="bg-emerald-50 rounded-lg p-2">
+              <p className="text-[10px] text-emerald-700 font-medium flex items-center justify-center gap-0.5">
+                <Leaf size={9} /> CO₂ saved
+              </p>
+              <p className="text-xs font-bold text-emerald-800">{Math.round(data.proposal.carbonOffsetKgPerYear / 1000)}T/yr</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-amber-600 text-center">
+            Powered by Google Solar API · Estimate only
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── AI Solar Proposal ────────────────────────────────────────────────────────
+
+interface QuickProposalProps {
+  leadId: string;
+  city?: string | null;
+  factSheet?: Record<string, unknown> | null;
+}
+
+function AiSolarProposal({ leadId, city, factSheet }: QuickProposalProps) {
+  const [open, setOpen] = useState(false);
+  const [monthlyBill, setMonthlyBill] = useState(() => {
+    const p = factSheet;
+    const raw = p?.['monthly_bill'] ?? p?.['monthlyBill'] ?? p?.['bill'] ?? '';
+    const n = parseInt(String(raw).replace(/[^0-9]/g, ''), 10);
+    return isNaN(n) ? '' : String(n);
+  });
+  const [systemKw, setSystemKw] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [proposal, setProposal] = useState<SolarApiResult['proposal'] | null>(null);
+
+  async function handleGenerate() {
+    const bill = parseInt(monthlyBill, 10);
+    if (!bill || bill < 500) { toast.error('Enter a valid monthly bill (min ₹500)'); return; }
+    setGenerating(true);
+    try {
+      const res = await fetch(`/api/solar?city=${encodeURIComponent(city ?? 'Coimbatore')}&monthlyBill=${bill}`);
+      const data = (await res.json()) as SolarApiResult;
+      setProposal(data.proposal);
+      setSystemKw(String(data.proposal.systemKw));
+    } catch {
+      toast.error('Failed to generate proposal');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleCreateQuotation() {
+    if (!proposal) return;
+    try {
+      await api.post('/quotations', {
+        leadId,
+        systemKw: proposal.systemKw,
+        brandTier: 'MID',
+        totalInr: proposal.totalCostInr,
+        subsidyInr: proposal.subsidyInr,
+        netPayable: proposal.netPayable,
+        emiMonthly: proposal.emiMonthly,
+        paybackYears: proposal.paybackYears,
+      });
+      toast.success('Quotation created — find it in Quotations');
+      setOpen(false);
+    } catch {
+      toast.error('Failed to create quotation');
+    }
+  }
+
+  const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 transition-colors"
+      >
+        <Sparkles size={14} /> Generate AI Solar Proposal
+      </button>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-border p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+          <Sparkles size={14} className="text-amber-500" /> AI Solar Proposal
+        </h3>
+        <button onClick={() => { setOpen(false); setProposal(null); }} className="text-slate-400 hover:text-slate-600">
+          <X size={15} />
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Monthly Electricity Bill (₹)</label>
+          <input
+            type="number"
+            min="500"
+            step="100"
+            value={monthlyBill}
+            onChange={(e) => setMonthlyBill(e.target.value)}
+            placeholder="e.g. 3000"
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Location</label>
+          <input
+            readOnly
+            value={city ?? 'Not set'}
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-500"
+          />
+        </div>
+        <button
+          onClick={() => void handleGenerate()}
+          disabled={generating || !monthlyBill}
+          className="w-full flex items-center justify-center gap-2 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50"
+        >
+          {generating ? <><Loader2 size={13} className="animate-spin" /> Calculating…</> : <><Zap size={13} /> Generate Proposal</>}
+        </button>
+      </div>
+
+      {proposal && (
+        <div className="space-y-3 pt-2 border-t border-border">
+          <p className="text-xs font-semibold text-slate-700">Recommended Solar System</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            <span className="text-slate-500">System Size</span>
+            <span className="font-bold text-slate-800">{systemKw} kW</span>
+            <span className="text-slate-500">Generation/yr</span>
+            <span className="font-bold text-slate-800">{proposal.annualGenerationKwh.toLocaleString()} kWh</span>
+            <span className="text-slate-500">Total Cost</span>
+            <span className="font-bold text-slate-800">{fmt(proposal.totalCostInr)}</span>
+            <span className="text-slate-500">PM Surya Ghar Subsidy</span>
+            <span className="font-bold text-green-700">−{fmt(proposal.subsidyInr)}</span>
+            <span className="text-slate-500">Net Payable</span>
+            <span className="font-bold text-primary text-base">{fmt(proposal.netPayable)}</span>
+            <span className="text-slate-500">EMI (est.)</span>
+            <span className="font-bold text-slate-800">{fmt(proposal.emiMonthly)}/mo</span>
+            <span className="text-slate-500">Annual Savings</span>
+            <span className="font-bold text-green-700">{fmt(proposal.annualSavingsInr)}</span>
+            <span className="text-slate-500">Payback Period</span>
+            <span className="font-bold text-slate-800">{proposal.paybackYears} years</span>
+            <span className="text-slate-500">25-Year ROI</span>
+            <span className="font-bold text-green-700">{fmt(proposal.roi25yr)}</span>
+            <span className="text-slate-500">CO₂ Offset</span>
+            <span className="font-bold text-emerald-700">{Math.round(proposal.carbonOffsetKgPerYear / 1000)}T/year</span>
+          </div>
+          <div className="bg-amber-50 rounded-lg p-3 text-xs text-amber-800">
+            <p className="font-medium mb-1">PM Surya Ghar Yojana 2024</p>
+            <p>Up to ₹78,000 subsidy for ≤3 kW systems. Interest-free EMI available via empanelled banks.</p>
+          </div>
+          <button
+            onClick={() => void handleCreateQuotation()}
+            className="w-full py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+          >
+            Save as Quotation
+          </button>
+          <p className="text-[10px] text-slate-400 text-center">Estimates based on ₹7.50/unit tariff · Subject to site survey</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -788,6 +1083,16 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
 
           {/* AI Summary */}
           <LeadSummaryCard leadId={lead.id} />
+
+          {/* Solar Rooftop Score */}
+          <SolarScoreCard lead={{ city: lead.city, factSheet: lead.factSheet }} />
+
+          {/* AI Solar Proposal */}
+          <AiSolarProposal
+            leadId={lead.id}
+            city={lead.city}
+            factSheet={lead.factSheet}
+          />
         </div>
       </div>
     </div>

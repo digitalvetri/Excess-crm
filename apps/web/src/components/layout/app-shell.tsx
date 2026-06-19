@@ -278,9 +278,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       clearCache();
       router.push('/login');
     } catch {
-      // Session already invalid or API unreachable — clear httpOnly cookies via
-      // server-side route so middleware doesn't bounce /login back to /dashboard.
-      window.location.href = '/api/auth/clear';
+      // Session invalid or API unreachable — clear httpOnly cookies via server-side
+      // route, then redirect. Avoids middleware bouncing /login → /dashboard.
+      await fetch('/api/auth/clear');
+      window.location.href = '/login';
     }
   }
 

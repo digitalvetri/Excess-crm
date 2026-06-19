@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 
-// Clears session cookies and redirects to /login.
-// Called when the Fastify API returns 401 with an invalid/expired session —
-// JavaScript cannot delete httpOnly cookies, so this server-side route does it.
-export function GET(request: NextRequest) {
-  const loginUrl = new URL('/login', request.url);
-  const res = NextResponse.redirect(loginUrl);
+// Clears session cookies and returns 200. The caller (api.ts interceptor or
+// handleLogout) does the client-side redirect to /login after this fetch resolves.
+// Keeping the redirect client-side avoids the internal container URL (0.0.0.0:3000)
+// being used as the Location header when running behind a reverse proxy in Docker.
+export function GET() {
+  const res = new NextResponse(null, { status: 200 });
   res.cookies.delete('excess_session');
   res.cookies.delete('excess_role');
   return res;

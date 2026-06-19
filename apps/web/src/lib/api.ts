@@ -24,10 +24,12 @@ api.interceptors.response.use(
       // error toast, not reload the page and clear it.
       const isAuthEndpoint = (error.config?.url as string | undefined)?.includes('/auth/');
       if (!isAuthEndpoint) {
-        // Use /api/auth/clear instead of /login directly: the server-side route deletes
-        // the httpOnly session cookies before redirecting, breaking the middleware loop
-        // where /login bounces back to /dashboard because the stale cookie still exists.
-        window.location.href = '/api/auth/clear';
+        // Fetch /api/auth/clear first so the server deletes the httpOnly session cookies,
+        // then redirect to /login. Without clearing first, middleware sees the stale cookie
+        // and bounces /login → /dashboard in an infinite loop.
+        void fetch('/api/auth/clear').finally(() => {
+          window.location.href = '/login';
+        });
       }
     }
     return Promise.reject(error);

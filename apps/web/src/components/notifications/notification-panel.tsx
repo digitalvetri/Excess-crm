@@ -31,7 +31,7 @@ export function NotificationPanel() {
   const dismiss = useDismissNotification();
 
   const notifications = data?.data ?? [];
-  const unreadCount = data?.meta.unreadCount ?? 0;
+  const unreadCount = data?.meta?.unreadCount ?? 0;
 
   // Close on outside click
   useEffect(() => {

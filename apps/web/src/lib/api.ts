@@ -20,7 +20,12 @@ api.interceptors.response.use(
   (res) => res,
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
-      window.location.href = '/login';
+      // Skip redirect for auth endpoints — failed login returns 401 but should show an
+      // error toast, not reload the page and clear it.
+      const isAuthEndpoint = (error.config?.url as string | undefined)?.includes('/auth/');
+      if (!isAuthEndpoint) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   },

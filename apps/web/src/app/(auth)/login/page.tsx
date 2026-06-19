@@ -46,9 +46,8 @@ function LoginForm() {
       const redirect = searchParams.get('redirect') ?? '/dashboard';
       router.push(redirect);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message :
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? 'Login failed';
+      const apiMsg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      const message = apiMsg ?? (err instanceof Error ? err.message : 'Login failed');
       toast.error(message);
     } finally {
       setLoading(false);

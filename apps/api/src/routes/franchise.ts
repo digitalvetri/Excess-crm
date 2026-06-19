@@ -172,7 +172,7 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
 
     const franchise = await req.withTenant(async (tx) =>
       tx.tenant.update({
-        where: { id },
+        where: { id, type: 'FRANCHISE' },
         data: rawData as Parameters<typeof tx.tenant.update>[0]['data'],
       }),
     );
@@ -415,7 +415,7 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       vars: { name, franchiseName, agentRole, acceptUrl },
     });
 
-    req.log.info({ userId: req.auth.userId, franchiseId: id, email, agentRole }, 'franchise.agent.invited');
+    req.log.info({ userId: req.auth.userId, franchiseId: id, inviteId: invite.id, agentRole }, 'franchise.agent.invited');
     return reply.code(201).send({ data: { invite, acceptUrl } });
   });
 

@@ -22,15 +22,17 @@ function verifyExotelSignature(secret: string, body: string, signature: string):
 
 export const exotelWebhookRoutes: FastifyPluginAsync = async (app) => {
   app.post('/exotel/missed-call', { config: { public: true } }, async (req, reply) => {
-    // Signature check
+    // Signature check — always enforced; fail closed if the secret is unconfigured
     const secret = env.EXOTEL_WEBHOOK_SECRET;
-    if (secret) {
-      const sig = (req.headers['x-exotel-signature'] as string) ?? '';
-      const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-      if (!verifyExotelSignature(secret, raw, sig)) {
-        req.log.warn('exotel.missed_call.invalid_signature');
-        return reply.code(200).send('ok');
-      }
+    if (!secret) {
+      req.log.error('exotel.missed_call.secret_not_configured');
+      return reply.code(200).send('ok');
+    }
+    const sig = (req.headers['x-exotel-signature'] as string) ?? '';
+    const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    if (!verifyExotelSignature(secret, raw, sig)) {
+      req.log.warn('exotel.missed_call.invalid_signature');
+      return reply.code(200).send('ok');
     }
 
     const payload = req.body as ExotelMissedCallPayload;
@@ -90,7 +92,7 @@ export const exotelWebhookRoutes: FastifyPluginAsync = async (app) => {
       },
     });
 
-    req.log.info({ tenantId, callSid, callerPhone }, 'exotel.missed_call.queued');
+    req.log.info({ tenantId, callSid }, 'exotel.missed_call.queued');
     return reply.code(200).send('ok');
   });
 };

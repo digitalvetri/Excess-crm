@@ -1,5 +1,4 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 import { env } from '@excess/config';
@@ -228,7 +227,7 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
 
   // POST /whatsapp/send — send a direct WhatsApp message to a lead
   app.post('/send', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.own')) {
+    if (!can(req.auth.role, 'whatsapp.send')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 

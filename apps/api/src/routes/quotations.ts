@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { prisma, Prisma } from '@excess/db';
+import { Prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 

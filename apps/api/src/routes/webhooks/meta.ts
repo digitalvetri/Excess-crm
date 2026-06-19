@@ -30,7 +30,11 @@ function verifyMeta(rawBody: string, signature: string): boolean {
     .createHmac('sha256', env.META_WEBHOOK_APP_SECRET)
     .update(rawBody)
     .digest('hex')}`;
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    return false;
+  }
 }
 
 export const metaWebhookRoutes: FastifyPluginAsync = async (app) => {

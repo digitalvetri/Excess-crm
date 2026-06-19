@@ -84,3 +84,56 @@ test.describe('Mobile navigation', () => {
     await expect(asAdmin.getByText('Excess Admin')).toBeVisible({ timeout: 3_000 });
   });
 });
+
+// ── New role-scoped navigation tests ─────────────────────────────────────────
+
+test.describe('Navigation — EMPLOYEE', () => {
+  test('Can navigate to Appointments from sidebar', async ({ asEmployee }) => {
+    // Rely on the fixture's mocks (auth/me, appointments, catch-all). Do NOT register
+    // a broad **/api/v1/** route here — it would shadow the fixture's auth/me (Playwright
+    // matches routes LIFO), leaving useAuth without a role so the nav never renders.
+    await asEmployee.goto('/dashboard');
+    await asEmployee.getByText('Sales').click();
+    await asEmployee.getByRole('link', { name: 'Appointments' }).click();
+    await expect(asEmployee).toHaveURL('/appointments', { timeout: 8_000 });
+  });
+
+  test('Cannot see Settings link in sidebar', async ({ asEmployee }) => {
+    await asEmployee.goto('/dashboard');
+    await asEmployee.waitForTimeout(2000);
+    await expect(asEmployee.getByRole('link', { name: 'Settings' })).not.toBeVisible();
+  });
+
+  test('Can navigate to Leads', async ({ asEmployee }) => {
+    // Rely on the fixture's mocks — a broad **/api/v1/** route here would shadow auth/me.
+    await asEmployee.goto('/dashboard');
+    await asEmployee.getByText('Sales').click();
+    await asEmployee.getByRole('link', { name: 'Leads' }).click();
+    await expect(asEmployee).toHaveURL('/leads', { timeout: 8_000 });
+  });
+});
+
+test.describe('Navigation — FRANCHISE_OWNER', () => {
+  test('Dashboard link is active on /dashboard', async ({ asFranchiseOwner }) => {
+    await asFranchiseOwner.goto('/dashboard');
+    const dashLink = asFranchiseOwner.getByRole('link', { name: 'Dashboard' });
+    await expect(dashLink).toBeVisible({ timeout: 8_000 });
+  });
+
+  test('Cannot see Voice Agent link', async ({ asFranchiseOwner }) => {
+    await asFranchiseOwner.goto('/dashboard');
+    await asFranchiseOwner.waitForTimeout(2000);
+    await expect(asFranchiseOwner.getByRole('link', { name: 'Voice Agent' })).not.toBeVisible();
+  });
+
+  test('Cannot see Reports link', async ({ asFranchiseOwner }) => {
+    await asFranchiseOwner.goto('/dashboard');
+    await asFranchiseOwner.waitForTimeout(2000);
+    await expect(asFranchiseOwner.getByRole('link', { name: 'Reports' })).not.toBeVisible();
+  });
+
+  test('Can see Leaderboard link in sidebar', async ({ asFranchiseOwner }) => {
+    await asFranchiseOwner.goto('/dashboard');
+    await expect(asFranchiseOwner.getByRole('link', { name: 'Leaderboard' })).toBeVisible({ timeout: 8_000 });
+  });
+});

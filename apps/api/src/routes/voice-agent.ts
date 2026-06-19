@@ -713,7 +713,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
       { priority: 1 },
     );
 
-    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: lead.id, personaId, phone }, 'voice_agent.test_dial');
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: lead.id, personaId }, 'voice_agent.test_dial');
     return reply.code(202).send({ data: { queued: true, leadId: lead.id, jobId: job.id } });
   });
 
@@ -876,7 +876,30 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
     }
 
-    const { callId, tenantId, leadId, action, payload: actionPayload } = parsed.data;
+    const { callId, tenantId: bodyTenantId, leadId, action, payload: actionPayload } = parsed.data;
+
+    // For mutation actions, anchor tenantId to the DB call record so that an
+    // arbitrary tenantId supplied in the body cannot be used to write into a
+    // different tenant's data.
+    const MUTATION_ACTIONS = new Set([
+      'updateLeadStage',
+      'scheduleFollowUp',
+      'scheduleAppointment',
+      'updateConversionStatus',
+      'rescheduleFollowUp',
+      'callEnded',
+    ]);
+    let tenantId = bodyTenantId;
+    if (MUTATION_ACTIONS.has(action) && !callId.startsWith('playground-')) {
+      const callRecord = await prisma.call.findUnique({
+        where: { id: callId },
+        select: { tenantId: true },
+      });
+      if (!callRecord) {
+        return reply.code(404).send({ error: { code: 'call.not_found', message: 'Call not found' } });
+      }
+      tenantId = callRecord.tenantId;
+    }
 
     const PRODUCT_CATALOG: Record<string, unknown> = {
       residential: {

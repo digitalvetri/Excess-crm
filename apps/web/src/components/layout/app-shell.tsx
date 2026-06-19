@@ -105,6 +105,17 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: 'fieldwork',
+    label: 'Field Work',
+    icon: Hammer,
+    roles: ['ENGINEER'],
+    items: [
+      { href: '/appointments',   label: 'Appointments',   icon: Calendar },
+      { href: '/projects',       label: 'Projects',       icon: Hammer },
+      { href: '/service-tickets', label: 'Service Tickets', icon: Wrench },
+    ],
+  },
+  {
     id: 'marketing',
     label: 'Marketing',
     icon: Radio,
@@ -326,12 +337,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {visibleGroups.length === 0 && (
             <div className="pt-4 space-y-1 px-1">
               <div className="h-2 w-16 bg-slate-100 rounded mb-3" />
-              {[80, 64, 72, 80, 64].map((w, i) => (
-                <div key={i} className="flex items-center gap-2.5 px-3 py-2">
-                  <div className="w-4 h-4 rounded bg-slate-100 shrink-0" />
-                  <div className={`h-3 bg-slate-100 rounded`} style={{ width: w }} />
-                </div>
-              ))}
+              <div className="flex items-center gap-2.5 px-3 py-2">
+                <div className="w-4 h-4 rounded bg-slate-100 shrink-0" />
+                <div className="h-3 bg-slate-100 rounded w-[80px]" />
+              </div>
+              <div className="flex items-center gap-2.5 px-3 py-2">
+                <div className="w-4 h-4 rounded bg-slate-100 shrink-0" />
+                <div className="h-3 bg-slate-100 rounded w-[64px]" />
+              </div>
+              <div className="flex items-center gap-2.5 px-3 py-2">
+                <div className="w-4 h-4 rounded bg-slate-100 shrink-0" />
+                <div className="h-3 bg-slate-100 rounded w-[72px]" />
+              </div>
+              <div className="flex items-center gap-2.5 px-3 py-2">
+                <div className="w-4 h-4 rounded bg-slate-100 shrink-0" />
+                <div className="h-3 bg-slate-100 rounded w-[80px]" />
+              </div>
+              <div className="flex items-center gap-2.5 px-3 py-2">
+                <div className="w-4 h-4 rounded bg-slate-100 shrink-0" />
+                <div className="h-3 bg-slate-100 rounded w-[64px]" />
+              </div>
             </div>
           )}
 

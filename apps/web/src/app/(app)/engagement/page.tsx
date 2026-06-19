@@ -39,6 +39,8 @@ import {
   type ColonyCluster,
 } from '@/hooks/use-engagement';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { useAuth } from '@/hooks/use-auth';
+import type { UserRole } from '@excess/shared';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -194,11 +196,29 @@ const TABS: { label: string; value: Tab }[] = [
   { label: 'Colony Map', value: 'colony' },
 ];
 
-function TabBar({ active, onSelect }: { active: Tab; onSelect: (t: Tab) => void }) {
+// Which tabs each role may see. Franchise partners only get the network-facing
+// tabs they have data for; the company-internal tabs (ambassadors, reviews,
+// colony) stay HQ/employee-only. Wallet is owner-only (wallet.read).
+function allowedTabsFor(role: UserRole | null): Tab[] {
+  if (role === 'FRANCHISE_OWNER') return ['leaderboard', 'referrals', 'wallet'];
+  if (role === 'FRANCHISE_USER') return ['leaderboard', 'referrals'];
+  // ADMIN / EMPLOYEE (and any future internal role) see everything
+  return ['leaderboard', 'referrals', 'ambassadors', 'reviews', 'wallet', 'colony'];
+}
+
+function TabBar({
+  active,
+  onSelect,
+  tabs,
+}: {
+  active: Tab;
+  onSelect: (t: Tab) => void;
+  tabs: { label: string; value: Tab }[];
+}) {
   return (
     <div className="border-b border-border">
       <div className="flex gap-0 overflow-x-auto">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.value}
             onClick={() => onSelect(tab.value)}
@@ -1259,9 +1279,16 @@ function ColonyTab() {
 function EngagementPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { role } = useAuth();
+
+  const allowedTabs = allowedTabsFor(role);
+  const visibleTabs = TABS.filter((t) => allowedTabs.includes(t.value));
+  const isFranchise = role === 'FRANCHISE_OWNER' || role === 'FRANCHISE_USER';
+
   const raw = searchParams.get('tab');
-  const VALID_TABS: Tab[] = ['leaderboard', 'referrals', 'ambassadors', 'reviews', 'wallet', 'colony'];
-  const activeTab: Tab = VALID_TABS.includes(raw as Tab) ? (raw as Tab) : 'leaderboard';
+  // Clamp the requested tab to those the role may see — a franchise user landing
+  // on ?tab=reviews falls back to the leaderboard rather than hitting a 403 tab.
+  const activeTab: Tab = allowedTabs.includes(raw as Tab) ? (raw as Tab) : allowedTabs[0]!;
 
   function setTab(t: Tab) {
     router.replace(`/engagement?tab=${t}`);
@@ -1271,18 +1298,22 @@ function EngagementPageInner() {
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-xl font-bold text-slate-800">Engagement Hub</h1>
+        <h1 className="text-xl font-bold text-slate-800">
+          {isFranchise ? 'Network & Rewards' : 'Engagement Hub'}
+        </h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Leaderboards, referrals, reviews and wallet — all in one place.
+          {isFranchise
+            ? 'Your leaderboard standing, referrals and wallet — all in one place.'
+            : 'Leaderboards, referrals, reviews and wallet — all in one place.'}
         </p>
       </div>
 
-      {/* KPI Strip */}
-      <KpiStrip />
+      {/* KPI Strip — company-wide metrics, hidden for franchise partners */}
+      {!isFranchise && <KpiStrip />}
 
       {/* Tab bar + content */}
       <div className="bg-white rounded-xl border border-border overflow-hidden">
-        <TabBar active={activeTab} onSelect={setTab} />
+        <TabBar active={activeTab} onSelect={setTab} tabs={visibleTabs} />
         <div className="p-5">
           {activeTab === 'leaderboard' && <LeaderboardTab />}
           {activeTab === 'referrals' && <ReferralsTab />}

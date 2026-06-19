@@ -1,5 +1,4 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 
@@ -22,6 +21,11 @@ const patchArticleSchema = z.object({
 });
 
 export const kbRoutes: FastifyPluginAsync = async (app) => {
+  // NOTE: kbArticle is a global (system-wide) table with no tenant_id column.
+  // req.withTenant() is still used on every query so that the GUCs
+  // (app.tenant_id, app.role, app.user_id) are set consistently and RLS can be
+  // added to this table in the future without requiring changes here.
+
   // GET /kb — list articles (published for regular users; all for kb.write roles)
   app.get('/', async (req, reply) => {
     if (!can(req.auth.role, 'kb.read')) {
@@ -34,7 +38,7 @@ export const kbRoutes: FastifyPluginAsync = async (app) => {
     // kb.write permission means the user can author articles, so they can see unpublished drafts
     const canSeeUnpublished = can(req.auth.role, 'kb.write');
 
-    const articles = await prisma.kbArticle.findMany({
+    const articles = await req.withTenant((tx) => tx.kbArticle.findMany({
       where: {
         // Non-writers only see published articles
         ...(!canSeeUnpublished && { publishedAt: { not: null, lte: new Date() } }),
@@ -55,7 +59,7 @@ export const kbRoutes: FastifyPluginAsync = async (app) => {
         createdAt: true,
         // Omit body for list — fetch full content on single article request
       },
-    });
+    }));
 
     const hasMore = articles.length > limit;
     const items = hasMore ? articles.slice(0, limit) : articles;
@@ -74,7 +78,7 @@ export const kbRoutes: FastifyPluginAsync = async (app) => {
     const { slug } = req.params as { slug: string };
     const canSeeUnpublished = can(req.auth.role, 'kb.write');
 
-    const article = await prisma.kbArticle.findUnique({ where: { slug } });
+    const article = await req.withTenant((tx) => tx.kbArticle.findUnique({ where: { slug } }));
 
     if (!article) {
       return reply.code(404).send({ error: { code: 'kb.not_found', message: 'Article not found' } });
@@ -105,7 +109,7 @@ export const kbRoutes: FastifyPluginAsync = async (app) => {
 
     let article;
     try {
-      article = await prisma.kbArticle.create({
+      article = await req.withTenant((tx) => tx.kbArticle.create({
         data: {
           slug,
           title,
@@ -114,7 +118,7 @@ export const kbRoutes: FastifyPluginAsync = async (app) => {
           ...(language !== undefined && { language }),
           ...(publishedAt !== undefined && { publishedAt: new Date(publishedAt) }),
         },
-      });
+      }));
     } catch (err: unknown) {
       const prismaErr = err as { code?: string };
       if (prismaErr.code === 'P2002') {
@@ -143,7 +147,7 @@ export const kbRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    const existing = await prisma.kbArticle.findUnique({ where: { id }, select: { id: true } });
+    const existing = await req.withTenant((tx) => tx.kbArticle.findUnique({ where: { id }, select: { id: true } }));
     if (!existing) {
       return reply.code(404).send({ error: { code: 'kb.not_found', message: 'Article not found' } });
     }
@@ -169,7 +173,7 @@ export const kbRoutes: FastifyPluginAsync = async (app) => {
 
     let article;
     try {
-      article = await prisma.kbArticle.update({ where: { id }, data: updateData as Parameters<typeof prisma.kbArticle.update>[0]['data'] });
+      article = await req.withTenant((tx) => tx.kbArticle.update({ where: { id }, data: updateData as Parameters<typeof tx.kbArticle.update>[0]['data'] }));
     } catch (err: unknown) {
       const prismaErr = err as { code?: string };
       if (prismaErr.code === 'P2002') {

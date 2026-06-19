@@ -1,5 +1,4 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { prisma } from '@excess/db';
 import { can } from '@excess/shared';
 
 export const engagementRoutes: FastifyPluginAsync = async (app) => {
@@ -13,8 +12,8 @@ export const engagementRoutes: FastifyPluginAsync = async (app) => {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const [reviewAgg, referralCount, walletData, topAgentData] = await req.withTenant(async (tx) =>
-      Promise.all([
+    const [reviewAgg, referralCount, walletData, topAgentName, topAgentCount] = await req.withTenant(async (tx) => {
+      const [reviewAgg, referralCount, walletData, topAgentData] = await Promise.all([
         tx.review.aggregate({
           _avg: { rating: true },
           _count: { id: true },
@@ -31,19 +30,21 @@ export const engagementRoutes: FastifyPluginAsync = async (app) => {
           orderBy: { _count: { id: 'desc' } },
           take: 1,
         }),
-      ]),
-    );
+      ]);
 
-    let topAgentName: string | null = null;
-    let topAgentCount = 0;
-    if (topAgentData.length > 0 && topAgentData[0]!.ownerUserId) {
-      topAgentCount = topAgentData[0]!._count.id;
-      const user = await prisma.user.findUnique({
-        where: { id: topAgentData[0]!.ownerUserId },
-        select: { name: true },
-      });
-      topAgentName = user?.name ?? null;
-    }
+      let topAgentName: string | null = null;
+      let topAgentCount = 0;
+      if (topAgentData.length > 0 && topAgentData[0]!.ownerUserId) {
+        topAgentCount = topAgentData[0]!._count.id;
+        const user = await tx.user.findUnique({
+          where: { id: topAgentData[0]!.ownerUserId },
+          select: { name: true },
+        });
+        topAgentName = user?.name ?? null;
+      }
+
+      return [reviewAgg, referralCount, walletData, topAgentName, topAgentCount] as const;
+    });
 
     return reply.send({
       data: {

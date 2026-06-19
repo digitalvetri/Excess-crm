@@ -4,7 +4,7 @@ import { can } from '@excess/shared';
 export const notificationsRoutes: FastifyPluginAsync = async (app) => {
   // GET /notifications — list for current user (latest 50, unread first)
   app.get('/', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.own')) {
+    if (!can(req.auth.role, 'notifications.read')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
     const { tenantId, userId } = req.auth;
@@ -21,6 +21,9 @@ export const notificationsRoutes: FastifyPluginAsync = async (app) => {
 
   // PATCH /notifications/:id/read — mark single as read
   app.patch('/:id/read', async (req, reply) => {
+    if (!can(req.auth.role, 'notifications.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
     const { id } = req.params as { id: string };
     const { tenantId, userId } = req.auth;
     await req.withTenant(async (tx) => {
@@ -34,6 +37,9 @@ export const notificationsRoutes: FastifyPluginAsync = async (app) => {
 
   // POST /notifications/read-all — mark all as read
   app.post('/read-all', async (req, reply) => {
+    if (!can(req.auth.role, 'notifications.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
     const { tenantId, userId } = req.auth;
     await req.withTenant(async (tx) => {
       await tx.notification.updateMany({
@@ -46,6 +52,9 @@ export const notificationsRoutes: FastifyPluginAsync = async (app) => {
 
   // DELETE /notifications/:id — dismiss
   app.delete('/:id', async (req, reply) => {
+    if (!can(req.auth.role, 'notifications.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
     const { id } = req.params as { id: string };
     const { tenantId, userId } = req.auth;
     await req.withTenant(async (tx) => {

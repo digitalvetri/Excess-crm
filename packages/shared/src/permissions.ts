@@ -96,12 +96,17 @@ const PERMS = {
   // Broadcasts & WhatsApp — company marketing only
   'broadcasts.read':  ['ADMIN', 'EMPLOYEE'] as UserRole[],
   'broadcasts.write': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+  'whatsapp.send':    ['ADMIN', 'EMPLOYEE'] as UserRole[],
   'sequences.read':   ['ADMIN', 'EMPLOYEE'] as UserRole[],
   'sequences.write':  ['ADMIN'] as UserRole[],
 
   // Service tickets (post-installation support) — company only
   'service_tickets.read':  ['ADMIN', 'EMPLOYEE', 'ENGINEER'] as UserRole[],
   'service_tickets.write': ['ADMIN', 'EMPLOYEE'] as UserRole[],
+
+  // Notifications — self-scoped (queries filter by userId); every authenticated role
+  // can read/manage their own, including ENGINEER
+  'notifications.read': ['ADMIN', 'EMPLOYEE', 'FRANCHISE_OWNER', 'FRANCHISE_USER', 'ENGINEER'] as UserRole[],
 
   // Admin controls
   'admin.queues': ['ADMIN'] as UserRole[],

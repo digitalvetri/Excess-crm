@@ -38,7 +38,7 @@ async function fetchMetaLeadFields(rawData: Record<string, unknown>): Promise<Me
     const url = `https://graph.facebook.com/v19.0/${leadgenId}?access_token=${encodeURIComponent(pageAccessToken)}&fields=field_data,created_time`;
     const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     json = await res.json() as typeof json;
-  } catch (err) {
+  } catch {
     // Network timeout or JSON parse failure — not retryable here
     return null;
   }

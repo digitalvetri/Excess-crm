@@ -21,6 +21,7 @@ import {
 } from '@/hooks/use-franchise';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { useCommissionProjections } from '@/hooks/use-financial';
+import { useAuth } from '@/hooks/use-auth';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -231,6 +232,7 @@ function ProjectionBanner() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CommissionsPage() {
+  const { role } = useAuth();
   const [activeTab, setActiveTab]         = useState<FilterTab>('');
   const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set());
   const [showPayoutModal, setShowPayoutModal] = useState(false);
@@ -362,7 +364,8 @@ export default function CommissionsPage() {
       </div>
 
       {/* ── Batch action bar ── */}
-      {selectedApproved.length > 0 && (
+      {/* Payout creation is ADMIN-only (payouts.write) */}
+      {selectedApproved.length > 0 && role === 'ADMIN' && (
         <div className="flex items-center justify-between gap-4 px-4 py-3 bg-primary/5 border border-primary/20 rounded-xl">
           <p className="text-sm text-slate-700">
             <span className="font-semibold">{selectedApproved.length}</span>{' '}
@@ -490,7 +493,8 @@ export default function CommissionsPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-1.5">
-                    {isPending && (
+                    {/* Approve / dispute is ADMIN-only (commissions.approve) */}
+                    {isPending && role === 'ADMIN' && (
                       <>
                         <button
                           onClick={() => handleApprove(c.id)}

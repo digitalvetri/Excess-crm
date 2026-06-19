@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import multipart from '@fastify/multipart';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { can } from '@excess/shared';
 import { env } from '@excess/config';
 

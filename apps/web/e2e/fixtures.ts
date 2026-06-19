@@ -22,6 +22,38 @@ export const EMPLOYEE_USER = {
   tenant: { id: 'tenant-1', name: 'Excess Renew HQ', type: 'HQ', status: 'ACTIVE' },
 };
 
+// NOTE: names are deliberately distinct from ROLE_LABELS (e.g. 'Franchise Owner')
+// so getByText(user.name) in the sidebar doesn't collide with the role label below it.
+export const FRANCHISE_OWNER_USER = {
+  id: 'user-fo-1',
+  name: 'Murugan Selvam',
+  email: 'owner@franchise.com',
+  role: 'FRANCHISE_OWNER' as const,
+  tenantId: 'tenant-2',
+  teamId: null,
+  tenant: { id: 'tenant-2', name: 'Coimbatore Franchise', type: 'FRANCHISE', status: 'ACTIVE', tier: 'SILVER' },
+};
+
+export const FRANCHISE_USER_USER = {
+  id: 'user-fu-1',
+  name: 'Priya Devi',
+  email: 'staff@franchise.com',
+  role: 'FRANCHISE_USER' as const,
+  tenantId: 'tenant-2',
+  teamId: null,
+  tenant: { id: 'tenant-2', name: 'Coimbatore Franchise', type: 'FRANCHISE', status: 'ACTIVE', tier: 'SILVER' },
+};
+
+export const ENGINEER_USER = {
+  id: 'user-eng-1',
+  name: 'Site Engineer',
+  email: 'engineer@excessindia.com',
+  role: 'ENGINEER' as const,
+  tenantId: 'tenant-1',
+  teamId: null,
+  tenant: { id: 'tenant-1', name: 'Excess Renew HQ', type: 'HQ', status: 'ACTIVE', tier: 'HQ' },
+};
+
 export const DASHBOARD_STATS = {
   totalLeads: 142,
   newToday: 8,
@@ -152,7 +184,14 @@ const CALL_ANALYTICS = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-export async function mockApiAs(page: Page, user: typeof ADMIN_USER | typeof EMPLOYEE_USER) {
+type KnownUser =
+  | typeof ADMIN_USER
+  | typeof EMPLOYEE_USER
+  | typeof FRANCHISE_OWNER_USER
+  | typeof FRANCHISE_USER_USER
+  | typeof ENGINEER_USER;
+
+export async function mockApiAs(page: Page, user: KnownUser) {
   // Set session cookies so Next.js middleware lets the request through.
   await page.context().addCookies([
     {
@@ -244,6 +283,9 @@ export async function mockApiAs(page: Page, user: typeof ADMIN_USER | typeof EMP
 type Fixtures = {
   asAdmin: Page;
   asEmployee: Page;
+  asFranchiseOwner: Page;
+  asFranchiseUser: Page;
+  asEngineer: Page;
 };
 
 export const test = base.extend<Fixtures>({
@@ -253,6 +295,18 @@ export const test = base.extend<Fixtures>({
   },
   asEmployee: async ({ page }, use) => {
     await mockApiAs(page, EMPLOYEE_USER);
+    await use(page);
+  },
+  asFranchiseOwner: async ({ page }, use) => {
+    await mockApiAs(page, FRANCHISE_OWNER_USER);
+    await use(page);
+  },
+  asFranchiseUser: async ({ page }, use) => {
+    await mockApiAs(page, FRANCHISE_USER_USER);
+    await use(page);
+  },
+  asEngineer: async ({ page }, use) => {
+    await mockApiAs(page, ENGINEER_USER);
     await use(page);
   },
 });

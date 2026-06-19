@@ -825,7 +825,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(502).send({ error: { code: 'whatsapp.send_failed', message: 'WhatsApp message failed to send' } });
     }
 
-    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, projectId: id, stage: project.stage, to }, 'project.notified');
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, projectId: id, stage: project.stage }, 'project.notified');
     return reply.send({ data: { sent: true, stage: project.stage } });
   });
 

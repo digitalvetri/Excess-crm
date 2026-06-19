@@ -56,44 +56,56 @@ export function DashboardStats() {
     );
   }
 
+  // Coerce to safe numeric defaults so a partial/malformed API response degrades
+  // gracefully instead of white-screening the whole dashboard.
+  const stats: StatsData = {
+    totalLeads: data.totalLeads ?? 0,
+    newToday: data.newToday ?? 0,
+    callsToday: data.callsToday ?? 0,
+    conversionRate: data.conversionRate ?? 0,
+    converted: data.converted ?? 0,
+    newYesterday: data.newYesterday ?? 0,
+    callsYesterday: data.callsYesterday ?? 0,
+  };
+
   const cards: StatCard[] = [
     {
       label: 'Total Leads',
-      value: data.totalLeads.toLocaleString(),
+      value: stats.totalLeads.toLocaleString(),
       icon: Users,
       tint: 'bg-primary/10',
       iconColor: 'text-primary',
       borderAccent: 'border-l-primary',
-      sub: data.newToday > 0
-        ? { text: `+${data.newToday} added today`, tone: 'up' }
+      sub: stats.newToday > 0
+        ? { text: `+${stats.newToday} added today`, tone: 'up' }
         : { text: 'No new leads today', tone: 'flat' },
     },
     {
       label: 'New Today',
-      value: data.newToday.toLocaleString(),
+      value: stats.newToday.toLocaleString(),
       icon: UserPlus,
       tint: 'bg-amber-50',
       iconColor: 'text-accent',
       borderAccent: 'border-l-accent',
-      sub: deltaInfo(data.newToday, data.newYesterday),
+      sub: deltaInfo(stats.newToday, stats.newYesterday),
     },
     {
       label: 'Calls Today',
-      value: data.callsToday.toLocaleString(),
+      value: stats.callsToday.toLocaleString(),
       icon: PhoneCall,
       tint: 'bg-sky-50',
       iconColor: 'text-sky-600',
       borderAccent: 'border-l-sky-500',
-      sub: deltaInfo(data.callsToday, data.callsYesterday),
+      sub: deltaInfo(stats.callsToday, stats.callsYesterday),
     },
     {
       label: 'Conversion',
-      value: `${data.conversionRate}%`,
+      value: `${stats.conversionRate}%`,
       icon: TrendingUp,
       tint: 'bg-success/10',
       iconColor: 'text-success',
       borderAccent: 'border-l-success',
-      sub: { text: `${data.converted.toLocaleString()} converted`, tone: 'flat' },
+      sub: { text: `${stats.converted.toLocaleString()} converted`, tone: 'flat' },
     },
   ];
 

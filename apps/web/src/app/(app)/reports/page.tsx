@@ -256,16 +256,21 @@ export default function ReportsPage() {
             </div>
 
             <div className="bg-white rounded-xl border border-border p-5">
-              <div className="flex h-3 rounded-full overflow-hidden mb-2">
-                {nps.data.detractors > 0 && (
-                  <div className="bg-red-500" style={{ flex: nps.data.detractors }} />
-                )}
-                {nps.data.passives > 0 && (
-                  <div className="bg-amber-400" style={{ flex: nps.data.passives }} />
-                )}
-                {nps.data.promoters > 0 && (
-                  <div className="bg-green-500" style={{ flex: nps.data.promoters }} />
-                )}
+              <div className="mb-2">
+                <ResponsiveContainer width="100%" height={12}>
+                  <BarChart
+                    data={[{ detractors: nps.data.detractors, passives: nps.data.passives, promoters: nps.data.promoters }]}
+                    layout="vertical"
+                    margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
+                    barCategoryGap={0}
+                  >
+                    <XAxis type="number" hide domain={[0, nps.data.total]} />
+                    <YAxis type="category" hide />
+                    <Bar dataKey="detractors" stackId="nps" fill="#ef4444" />
+                    <Bar dataKey="passives" stackId="nps" fill="#fbbf24" />
+                    <Bar dataKey="promoters" stackId="nps" fill="#22c55e" />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
               <div className="flex justify-between text-xs text-slate-500">
                 <span>Detractors (0–6): {nps.data.detractors}</span>

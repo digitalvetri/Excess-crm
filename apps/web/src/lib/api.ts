@@ -24,7 +24,10 @@ api.interceptors.response.use(
       // error toast, not reload the page and clear it.
       const isAuthEndpoint = (error.config?.url as string | undefined)?.includes('/auth/');
       if (!isAuthEndpoint) {
-        window.location.href = '/login';
+        // Use /api/auth/clear instead of /login directly: the server-side route deletes
+        // the httpOnly session cookies before redirecting, breaking the middleware loop
+        // where /login bounces back to /dashboard because the stale cookie still exists.
+        window.location.href = '/api/auth/clear';
       }
     }
     return Promise.reject(error);

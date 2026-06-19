@@ -275,11 +275,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   async function handleLogout() {
     try {
       await api.post('/auth/logout');
+      clearCache();
+      router.push('/login');
     } catch {
-      // Server may be unreachable — still clear client state and redirect
+      // Session already invalid or API unreachable — clear httpOnly cookies via
+      // server-side route so middleware doesn't bounce /login back to /dashboard.
+      window.location.href = '/api/auth/clear';
     }
-    clearCache();
-    router.push('/login');
   }
 
   const closeMobile = () => setSidebarOpen(false);

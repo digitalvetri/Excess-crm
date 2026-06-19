@@ -23,6 +23,11 @@ const envSchema = z.object({
 
   VAPI_API_KEY: z.string().optional(),
   VAPI_WEBHOOK_SECRET: z.string().optional(),
+  // Unified single agent (preferred)
+  VAPI_PHONE_NUMBER_ID_EXCESS_AGENT: z.string().optional(),
+  VAPI_ASSISTANT_ID_EXCESS_AGENT: z.string().optional(),
+  VAPI_ASSISTANT_ID_EXCESS_AGENT_B: z.string().optional(),
+  // Legacy three-persona setup (kept for backward compat)
   VAPI_PHONE_NUMBER_ID_RESHMA_VERIFY: z.string().optional(),
   VAPI_PHONE_NUMBER_ID_KARTHIK_SALES: z.string().optional(),
   VAPI_PHONE_NUMBER_ID_RESHMA_FOLLOWUP: z.string().optional(),

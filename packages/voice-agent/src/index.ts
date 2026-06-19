@@ -1,6 +1,9 @@
 export { RESHMA_VERIFY_PROMPT, RESHMA_VERIFY_TOOLS } from './prompts/reshma-verify.js';
 export { KARTHIK_SALES_PROMPT, KARTHIK_SALES_TOOLS } from './prompts/karthik-sales.js';
 export { RESHMA_FOLLOWUP_PROMPT, RESHMA_FOLLOWUP_TOOLS } from './prompts/reshma-followup.js';
+export { EXCESS_AGENT_PROMPT, EXCESS_AGENT_TOOLS } from './prompts/excess-agent.js';
 
-export const PERSONA_IDS = ['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP'] as const;
+// EXCESS_AGENT is the unified single-agent persona that handles all lead stages.
+// The three legacy personas are kept for backward compatibility with existing call records.
+export const PERSONA_IDS = ['EXCESS_AGENT', 'RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP'] as const;
 export type PersonaId = typeof PERSONA_IDS[number];

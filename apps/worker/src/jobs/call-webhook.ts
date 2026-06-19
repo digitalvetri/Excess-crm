@@ -151,10 +151,19 @@ async function handleCallEnded(vapiCallId: string, payload: VapiCallEnded): Prom
     await scheduleRetryDial(call.leadId, call.tenantId, call.persona);
   }
 
+  // Legacy three-persona: RESHMA_VERIFY qualified → hand off to KARTHIK_SALES after 30 min
   if (newStage === 'QUALIFIED' && call.persona === 'RESHMA_VERIFY') {
     await queues.voiceDial.add(
       'voice-dial',
       { leadId: call.leadId, tenantId: call.tenantId, personaId: 'KARTHIK_SALES' },
+      { delay: 30 * 60 * 1000, priority: 1 },
+    );
+  }
+  // Unified EXCESS_AGENT: qualified → same agent calls back in 30 min for sales pitch
+  if (newStage === 'QUALIFIED' && call.persona === 'EXCESS_AGENT') {
+    await queues.voiceDial.add(
+      'voice-dial',
+      { leadId: call.leadId, tenantId: call.tenantId, personaId: 'EXCESS_AGENT' },
       { delay: 30 * 60 * 1000, priority: 1 },
     );
   }

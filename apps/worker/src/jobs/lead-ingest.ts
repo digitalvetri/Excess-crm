@@ -267,13 +267,13 @@ export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<vo
   if (!dnd && isBusinessHours()) {
     await queues.voiceDial.add(
       'voice-dial',
-      { leadId: lead.id, tenantId, personaId: 'RESHMA_VERIFY' },
+      { leadId: lead.id, tenantId, personaId: 'EXCESS_AGENT' },
       { delay: 0, priority: 1 },
     );
   } else if (!dnd) {
     await queues.voiceDial.add(
       'voice-dial',
-      { leadId: lead.id, tenantId, personaId: 'RESHMA_VERIFY' },
+      { leadId: lead.id, tenantId, personaId: 'EXCESS_AGENT' },
       { delay: msUntilNextBusinessHour(), priority: 2 },
     );
   }

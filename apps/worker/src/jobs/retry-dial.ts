@@ -31,6 +31,18 @@ function nextIstTimeMs(hour: number, min: number, daysAhead: number): number {
 }
 
 const CADENCE: Record<string, { maxCalls: number; getDelays: () => number[] }> = {
+  // Unified agent — handles all stages; cadence covers new lead verification retries
+  EXCESS_AGENT: {
+    maxCalls: 5,
+    getDelays: () => [
+      2 * ONE_HOUR,
+      6 * ONE_HOUR,
+      nextIstTimeMs(10, 0, 1),
+      nextIstTimeMs(16, 0, 1),
+      nextIstTimeMs(11, 0, 2),
+    ],
+  },
+  // Legacy personas
   RESHMA_VERIFY: {
     maxCalls: 5,
     getDelays: () => [

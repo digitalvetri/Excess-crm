@@ -11,6 +11,12 @@ export interface VoiceDialPayload {
 }
 
 const PERSONA_TO_ENV_KEY = {
+  EXCESS_AGENT: {
+    assistantId: env.VAPI_ASSISTANT_ID_EXCESS_AGENT,
+    assistantIdB: env.VAPI_ASSISTANT_ID_EXCESS_AGENT_B,
+    phoneNumberId: env.VAPI_PHONE_NUMBER_ID_EXCESS_AGENT,
+  },
+  // Legacy personas — kept for backward compat with existing call records
   RESHMA_VERIFY: {
     assistantId: env.VAPI_ASSISTANT_ID_RESHMA_VERIFY,
     assistantIdB: env.VAPI_ASSISTANT_ID_RESHMA_VERIFY_B,
@@ -175,6 +181,9 @@ function buildTools(personaKey: PersonaKey, webhookUrl: string): unknown[] {
   };
 
   switch (personaKey) {
+    case 'EXCESS_AGENT':
+      // Single unified agent — gets all tools; uses getLeadInfo stage to decide behaviour
+      return [getLeadInfo, getFollowUpContext, updateLeadStage, scheduleFollowUp, getProductInfo, scheduleAppointment];
     case 'RESHMA_VERIFY':
       return [getLeadInfo, updateLeadStage, scheduleFollowUp, getProductInfo];
     case 'KARTHIK_SALES':
@@ -261,7 +270,7 @@ function buildAssistantPayload(
   const llmProvider = vc.llmProvider ?? 'google/gemini-2.5-flash-preview-04-17';
   const ttsProvider = vc.ttsProvider ?? 'elevenlabs';
 
-  const defaultVoiceId = personaKey === 'KARTHIK_SALES' ? 'edapadi' : 'mk-tamil-v1';
+  const defaultVoiceId = personaKey === 'KARTHIK_SALES' ? 'edapadi' : 'EXAVITQu4vr4xnSDxMaL';
   const voiceId = vc.voiceId && vc.voiceId !== 'custom' ? vc.voiceId : defaultVoiceId;
   const voiceSpeed = vc.voiceSpeed ?? 1.0;
   const language = vc.language ?? 'ta';
@@ -303,7 +312,8 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
     throw new Error(`Lead ${leadId} not found`);
   }
 
-  if (!['NEW', 'FOLLOW_UP', 'NOT_ANSWERED'].includes(lead.stage)) {
+  const dialableStages = ['NEW', 'FOLLOW_UP', 'NOT_ANSWERED', 'QUALIFIED'];
+  if (!dialableStages.includes(lead.stage)) {
     await job.log(`Lead ${leadId} stage=${lead.stage}, skipping dial`);
     return;
   }
@@ -388,7 +398,7 @@ export async function processVoiceDial(job: Job<VoiceDialPayload>): Promise<void
           tenantId,
           direction: 'OUTBOUND',
           status: 'QUEUED',
-          persona: personaKey as 'RESHMA_VERIFY' | 'KARTHIK_SALES' | 'RESHMA_FOLLOWUP',
+          persona: personaKey as 'EXCESS_AGENT' | 'RESHMA_VERIFY' | 'KARTHIK_SALES' | 'RESHMA_FOLLOWUP',
           fromNumber: env.LIVEKIT_SIP_TRUNK_ID ?? 'livekit',
           toNumber: lead.phone,
           initiatedAt: new Date(),

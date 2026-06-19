@@ -273,7 +273,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   async function handleLogout() {
-    await api.post('/auth/logout');
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Server may be unreachable — still clear client state and redirect
+    }
     clearCache();
     router.push('/login');
   }

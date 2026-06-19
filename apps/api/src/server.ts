@@ -59,6 +59,9 @@ export async function buildServer() {
         transport: { target: 'pino-pretty' },
       }),
     },
+    // Trust the Next.js proxy so req.ip reflects the real browser IP via
+    // X-Forwarded-For, not the internal container address shared by all users.
+    trustProxy: true,
   });
 
   // Capture raw request body bytes so webhook handlers can verify HMAC signatures

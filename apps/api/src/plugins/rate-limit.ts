@@ -5,7 +5,7 @@ import type { FastifyPluginAsync } from 'fastify';
 const rateLimitPluginImpl: FastifyPluginAsync = async (app) => {
   await app.register(rateLimit, {
     global: true,
-    max: 120,
+    max: 600,
     timeWindow: '1 minute',
     redis: app.redis,
     keyGenerator: (req) => {

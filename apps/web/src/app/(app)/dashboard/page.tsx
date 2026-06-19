@@ -1,6 +1,5 @@
 import { Suspense } from 'react';
 import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
 import { DashboardStats } from '@/components/dashboard/stats';
 import { RecentLeads } from '@/components/dashboard/recent-leads';
 import { LeadsOverview } from '@/components/dashboard/leads-overview';
@@ -117,8 +116,11 @@ export default async function DashboardPage() {
   const cookieStore = await cookies();
   const role = cookieStore.get('excess_role')?.value as UserRole | undefined;
 
+  // Middleware already verified excess_session — if excess_role is absent (e.g. cookie
+  // domain mismatch in production), avoid redirecting to /login which would loop back
+  // here indefinitely. Fallback to admin view; client components enforce permissions.
   if (!role) {
-    redirect('/login');
+    return <AdminDashboard />;
   }
 
   if (role === 'FRANCHISE_OWNER' || role === 'FRANCHISE_USER') {

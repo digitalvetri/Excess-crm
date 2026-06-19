@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password', '/2fa', '/portal'];
+const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password', '/2fa', '/portal', '/refer'];
 
 // Routes that are blocked for each role.
 // Franchise (FRANCHISE_OWNER / FRANCHISE_USER) can only access leads,

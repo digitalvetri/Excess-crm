@@ -280,6 +280,26 @@ export function useUpdateProject() {
   });
 }
 
+export interface CreateManualProjectData {
+  customerName: string;
+  phone: string;
+  city?: string;
+  systemKw?: number;
+  totalValueInr?: number;
+}
+
+// Creates a walk-in / off-CRM install (a CONVERTED lead + its project).
+export function useCreateManualProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateManualProjectData) =>
+      api.post('/projects/manual', data).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
 export interface SubsidyUpdateData {
   subsidyScheme?: SubsidyScheme;
   subsidyStatus?: SubsidyStatus;

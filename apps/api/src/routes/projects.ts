@@ -52,6 +52,15 @@ const createProjectSchema = z.object({
   totalValueInr: z.number().min(0).optional(),
 });
 
+// Walk-in / off-CRM install: create a minimal CONVERTED lead and its project together.
+const createManualProjectSchema = z.object({
+  customerName:  z.string().min(1).max(120),
+  phone:         z.string().min(5).max(20),
+  city:          z.string().max(120).optional(),
+  systemKw:      z.number().min(0).optional(),
+  totalValueInr: z.number().min(0).optional(),
+});
+
 const patchProjectSchema = z.object({
   stage:                  z.enum(PROJECT_STAGES).optional(),
   assignedEngineerId:     z.string().uuid().nullable().optional(),
@@ -283,6 +292,54 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     );
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, projectId: project.id, leadId }, 'project.created');
+    return reply.code(201).send({ data: project });
+  });
+
+  // ── POST /projects/manual ─────────────────────────────────────────────────
+  // For installs that came in outside the CRM (walk-in, phone deal). Creates a
+  // minimal CONVERTED lead and its project in one transaction so the install
+  // shows up in the pipeline immediately, fully linked to a lead record.
+  app.post('/manual', async (req, reply) => {
+    if (!can(req.auth.role, 'projects.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const parsed = createManualProjectSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() },
+      });
+    }
+
+    const { customerName, phone, city, systemKw, totalValueInr } = parsed.data;
+
+    const project = await req.withTenant(async (tx) => {
+      const lead = await tx.lead.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          sourceType: 'MANUAL',
+          name: customerName,
+          phone,
+          phoneRaw: phone,
+          ...(city && { city }),
+          stage: 'CONVERTED',
+          stageChangedAt: new Date(),
+          ownerUserId: req.auth.userId,
+        },
+      });
+
+      return tx.project.create({
+        data: {
+          tenantId: req.auth.tenantId,
+          leadId: lead.id,
+          number: generateProjectNumber(),
+          ...(systemKw !== undefined && { systemKw }),
+          ...(totalValueInr !== undefined && { totalValueInr }),
+        },
+      });
+    });
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, projectId: project.id }, 'project.manual_created');
     return reply.code(201).send({ data: project });
   });
 

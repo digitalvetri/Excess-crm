@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Hammer, Search, SlidersHorizontal, X } from 'lucide-react';
+import { Hammer, Search, SlidersHorizontal, X, Plus } from 'lucide-react';
 import {
   useProjects,
   PROJECT_STAGES,
@@ -13,8 +13,10 @@ import {
   type NetMeteringStatus,
 } from '@/hooks/use-projects';
 import { useEngineers } from '@/hooks/use-service-tickets';
+import { useAuth } from '@/hooks/use-auth';
 import { ProjectKpiStrip } from '@/components/projects/project-kpi-strip';
 import { ProjectCard } from '@/components/projects/project-card';
+import { CreateProjectModal } from '@/components/projects/create-project-modal';
 
 const SUBSIDY_STATUSES: SubsidyStatus[] = ['NOT_APPLIED', 'APPLIED', 'DISCOM_INSPECTION_SCHEDULED', 'DISCOM_APPROVED', 'PORTAL_UPLOAD_DONE', 'CREDITED'];
 const NM_STATUSES: NetMeteringStatus[]  = ['NOT_APPLIED', 'SLD_SUBMITTED', 'LOAD_SANCTION_APPLIED', 'INSPECTION_DONE', 'METER_CHANGED', 'GRID_SYNCED', 'ACTIVE'];
@@ -26,6 +28,10 @@ export default function ProjectsPage() {
   const [engineerId,     setEngineerId]     = useState('');
   const [subsidyStatus,  setSubsidyStatus]  = useState<SubsidyStatus | ''>('');
   const [nmStatus,       setNmStatus]       = useState<NetMeteringStatus | ''>('');
+  const [showCreate,     setShowCreate]     = useState(false);
+
+  const { role } = useAuth();
+  const canCreate = role === 'ADMIN' || role === 'EMPLOYEE';
 
   const { data: engineers = [] } = useEngineers();
 
@@ -57,7 +63,18 @@ export default function ProjectsPage() {
             Post-conversion lifecycle — survey through commissioning and handover.
           </p>
         </div>
+        {canCreate && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={16} />
+            Create Project
+          </button>
+        )}
       </div>
+
+      {showCreate && <CreateProjectModal onClose={() => setShowCreate(false)} />}
 
       {/* ── KPI strip ── */}
       <ProjectKpiStrip />

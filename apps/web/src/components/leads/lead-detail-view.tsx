@@ -40,7 +40,7 @@ import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMer
 import { useQuery } from '@tanstack/react-query';
 import { useComputeLeadScore, useCallInsights } from '@/hooks/use-insights';
 import { api } from '@/lib/api';
-import { useMessages, useSendMessage } from '@/hooks/use-whatsapp';
+import { useMessages, useSendMessage, useWhatsappStatus } from '@/hooks/use-whatsapp';
 import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
 import { StageBadge } from './stage-badge';
 import { AppointmentsList } from '@/components/appointments/appointments-list';
@@ -1233,6 +1233,11 @@ function WhatsAppThread({ leadId, leadName, leadPhone }: { leadId: string; leadN
   const [sendErr, setSendErr] = useState<string | null>(null);
   const { messages, loading } = useMessages(leadId);
   const { send, loading: sending } = useSendMessage();
+  const { data: status } = useWhatsappStatus();
+
+  // Treat status as connected until we know otherwise, so we don't flash the
+  // warning while the status query is loading.
+  const connected = status?.connected !== false;
 
   const waMessages = messages
     .filter((m) => m.type === 'WHATSAPP')
@@ -1254,8 +1259,22 @@ function WhatsAppThread({ leadId, leadName, leadPhone }: { leadId: string; leadN
       <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
         <MessageSquare size={15} className="text-emerald-500" />
         <h2 className="font-semibold text-slate-800">WhatsApp — {leadName}</h2>
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-success' : 'bg-slate-300'}`}
+          title={connected ? 'WhatsApp connected' : 'WhatsApp not connected'}
+        />
         <span className="text-xs text-slate-400 ml-auto">{leadPhone}</span>
       </div>
+
+      {!connected && (
+        <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+          WhatsApp isn&apos;t connected yet, so messages won&apos;t be delivered.{' '}
+          <Link href="/whatsapp" className="font-semibold underline hover:no-underline">
+            Connect it in Settings
+          </Link>{' '}
+          to start sending.
+        </div>
+      )}
 
       <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
         {loading && waMessages.length === 0 && (
@@ -1288,13 +1307,14 @@ function WhatsAppThread({ leadId, leadName, leadPhone }: { leadId: string; leadN
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend(); } }}
-            placeholder="Send a WhatsApp message…"
-            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/40"
+            placeholder={connected ? 'Send a WhatsApp message…' : 'Connect WhatsApp to send messages'}
+            disabled={!connected}
+            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-slate-50 disabled:cursor-not-allowed"
           />
           <button
             onClick={() => void handleSend()}
-            disabled={sending || !draft.trim()}
-            className="px-3 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60"
+            disabled={sending || !draft.trim() || !connected}
+            className="px-3 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
           </button>

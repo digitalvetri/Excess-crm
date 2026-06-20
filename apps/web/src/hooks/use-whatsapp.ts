@@ -31,6 +31,21 @@ export function useWhatsappConfig() {
   });
 }
 
+export interface WhatsappStatus {
+  connected: boolean;
+  source: 'tenant' | 'env' | null;
+}
+
+// Whether WhatsApp can actually send right now (per-tenant config OR env fallback).
+export function useWhatsappStatus() {
+  return useQuery({
+    queryKey: ['whatsapp-status'],
+    queryFn: () =>
+      api.get<{ data: WhatsappStatus }>('/whatsapp/status').then((r) => r.data.data),
+    staleTime: 60_000,
+  });
+}
+
 export function useSaveWhatsappConfig() {
   const qc = useQueryClient();
   return useMutation({

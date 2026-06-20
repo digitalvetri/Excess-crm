@@ -46,6 +46,28 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  // GET /whatsapp/status — can we actually send right now? Considers the
+  // per-tenant config AND the env-var fallback the worker uses, so the UI can
+  // honestly tell the user whether messages will be delivered.
+  app.get('/status', async (req, reply) => {
+    if (!can(req.auth.role, 'whatsapp.send')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const config = await req.withTenant((tx) =>
+      tx.whatsappConfig.findUnique({
+        where: { tenantId: req.auth.tenantId },
+        select: { isConnected: true, phoneNumberId: true, accessToken: true },
+      }),
+    );
+
+    const tenantConnected = Boolean(config?.isConnected && config.phoneNumberId && config.accessToken);
+    const envConnected = Boolean(env.WHATSAPP_PHONE_NUMBER_ID && env.WHATSAPP_ACCESS_TOKEN);
+    const source = tenantConnected ? 'tenant' : envConnected ? 'env' : null;
+
+    return reply.send({ data: { connected: tenantConnected || envConnected, source } });
+  });
+
   // PUT /whatsapp/config — save or update WhatsApp Business credentials
   app.put('/config', async (req, reply) => {
     if (!can(req.auth.role, 'broadcasts.write')) {

@@ -219,6 +219,23 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({ data: { success: true, status: 'SUSPENDED' } });
   });
 
+  // POST /franchise/:id/probation — place an active franchise on probation
+  app.post('/:id/probation', async (req, reply) => {
+    if (!can(req.auth.role, 'franchise.suspend')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const { id } = req.params as { id: string };
+    const updated = await req.withTenant(async (tx) => {
+      const existing = await tx.tenant.findUnique({ where: { id, type: 'FRANCHISE', deletedAt: null }, select: { id: true } });
+      if (!existing) return null;
+      return tx.tenant.update({ where: { id, type: 'FRANCHISE' }, data: { status: 'PROBATION' } });
+    });
+    if (!updated) return reply.code(404).send({ error: { code: 'franchise.not_found', message: 'Franchise not found' } });
+    req.log.info({ userId: req.auth.userId, franchiseId: id }, 'franchise.probation');
+    return reply.send({ data: { success: true, status: 'PROBATION' } });
+  });
+
   // POST /franchise/:id/terminate
   app.post('/:id/terminate', async (req, reply) => {
     if (!can(req.auth.role, 'franchise.terminate')) {

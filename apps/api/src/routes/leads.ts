@@ -263,7 +263,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
 
   // GET /leads/export — CSV download (max 5000)
   app.get('/export', async (req, reply) => {
-    if (!can(req.auth.role, 'leads.read.own')) {
+    if (!can(req.auth.role, 'leads.export')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
     const canReadAll = can(req.auth.role, 'leads.read.all');

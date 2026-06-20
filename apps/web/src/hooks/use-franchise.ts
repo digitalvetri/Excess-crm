@@ -173,7 +173,7 @@ export function useUpdateFranchise() {
 export function useFranchiseAction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, action }: { id: string; action: 'activate' | 'suspend' | 'terminate' }) =>
+    mutationFn: ({ id, action }: { id: string; action: 'activate' | 'suspend' | 'terminate' | 'probation' }) =>
       api.post(`/franchise/${id}/${action}`),
     onSuccess: (_, { id }) => {
       void qc.invalidateQueries({ queryKey: ['franchises', id] });

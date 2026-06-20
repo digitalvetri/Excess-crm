@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -389,7 +390,7 @@ function OverviewTab({
   const statusCfg =
     STATUS_CONFIG[franchise.status] ?? { label: franchise.status, className: 'bg-slate-100 text-slate-600' };
 
-  function handleAction(act: 'activate' | 'suspend' | 'terminate') {
+  function handleAction(act: 'activate' | 'suspend' | 'terminate' | 'probation') {
     if (act === 'terminate') {
       if (!confirm('Terminate this franchise? This cannot be undone.')) return;
     }
@@ -438,11 +439,29 @@ function OverviewTab({
             )}
             {franchise.status === 'ACTIVE' && (
               <button
+                onClick={() => handleAction('probation')}
+                disabled={action.isPending}
+                className="px-4 py-2 bg-amber-100 text-amber-800 text-sm font-medium rounded-lg hover:bg-amber-200 disabled:opacity-50 transition-colors"
+              >
+                Place on probation
+              </button>
+            )}
+            {franchise.status === 'ACTIVE' && (
+              <button
                 onClick={() => handleAction('suspend')}
                 disabled={action.isPending}
                 className="px-4 py-2 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors"
               >
                 Suspend
+              </button>
+            )}
+            {franchise.status === 'PROBATION' && (
+              <button
+                onClick={() => handleAction('activate')}
+                disabled={action.isPending}
+                className="px-4 py-2 bg-success text-white text-sm font-medium rounded-lg hover:bg-success/90 disabled:opacity-50 transition-colors"
+              >
+                Restore to active
               </button>
             )}
             {franchise.status !== 'TERMINATED' && (
@@ -1101,6 +1120,15 @@ function TeamTab({ id }: { id: string }) {
     }
   }
 
+  async function handleRoleChange(userId: string, agentRole: FranchiseAgentRole) {
+    try {
+      await updateAgent.mutateAsync({ userId, data: { agentRole } });
+      toast.success('Agent role updated');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to update role'));
+    }
+  }
+
   return (
     <div className="space-y-5">
       {/* Invite modal */}
@@ -1214,11 +1242,18 @@ function TeamTab({ id }: { id: string }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-semibold text-slate-800 truncate">{agent.name}</p>
-                      {roleCfg && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${roleCfg.className}`}>
-                          {roleCfg.label}
-                        </span>
-                      )}
+                      {/* Editable role — admin can reassign an agent's role */}
+                      <select
+                        value={agent.agentRole ?? ''}
+                        onChange={(e) => void handleRoleChange(agent.id, e.target.value as FranchiseAgentRole)}
+                        disabled={updateAgent.isPending}
+                        aria-label={`Role for ${agent.name}`}
+                        className={`text-xs px-2 py-0.5 rounded-full font-medium border-0 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary ${roleCfg?.className ?? 'bg-slate-100 text-slate-600'}`}
+                      >
+                        {(Object.keys(AGENT_ROLE_CONFIG) as FranchiseAgentRole[]).map((r) => (
+                          <option key={r} value={r}>{AGENT_ROLE_CONFIG[r].label}</option>
+                        ))}
+                      </select>
                       {!agent.isActive && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Inactive</span>
                       )}
@@ -1287,7 +1322,7 @@ function TeamTab({ id }: { id: string }) {
 export default function FranchiseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
-  const { data: franchise } = useFranchise(id);
+  const { data: franchise, isLoading, isError } = useFranchise(id);
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overview',    label: 'Overview' },
@@ -1296,6 +1331,21 @@ export default function FranchiseDetailPage({ params }: { params: Promise<{ id: 
     { key: 'team',        label: 'Team' },
     { key: 'settings',    label: 'Settings' },
   ];
+
+  // Whole-page not-found guard so we don't render tabs (and fire their queries)
+  // for a franchise that doesn't exist.
+  if (!isLoading && (isError || !franchise)) {
+    return (
+      <div className="rounded-xl border border-border bg-white p-12 text-center">
+        <Building2 className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+        <p className="text-sm font-semibold text-slate-700">Franchise not found</p>
+        <p className="mt-1 text-xs text-slate-400">It may have been removed, or the link is incorrect.</p>
+        <Link href="/franchise" className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
+          ← Back to Franchise Network
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-0">

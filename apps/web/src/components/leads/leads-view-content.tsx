@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { LeadsTable } from './leads-table';
 import { LeadsKanban } from './leads-kanban';
 import { useSavedViews, useCreateSavedView, useDeleteSavedView } from '@/hooks/use-leads';
+import { useAuth } from '@/hooks/use-auth';
 
 function SavedViewsBar() {
   const searchParams = useSearchParams();
@@ -112,6 +113,9 @@ export function LeadsViewContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  const { role } = useAuth();
+  // leads.export excludes FRANCHISE_USER and ENGINEER.
+  const canExport = role === 'ADMIN' || role === 'EMPLOYEE' || role === 'FRANCHISE_OWNER';
   const view = searchParams.get('view') ?? 'list';
 
   function setView(v: 'list' | 'kanban') {
@@ -147,12 +151,14 @@ export function LeadsViewContent() {
 
         {/* List / Kanban toggle + Export */}
         <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-          <button
-            onClick={() => void handleExport()}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-border text-slate-600 hover:text-primary hover:border-primary transition-colors bg-white"
-          >
-            <Download size={13} /> Export CSV
-          </button>
+          {canExport && (
+            <button
+              onClick={() => void handleExport()}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-border text-slate-600 hover:text-primary hover:border-primary transition-colors bg-white"
+            >
+              <Download size={13} /> Export CSV
+            </button>
+          )}
           <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
             <button
               onClick={() => setView('list')}

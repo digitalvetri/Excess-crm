@@ -51,7 +51,6 @@ import { engagementRoutes } from './routes/engagement.js';
 import { settingsWebhooksRoutes } from './routes/settings-webhooks.js';
 import { notificationsRoutes } from './routes/notifications.js';
 import { callsRoutes } from './routes/calls.js';
-import { adminSeedRoutes } from './routes/admin-seed.js'; // TEMPORARY — remove after demo seed
 
 export async function buildServer() {
   const app = Fastify({
@@ -127,7 +126,6 @@ export async function buildServer() {
     await api.register(settingsWebhooksRoutes, { prefix: '/settings/webhooks' });
     await api.register(notificationsRoutes, { prefix: '/notifications' });
     await api.register(callsRoutes, { prefix: '/calls' });
-    await api.register(adminSeedRoutes, { prefix: '/admin' }); // TEMPORARY — remove after demo seed
   }, { prefix: '/api/v1' });
 
   app.setErrorHandler((error, _req, reply) => {

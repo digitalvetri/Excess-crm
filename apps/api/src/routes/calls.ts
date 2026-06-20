@@ -2,10 +2,12 @@ import type { FastifyPluginAsync } from 'fastify';
 import { can } from '@excess/shared';
 
 export const callsRoutes: FastifyPluginAsync = async (app) => {
-  // GET /calls/:id/insights — keyword extraction from transcript
+  // GET /calls/:id/insights — keyword extraction from transcript.
+  // Reads (and updates) call transcript/sentiment — company-internal, so calls.read
+  // (ADMIN/EMPLOYEE), not the broader leads.read.own that franchise roles also hold.
   app.get('/:id/insights', async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!can(req.auth.role, 'leads.read.own')) {
+    if (!can(req.auth.role, 'calls.read')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 

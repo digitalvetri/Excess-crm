@@ -5,6 +5,7 @@ import {
   EMPLOYEE_USER,
   FRANCHISE_OWNER_USER,
   FRANCHISE_USER_USER,
+  ENGINEER_USER,
 } from './fixtures';
 
 // ── ADMIN — full access ───────────────────────────────────────────────────────
@@ -187,5 +188,74 @@ test.describe('FRANCHISE_USER — limited franchise access', () => {
   test('can access /leads', async ({ asFranchiseUser }) => {
     await asFranchiseUser.goto('/leads');
     await expect(asFranchiseUser).toHaveURL(/\/leads/, { timeout: 5_000 });
+  });
+});
+
+// ── ENGINEER — field-work only ────────────────────────────────────────────────
+
+test.describe('ENGINEER — field-work only', () => {
+  test.beforeEach(async ({ asEngineer }) => {
+    await asEngineer.route('**/api/v1/**', (r) =>
+      r.fulfill({ json: { data: [], meta: { total: 0 } } }),
+    );
+    await asEngineer.route('**/api/v1/auth/me', (r) =>
+      r.fulfill({ json: { data: ENGINEER_USER } }),
+    );
+    await asEngineer.route('**/api/v1/notifications**', (r) =>
+      r.fulfill({ json: { data: [], meta: { unreadCount: 0 } } }),
+    );
+  });
+
+  // Can reach their allowed pages
+  test('can access /appointments', async ({ asEngineer }) => {
+    await asEngineer.goto('/appointments');
+    await expect(asEngineer).not.toHaveURL(/\/dashboard/, { timeout: 5_000 });
+  });
+  test('can access /projects', async ({ asEngineer }) => {
+    await asEngineer.goto('/projects');
+    await expect(asEngineer).not.toHaveURL(/\/dashboard/, { timeout: 5_000 });
+  });
+  test('can access /service-tickets', async ({ asEngineer }) => {
+    await asEngineer.goto('/service-tickets');
+    await expect(asEngineer).not.toHaveURL(/\/dashboard/, { timeout: 5_000 });
+  });
+
+  // Blocked from sales / admin areas
+  test('redirects from /leads to /dashboard', async ({ asEngineer }) => {
+    await asEngineer.goto('/leads');
+    await expect(asEngineer).toHaveURL(/\/dashboard/, { timeout: 5_000 });
+  });
+  test('redirects from /reports to /dashboard', async ({ asEngineer }) => {
+    await asEngineer.goto('/reports');
+    await expect(asEngineer).toHaveURL(/\/dashboard/, { timeout: 5_000 });
+  });
+  test('redirects from /settings to /dashboard', async ({ asEngineer }) => {
+    await asEngineer.goto('/settings');
+    await expect(asEngineer).toHaveURL(/\/dashboard/, { timeout: 5_000 });
+  });
+});
+
+// ── Newly-tightened admin-only areas (allowlist fixes) ────────────────────────
+
+test.describe('Admin-only areas are blocked for non-admins', () => {
+  test('EMPLOYEE redirected from /voice-agent', async ({ asEmployee }) => {
+    await asEmployee.route('**/api/v1/auth/me', (r) => r.fulfill({ json: { data: EMPLOYEE_USER } }));
+    await asEmployee.route('**/api/v1/notifications**', (r) => r.fulfill({ json: { data: [], meta: { unreadCount: 0 } } }));
+    await asEmployee.goto('/voice-agent');
+    await expect(asEmployee).toHaveURL(/\/dashboard/, { timeout: 5_000 });
+  });
+
+  test('EMPLOYEE redirected from /teams', async ({ asEmployee }) => {
+    await asEmployee.route('**/api/v1/auth/me', (r) => r.fulfill({ json: { data: EMPLOYEE_USER } }));
+    await asEmployee.route('**/api/v1/notifications**', (r) => r.fulfill({ json: { data: [], meta: { unreadCount: 0 } } }));
+    await asEmployee.goto('/teams');
+    await expect(asEmployee).toHaveURL(/\/dashboard/, { timeout: 5_000 });
+  });
+
+  test('FRANCHISE_OWNER redirected from /voice-agent', async ({ asFranchiseOwner }) => {
+    await asFranchiseOwner.route('**/api/v1/auth/me', (r) => r.fulfill({ json: { data: FRANCHISE_OWNER_USER } }));
+    await asFranchiseOwner.route('**/api/v1/notifications**', (r) => r.fulfill({ json: { data: [], meta: { unreadCount: 0 } } }));
+    await asFranchiseOwner.goto('/voice-agent');
+    await expect(asFranchiseOwner).toHaveURL(/\/dashboard/, { timeout: 5_000 });
   });
 });

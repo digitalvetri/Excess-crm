@@ -472,8 +472,9 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({ data: user });
   });
 
-  // GET /franchise/agents/accept/:token — accept an agent invite (returns invite details for UI)
-  app.get('/agents/accept/:token', async (req, reply) => {
+  // GET /franchise/agents/accept/:token — accept an agent invite (returns invite details for UI).
+  // Public + token-gated: the invitee has no account yet, so this runs pre-auth.
+  app.get('/agents/accept/:token', { config: { public: true } }, async (req, reply) => {
     const { token } = req.params as { token: string };
 
     const invite = await withSystemContext(prisma, SYSTEM_TENANT_ID, (tx) =>
@@ -499,8 +500,9 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  // POST /franchise/agents/accept/:token — complete acceptance (create user account)
-  app.post('/agents/accept/:token', async (req, reply) => {
+  // POST /franchise/agents/accept/:token — complete acceptance (create user account).
+  // Public + token-gated: pre-auth, since the invitee is creating their login here.
+  app.post('/agents/accept/:token', { config: { public: true } }, async (req, reply) => {
     const { token } = req.params as { token: string };
     const acceptSchema = z.object({ password: z.string().min(8) });
 

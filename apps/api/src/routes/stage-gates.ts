@@ -17,7 +17,10 @@ const patchGateSchema = createGateSchema.partial();
 
 export const stageGatesRoutes: FastifyPluginAsync = async (app) => {
   // GET /stage-gates/config — return available fields and activity types
-  app.get('/config', async (_req, reply) => {
+  app.get('/config', async (req, reply) => {
+    if (!can(req.auth.role, 'routing_rules.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
     return reply.send({
       data: {
         leadFields: LEAD_FIELD_NAMES,

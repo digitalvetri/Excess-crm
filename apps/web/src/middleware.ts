@@ -3,59 +3,43 @@ import type { NextRequest } from 'next/server';
 
 const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password', '/2fa', '/portal', '/refer'];
 
-// Routes that are blocked for each role.
-// Franchise (FRANCHISE_OWNER / FRANCHISE_USER) can only access leads,
-// their own commissions/wallet/referrals, leaderboard, and knowledge-base.
-const FRANCHISE_BLOCKED = [
-  '/calls',
-  '/appointments',
-  '/quotations',
-  '/projects',
-  '/service-tickets',
-  '/amc',
-  '/whatsapp',
-  '/broadcasts',
-  '/reports',
-  '/insights',
-  '/franchise',
-  '/payouts',
-  '/teams',
-  // NOTE: /engagement is intentionally NOT blocked. Franchise nav links
-  // (/leaderboard, /referrals, /wallet) redirect into /engagement?tab=…; the
-  // page itself role-filters its tabs so franchise users only see the network
-  // tabs they have data for. /reviews remains a separate company-only route.
-  '/reviews',
-  '/settings',
-];
+// ── Per-role page allowlist (default-deny) ───────────────────────────────────
+// NOTE: this is a UX layer, not the security boundary. The excess_role cookie is
+// readable/spoofable in the browser; the REAL enforcement is the `can()` check on
+// every API route (derived from the server-side session). This list just keeps
+// each role from landing on pages with no content for them.
+//
+// Each role's allowlist is the set of top-level routes its sidebar nav links to,
+// PLUS the redirect targets (/referrals, /leaderboard, /wallet → /engagement) and
+// /dashboard. A path is allowed if it equals an entry or is nested under it.
+//
+// ADMIN and any unrecognized role are NOT restricted here (admin sees everything;
+// an unknown/missing role — e.g. a cookie-domain hiccup — falls through to the API
+// checks rather than being locked out, avoiding redirect loops).
+const ROLE_ALLOWED: Record<string, string[]> = {
+  EMPLOYEE: [
+    '/dashboard', '/leads', '/calls', '/appointments', '/quotations',
+    '/projects', '/service-tickets', '/amc', '/whatsapp', '/broadcasts',
+    '/reports', '/insights', '/engagement', '/referrals', '/leaderboard',
+    '/reviews', '/knowledge-base',
+  ],
+  FRANCHISE_OWNER: [
+    '/dashboard', '/leads', '/commissions', '/wallet', '/referrals',
+    '/leaderboard', '/engagement', '/knowledge-base',
+  ],
+  FRANCHISE_USER: [
+    '/dashboard', '/leads', '/referrals', '/leaderboard', '/engagement',
+    '/knowledge-base',
+  ],
+  ENGINEER: [
+    '/dashboard', '/appointments', '/projects', '/service-tickets',
+    '/knowledge-base',
+  ],
+};
 
-// Employees cannot access admin-only areas
-const EMPLOYEE_BLOCKED = [
-  '/franchise',
-  '/payouts',
-  '/settings',
-  '/wallet',
-  '/commissions',
-];
-
-// Engineers can only access appointments, projects, service_tickets, and kb.read
-const ENGINEER_BLOCKED = [
-  '/leads',
-  '/calls',
-  '/quotations',
-  '/franchise',
-  '/payouts',
-  '/teams',
-  '/commissions',
-  '/wallet',
-  '/whatsapp',
-  '/broadcasts',
-  '/reports',
-  '/insights',
-  '/engagement',
-  '/reviews',
-  '/settings',
-  '/amc',
-];
+function isAllowed(allowed: string[], pathname: string): boolean {
+  return allowed.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -76,35 +60,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Role-based route protection using the non-httpOnly excess_role cookie
+  // Role-based page allowlist (UX layer; API `can()` is the real boundary).
   if (hasSession && !isPublic) {
     const role = request.cookies.get('excess_role')?.value;
-
-    if (role === 'FRANCHISE_OWNER' || role === 'FRANCHISE_USER') {
-      const blocked = FRANCHISE_BLOCKED.some((p) => pathname.startsWith(p));
-      if (blocked) {
-        const url = request.nextUrl.clone();
-        url.pathname = '/dashboard';
-        return NextResponse.redirect(url);
-      }
-    }
-
-    if (role === 'EMPLOYEE') {
-      const blocked = EMPLOYEE_BLOCKED.some((p) => pathname.startsWith(p));
-      if (blocked) {
-        const url = request.nextUrl.clone();
-        url.pathname = '/dashboard';
-        return NextResponse.redirect(url);
-      }
-    }
-
-    if (role === 'ENGINEER') {
-      const blocked = ENGINEER_BLOCKED.some((p) => pathname.startsWith(p));
-      if (blocked) {
-        const url = request.nextUrl.clone();
-        url.pathname = '/dashboard';
-        return NextResponse.redirect(url);
-      }
+    const allowed = role ? ROLE_ALLOWED[role] : undefined;
+    // Only the four non-admin roles are restricted; ADMIN/unknown pass through.
+    if (allowed && !isAllowed(allowed, pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/dashboard';
+      return NextResponse.redirect(url);
     }
   }
 

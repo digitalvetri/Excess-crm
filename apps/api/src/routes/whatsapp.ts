@@ -68,9 +68,10 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({ data: { connected: tenantConnected || envConnected, source } });
   });
 
-  // PUT /whatsapp/config — save or update WhatsApp Business credentials
+  // PUT /whatsapp/config — save or update WhatsApp Business credentials.
+  // These are Meta API secrets — admin-only, like every other integration credential.
   app.put('/config', async (req, reply) => {
-    if (!can(req.auth.role, 'broadcasts.write')) {
+    if (!can(req.auth.role, 'integrations.write')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
@@ -142,9 +143,9 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  // DELETE /whatsapp/config — disconnect WhatsApp
+  // DELETE /whatsapp/config — disconnect WhatsApp (admin-only, like the write above)
   app.delete('/config', async (req, reply) => {
-    if (!can(req.auth.role, 'broadcasts.write')) {
+    if (!can(req.auth.role, 'integrations.write')) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 

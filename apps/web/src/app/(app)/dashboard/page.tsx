@@ -10,6 +10,7 @@ import { VoiceActivity } from '@/components/dashboard/voice-activity';
 import { FranchiseSnapshot } from '@/components/dashboard/franchise-snapshot';
 import { DashboardBanner } from '@/components/dashboard/dashboard-banner';
 import { FranchiseDashboard } from '@/components/dashboard/franchise-dashboard';
+import { EngineerDashboard } from '@/components/dashboard/engineer-dashboard';
 
 export const metadata = { title: 'Dashboard — Excess CRM' };
 
@@ -127,7 +128,11 @@ export default async function DashboardPage() {
     return <FranchiseDashboard />;
   }
 
-  if (role === 'EMPLOYEE' || role === 'ENGINEER') {
+  if (role === 'ENGINEER') {
+    return <EngineerDashboard />;
+  }
+
+  if (role === 'EMPLOYEE') {
     return <EmployeeDashboard />;
   }
 

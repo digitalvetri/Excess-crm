@@ -26,7 +26,10 @@ export const csvImportRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // GET /leads/import/fields — return mappable lead fields
-  app.get('/fields', async (_req, reply) => {
+  app.get('/fields', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
     return reply.send({ data: LEAD_FIELDS });
   });
 

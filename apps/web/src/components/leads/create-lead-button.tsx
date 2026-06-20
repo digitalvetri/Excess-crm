@@ -33,7 +33,7 @@ export function CreateLeadButton() {
       },
       {
         onSuccess: () => {
-          toast.success('Lead queued for processing');
+          toast.success('Lead added');
           reset();
           setOpen(false);
         },

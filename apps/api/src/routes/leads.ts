@@ -692,23 +692,55 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
 
     const { name, phone, email, city, utmSource, utmMedium, utmCampaign, utmContent, utmTerm } = parsed.data;
 
-    await app.queues.leadIngest.add('lead-ingest', {
-      sourceType: 'MANUAL',
-      tenantId: req.auth.tenantId,
-      name,
-      phone,
-      email,
-      city,
-      utmSource,
-      utmMedium,
-      utmCampaign,
-      utmContent,
-      utmTerm,
-      rawData: { createdBy: req.auth.userId },
+    // Insert synchronously (not via the lead-ingest queue) so a manually-added
+    // lead is visible immediately and never depends on the worker being up. It's
+    // owned by the creator so franchise users (who only see their own leads) see
+    // it right away.
+    const lead = await req.withTenant(async (tx) => {
+      const dup = await tx.lead.findFirst({
+        where: { tenantId: req.auth.tenantId, phone },
+        select: { id: true },
+      });
+
+      const created = await tx.lead.create({
+        data: {
+          tenantId:   req.auth.tenantId,
+          sourceType: 'MANUAL',
+          name,
+          phone,
+          phoneRaw:   phone,
+          ...(email && { email }),
+          ...(city && { city }),
+          ...(utmSource && { utmSource }),
+          ...(utmMedium && { utmMedium }),
+          ...(utmCampaign && { utmCampaign }),
+          ...(utmContent && { utmContent }),
+          ...(utmTerm && { utmTerm }),
+          stage:       'NEW',
+          ownerUserId: req.auth.userId,
+          isDuplicate: dup != null,
+          ...(dup && { duplicateOfId: dup.id }),
+          rawPayload:  { createdBy: req.auth.userId, manual: true } as object,
+        },
+      });
+
+      await tx.leadActivity.create({
+        data: {
+          leadId:      created.id,
+          tenantId:    req.auth.tenantId,
+          actorUserId: req.auth.userId,
+          actorIsAi:   false,
+          type:        'NOTE',
+          payload:     { note: 'Lead added manually' } as object,
+        },
+      });
+
+      return created;
     });
 
-    void fireWebhooks(prisma, req.auth.tenantId, 'lead.created', { sourceType: 'MANUAL', name, phone });
-    return reply.code(202).send({ data: { queued: true } });
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: lead.id }, 'lead.created_manual');
+    void fireWebhooks(prisma, req.auth.tenantId, 'lead.created', { leadId: lead.id, sourceType: 'MANUAL' });
+    return reply.code(201).send({ data: lead });
   });
 
   // PATCH /leads/:id/tags

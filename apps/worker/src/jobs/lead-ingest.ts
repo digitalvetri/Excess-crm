@@ -206,6 +206,11 @@ export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<vo
       }
     }
 
+    // A manually-entered lead belongs to whoever entered it. This is essential
+    // for franchise users, who only ever see leads they own — without this their
+    // own "Add lead" disappears (routing rules would assign it elsewhere).
+    const createdBy = (rawData['createdBy'] as string | undefined) ?? null;
+
     const created = await tx.lead.create({
       data: {
         tenantId,
@@ -225,6 +230,7 @@ export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<vo
         utmCampaign: utmCampaign ?? null,
         utmContent: utmContent ?? null,
         utmTerm:    utmTerm    ?? null,
+        ...(createdBy && { ownerUserId: createdBy }),
       },
     });
 
@@ -238,12 +244,16 @@ export async function processLeadIngest(job: Job<LeadIngestPayload>): Promise<vo
       },
     });
 
-    // Auto-assign via routing rules engine
-    await assignLead(tx as Parameters<typeof assignLead>[0], tenantId, created.id, {
-      pincode: pincode ?? null,
-      city:    city    ?? null,
-      sourceType,
-    });
+    // Auto-assign via routing rules engine — but only for source-ingested leads.
+    // Manually-entered leads stay with their creator (owner set above), so routing
+    // never reassigns them away from the person who added them.
+    if (!createdBy) {
+      await assignLead(tx as Parameters<typeof assignLead>[0], tenantId, created.id, {
+        pincode: pincode ?? null,
+        city:    city    ?? null,
+        sourceType,
+      });
+    }
 
     return created;
   });

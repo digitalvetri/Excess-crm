@@ -147,7 +147,12 @@ export function useCreateLead() {
     mutationFn: (data: { name: string; phone: string; email?: string; city?: string }) =>
       api.post('/leads', data).then((r) => r.data),
     onSuccess: () => {
+      // Manual leads are inserted asynchronously by the lead-ingest worker, so the
+      // immediate refetch can miss the new row. Re-fetch a couple more times to
+      // catch it once the worker has processed the queue.
       void qc.invalidateQueries({ queryKey: ['leads'] });
+      setTimeout(() => void qc.invalidateQueries({ queryKey: ['leads'] }), 1500);
+      setTimeout(() => void qc.invalidateQueries({ queryKey: ['leads'] }), 4000);
     },
   });
 }

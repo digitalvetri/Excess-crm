@@ -1,11 +1,30 @@
 services:
-  # NOTE: There is intentionally NO postgres/redis service here. The database and
-  # Redis must be SINGLE shared resources (one Coolify-managed Postgres + one
-  # Redis), referenced via DATABASE_URL / REDIS_URL in .env. Bundling a database
-  # inside this stack caused each deployment/replica to get its OWN database,
-  # which split sessions and data across backends (random logouts, vanishing
-  # leads). Keeping the datastore external guarantees one source of truth no
-  # matter how many app containers run.
+  app-postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: excess_crm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app-redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   api:
     build:
@@ -18,6 +37,11 @@ services:
     networks:
       - default
       - coolify
+    depends_on:
+      app-postgres:
+        condition: service_healthy
+      app-redis:
+        condition: service_healthy
 
   web:
     build:
@@ -47,7 +71,16 @@ services:
       dockerfile: apps/worker/Dockerfile
     restart: always
     env_file: .env
+    depends_on:
+      app-postgres:
+        condition: service_healthy
+      app-redis:
+        condition: service_healthy
 
 networks:
   coolify:
     external: true
+
+volumes:
+  postgres_data:
+  redis_data:

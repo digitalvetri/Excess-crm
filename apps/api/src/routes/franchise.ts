@@ -15,6 +15,8 @@ const createFranchiseSchema = z.object({
   contactPhone: z.string().optional(),
   gstNumber: z.string().optional(),
   commissionSlabs: z.record(z.unknown()).optional(),
+  agentSplitConfig: z.record(z.number().min(0).max(100)).optional(),
+  bankAccount: z.record(z.unknown()).optional(),
 });
 
 const patchFranchiseSchema = z.object({
@@ -127,7 +129,7 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
     }
 
-    const { name, tier, territory, contactName, contactEmail, contactPhone, gstNumber, commissionSlabs } = parsed.data;
+    const { name, tier, territory, contactName, contactEmail, contactPhone, gstNumber, commissionSlabs, agentSplitConfig, bankAccount } = parsed.data;
 
     const franchise = await req.withTenant(async (tx) =>
       tx.tenant.create({
@@ -142,6 +144,8 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
           ...(contactPhone !== undefined && { contactPhone }),
           ...(gstNumber !== undefined && { gstNumber }),
           ...(commissionSlabs !== undefined && { commissionSlabs: commissionSlabs as Prisma.InputJsonValue }),
+          ...(agentSplitConfig !== undefined && { agentSplitConfig: agentSplitConfig as Prisma.InputJsonValue }),
+          ...(bankAccount !== undefined && { bankAccount: bankAccount as Prisma.InputJsonValue }),
         },
       }),
     );

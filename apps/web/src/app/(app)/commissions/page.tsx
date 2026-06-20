@@ -300,7 +300,9 @@ export default function CommissionsPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Commissions</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Review, approve and pay out franchise commissions.
+          {role === 'ADMIN'
+            ? 'Review, approve and pay out franchise commissions.'
+            : 'Track your commissions, payout status and projected earnings.'}
         </p>
       </div>
 
@@ -399,16 +401,18 @@ export default function CommissionsPage() {
           {/* Table header */}
           <div className="hidden lg:grid grid-cols-[32px_1fr_160px_110px_140px_120px_110px_80px] gap-3 px-5 py-2.5 bg-slate-50 border-b border-border text-xs font-medium text-slate-500 uppercase tracking-wide">
             <div className="flex items-center">
-              <input
-                type="checkbox"
-                checked={
-                  approvedCommissions.length > 0 &&
-                  selectedApproved.length === approvedCommissions.length
-                }
-                onChange={toggleSelectAll}
-                className="rounded border-slate-300 text-primary focus:ring-primary/30"
-                aria-label="Select all approved commissions"
-              />
+              {role === 'ADMIN' && (
+                <input
+                  type="checkbox"
+                  checked={
+                    approvedCommissions.length > 0 &&
+                    selectedApproved.length === approvedCommissions.length
+                  }
+                  onChange={toggleSelectAll}
+                  className="rounded border-slate-300 text-primary focus:ring-primary/30"
+                  aria-label="Select all approved commissions"
+                />
+              )}
             </div>
             <span>Lead</span>
             <span>Franchise</span>
@@ -439,9 +443,9 @@ export default function CommissionsPage() {
                     isChecked ? 'bg-primary/5' : ''
                   }`}
                 >
-                  {/* Checkbox — only APPROVED rows */}
+                  {/* Checkbox — only APPROVED rows, ADMIN only (payout is admin) */}
                   <div className="hidden lg:flex items-center">
-                    {isApproved ? (
+                    {isApproved && role === 'ADMIN' ? (
                       <input
                         type="checkbox"
                         checked={isChecked}

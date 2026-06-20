@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { useLeads } from '@/hooks/use-leads';
 import { useUsers } from '@/hooks/use-teams';
 import { useBulkAction } from '@/hooks/use-leads';
+import { useAuth } from '@/hooks/use-auth';
 import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
 import { StageBadge } from './stage-badge';
 import { StaleBadge } from './stale-badge';
@@ -301,6 +302,10 @@ function BulkTagModal({
 export function LeadsTable() {
   const { leads: leadsData, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useLeads();
   const searchParams = useSearchParams();
+  const { role } = useAuth();
+  // Bulk actions (assign / bulk stage / bulk tag) are ADMIN/EMPLOYEE only;
+  // franchise users would only hit a 403, so hide selection + the action bar.
+  const canBulk = role === 'ADMIN' || role === 'EMPLOYEE';
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [stageMenuOpen, setStageMenuOpen] = useState<string | null>(null);
   const [assignModal, setAssignModal] = useState(false);
@@ -410,8 +415,8 @@ export function LeadsTable() {
       )}
 
       <div className="bg-white rounded-xl border border-border overflow-hidden">
-        {/* Bulk action bar */}
-        {selected.size > 0 && (
+        {/* Bulk action bar — ADMIN/EMPLOYEE only */}
+        {canBulk && selected.size > 0 && (
           <div className="flex items-center gap-4 px-4 py-2.5 bg-primary/5 border-b border-primary/10">
             <span className="text-sm font-semibold text-primary">{selected.size} selected</span>
             <button
@@ -443,13 +448,15 @@ export function LeadsTable() {
 
         {/* Header */}
         <div className="hidden md:flex items-center gap-4 px-4 py-2.5 border-b border-border bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-          <input
-            type="checkbox"
-            checked={selected.size === leads.length && leads.length > 0}
-            onChange={toggleAll}
-            aria-label="Select all leads"
-            className="rounded accent-primary"
-          />
+          {canBulk && (
+            <input
+              type="checkbox"
+              checked={selected.size === leads.length && leads.length > 0}
+              onChange={toggleAll}
+              aria-label="Select all leads"
+              className="rounded accent-primary"
+            />
+          )}
           <span className="flex-1">Lead</span>
           <span className="w-28">Stage</span>
           <span className="w-24">Source</span>
@@ -466,14 +473,16 @@ export function LeadsTable() {
                 selected.has(lead.id) ? 'bg-primary/3' : ''
               }`}
             >
-              <input
-                type="checkbox"
-                checked={selected.has(lead.id)}
-                onChange={() => toggle(lead.id)}
-                aria-label={`Select ${lead.name}`}
-                className="rounded mt-1 md:mt-0 accent-primary"
-                onClick={(e) => e.stopPropagation()}
-              />
+              {canBulk && (
+                <input
+                  type="checkbox"
+                  checked={selected.has(lead.id)}
+                  onChange={() => toggle(lead.id)}
+                  aria-label={`Select ${lead.name}`}
+                  className="rounded mt-1 md:mt-0 accent-primary"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              )}
 
               <Link href={`/leads/${lead.id}`} className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">

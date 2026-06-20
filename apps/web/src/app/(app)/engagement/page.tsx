@@ -456,6 +456,10 @@ function RewardInput({ referralId, onDone }: { referralId: string; onDone: () =>
 // ─── Referrals Tab ────────────────────────────────────────────────────────────
 
 function ReferralsTab() {
+  const { role } = useAuth();
+  // Rewarding a referral is ADMIN-only (referrals.reward); franchise users can
+  // submit + mark converted, but not reward.
+  const canReward = role === 'ADMIN';
   const [statusFilter, setStatusFilter] = useState<ReferralStatusFilter>('ALL');
   const [showCreate, setShowCreate] = useState(false);
   const [rewardingId, setRewardingId] = useState<string | null>(null);
@@ -595,7 +599,7 @@ function ReferralsTab() {
                         Mark Converted
                       </button>
                     )}
-                    {referral.status === 'CONVERTED' && (
+                    {referral.status === 'CONVERTED' && canReward && (
                       rewardingId === referral.id ? (
                         <RewardInput
                           referralId={referral.id}
@@ -931,6 +935,10 @@ function AddTransactionModal({ onClose }: { onClose: () => void }) {
 // ─── Wallet Tab ───────────────────────────────────────────────────────────────
 
 function WalletTab() {
+  const { role } = useAuth();
+  // Wallet entries are created by HQ only (wallet.write is ADMIN). Franchise
+  // owners get a read-only wallet view.
+  const canAddTx = role === 'ADMIN';
   const [txTypeFilter, setTxTypeFilter] = useState<TxTypeFilter>(undefined);
   const [showAddTx, setShowAddTx] = useState(false);
 
@@ -1015,12 +1023,14 @@ function WalletTab() {
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setShowAddTx(true)}
-          className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90"
-        >
-          Add Transaction
-        </button>
+        {canAddTx && (
+          <button
+            onClick={() => setShowAddTx(true)}
+            className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90"
+          >
+            Add Transaction
+          </button>
+        )}
       </div>
 
       {/* Transactions table */}

@@ -3,16 +3,23 @@
 import Link from 'next/link';
 import { Users, UserPlus, Trophy, TrendingUp } from 'lucide-react';
 import { DashboardBanner } from '@/components/dashboard/dashboard-banner';
+import { useLeadStats } from '@/hooks/use-leads';
+import { useReferralSummary } from '@/hooks/use-engagement';
 
 interface StatCardProps {
   label: string;
   value: string;
+  loading?: boolean;
 }
 
-function StatCard({ label, value }: StatCardProps) {
+function StatCard({ label, value, loading }: StatCardProps) {
   return (
     <div className="rounded-lg bg-primary/5 p-4">
-      <p className="text-2xl font-bold text-slate-800">{value}</p>
+      {loading ? (
+        <div className="h-8 w-12 animate-pulse rounded bg-primary/10" />
+      ) : (
+        <p className="text-2xl font-bold text-slate-800">{value}</p>
+      )}
       <p className="mt-0.5 text-xs text-slate-500">{label}</p>
     </div>
   );
@@ -44,6 +51,9 @@ function QuickLink({ href, icon: Icon, title, description }: QuickLinkProps) {
 }
 
 export function FranchiseDashboard() {
+  const { data: stats, isLoading: statsLoading } = useLeadStats();
+  const { data: referrals, isLoading: refLoading } = useReferralSummary();
+
   return (
     <div className="space-y-6">
       <DashboardBanner />
@@ -52,12 +62,12 @@ export function FranchiseDashboard() {
       <div className="rounded-xl border border-border bg-white p-5">
         <div className="mb-4 flex items-center gap-2">
           <TrendingUp size={16} className="text-primary" />
-          <h2 className="font-semibold text-slate-800">My Performance — This Month</h2>
+          <h2 className="font-semibold text-slate-800">My Performance</h2>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <StatCard label="Leads received" value="--" />
-          <StatCard label="Converted" value="--" />
-          <StatCard label="Referrals submitted" value="--" />
+          <StatCard label="Leads received" value={(stats?.totalLeads ?? 0).toLocaleString()} loading={statsLoading} />
+          <StatCard label="Converted" value={(stats?.converted ?? 0).toLocaleString()} loading={statsLoading} />
+          <StatCard label="Referrals submitted" value={(referrals?.total ?? 0).toLocaleString()} loading={refLoading} />
         </div>
       </div>
 

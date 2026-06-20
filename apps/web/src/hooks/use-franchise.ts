@@ -317,14 +317,16 @@ export function useOnboardFranchise() {
   return useMutation({
     mutationFn: (data: OnboardFranchiseInput) =>
       api.post<{ data: { id: string } }>('/franchise', {
-        name:            data.name,
-        tier:            data.tier,
-        contactName:     data.contactName,
-        contactEmail:    data.contactEmail,
-        contactPhone:    data.contactPhone,
-        gstNumber:       data.gstNumber,
-        territory:       data.territory,
-        commissionSlabs: data.commissionSlabs,
+        name:             data.name,
+        tier:             data.tier,
+        contactName:      data.contactName,
+        contactEmail:     data.contactEmail,
+        contactPhone:     data.contactPhone,
+        gstNumber:        data.gstNumber,
+        territory:        data.territory,
+        commissionSlabs:  data.commissionSlabs,
+        agentSplitConfig: data.agentSplitConfig,
+        bankAccount:      data.bankAccount,
       }).then((r) => r.data.data),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['franchises'] });

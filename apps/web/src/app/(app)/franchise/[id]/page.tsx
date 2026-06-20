@@ -512,8 +512,8 @@ function OverviewTab({
               {[
                 { label: 'Total Commissions', value: stats.totalCommissions.toLocaleString('en-IN') },
                 {
-                  label: 'Pending',
-                  value: `₹${Number(stats.pendingCommissions).toLocaleString('en-IN')}`,
+                  label: 'Pending approval',
+                  value: `${Number(stats.pendingCommissions).toLocaleString('en-IN')} commission${Number(stats.pendingCommissions) === 1 ? '' : 's'}`,
                 },
                 {
                   label: 'Total Earned',

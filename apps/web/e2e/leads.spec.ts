@@ -22,9 +22,11 @@ test.describe('Leads page — ADMIN', () => {
   test('shows lead source badges', async ({ asAdmin }) => {
     await asAdmin.goto('/leads');
     // SOURCE_LABELS maps META → 'Meta', JUSTDIAL → 'JustDial'.
-    // Use span selector to avoid matching hidden <option> elements in filter selects.
-    await expect(asAdmin.locator('span', { hasText: /^Meta$/ })).toBeVisible({ timeout: 8_000 });
-    await expect(asAdmin.locator('span', { hasText: /^JustDial$/ })).toBeVisible();
+    // Each row renders the source twice: a mobile-only span (md:hidden, earlier in
+    // DOM) and the desktop column (later in DOM). At the desktop test viewport the
+    // desktop one is the visible match, so assert .last().
+    await expect(asAdmin.locator('span', { hasText: /^Meta$/ }).last()).toBeVisible({ timeout: 8_000 });
+    await expect(asAdmin.locator('span', { hasText: /^JustDial$/ }).last()).toBeVisible();
   });
 
   test('shows empty state when no leads', async ({ page }) => {

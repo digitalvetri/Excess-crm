@@ -42,6 +42,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useComputeLeadScore, useCallInsights } from '@/hooks/use-insights';
 import { api } from '@/lib/api';
 import { useMessages, useSendMessage } from '@/hooks/use-whatsapp';
+import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
 import { StageBadge } from './stage-badge';
 import { AppointmentsList } from '@/components/appointments/appointments-list';
 import { AssignLeadPanel } from './assign-lead-panel';
@@ -105,7 +106,8 @@ interface ScoreFactorV2 {
 function ScoreWithBreakdown({ score, breakdown }: { score: number | null; breakdown: Record<string, unknown> | null }) {
   const [open, setOpen] = useState(false);
   if (score === null) return <span className="text-xs text-slate-400">—</span>;
-  const color = score >= 80 ? 'bg-green-100 text-green-700 border-green-200' : score >= 50 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200';
+  const c = scoreColorClasses[scoreTier(score).color];
+  const color = `${c.bg} ${c.text} ${c.border}`;
 
   // v2 breakdown: { factors: [{name, contribution, evidence}], total, version }
   const rawFactors = breakdown ? (breakdown as { factors?: unknown }).factors : undefined;
@@ -735,7 +737,7 @@ function ReferralLinkCard({ leadId }: { leadId: string }) {
   return (
     <div className="bg-white rounded-xl border border-border p-5">
       <div className="flex items-center gap-2 mb-3">
-        <Share2 size={15} className="text-[#0F4C81]" />
+        <Share2 size={15} className="text-primary" />
         <h3 className="text-sm font-semibold text-slate-700">Referral Link</h3>
       </div>
 
@@ -743,7 +745,7 @@ function ReferralLinkCard({ leadId }: { leadId: string }) {
         <button
           onClick={() => void generate()}
           disabled={loading}
-          className="w-full py-2 text-sm bg-[#0F4C81] text-white rounded-lg hover:bg-[#0a3a63] font-medium disabled:opacity-60"
+          className="w-full py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 font-medium disabled:opacity-60"
         >
           {loading ? 'Generating…' : 'Generate Link'}
         </button>

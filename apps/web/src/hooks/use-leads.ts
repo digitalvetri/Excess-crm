@@ -81,6 +81,25 @@ export function useLeads(explicitParams?: Record<string, string>) {
   };
 }
 
+export interface LeadStats {
+  totalLeads: number;
+  newToday: number;
+  callsToday: number;
+  conversionRate: number;
+  converted: number;
+  newYesterday: number;
+  callsYesterday: number;
+  byStage: Record<string, number>;
+}
+
+export function useLeadStats() {
+  return useQuery({
+    queryKey: ['leads', 'stats'],
+    queryFn: () => api.get<{ data: LeadStats }>('/leads/stats').then((r) => r.data.data),
+    staleTime: 30_000,
+  });
+}
+
 export function useLeadDetail(id: string) {
   return useQuery({
     queryKey: ['leads', id],

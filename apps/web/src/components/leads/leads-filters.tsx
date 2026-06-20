@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 
 const STAGES = [
@@ -22,6 +22,7 @@ const SOURCES = [
   { value: 'JUSTDIAL', label: 'JustDial' },
   { value: 'WEBSITE', label: 'Website' },
   { value: 'WHATSAPP', label: 'WhatsApp' },
+  { value: 'PHONE_INBOUND', label: 'Phone' },
   { value: 'MANUAL', label: 'Manual' },
 ];
 
@@ -42,6 +43,21 @@ export function LeadsFilters() {
     [router, pathname, searchParams],
   );
 
+  // Debounce the search box so we navigate/refetch once the user pauses typing,
+  // not on every keystroke. Controlled so clearing the URL clears the field.
+  const urlSearch = searchParams.get('search') ?? '';
+  const [searchInput, setSearchInput] = useState(urlSearch);
+
+  useEffect(() => {
+    setSearchInput(urlSearch);
+  }, [urlSearch]);
+
+  useEffect(() => {
+    if (searchInput === urlSearch) return;
+    const t = setTimeout(() => setFilter('search', searchInput), 350);
+    return () => clearTimeout(t);
+  }, [searchInput, urlSearch, setFilter]);
+
   return (
     <div className="bg-white border border-border rounded-xl px-4 py-3 space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
       {/* Search — full width on mobile */}
@@ -50,8 +66,8 @@ export function LeadsFilters() {
         <input
           type="text"
           placeholder="Search name, phone..."
-          defaultValue={searchParams.get('search') ?? ''}
-          onChange={(e) => setFilter('search', e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           className="w-full pl-9 pr-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </div>

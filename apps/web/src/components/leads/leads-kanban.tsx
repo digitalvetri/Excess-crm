@@ -2,10 +2,12 @@
 
 import { useState, useRef } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Phone, MapPin } from 'lucide-react';
+import { Phone, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLeads, useUpdateLead, type Lead } from '@/hooks/use-leads';
 import { useSearchParams } from 'next/navigation';
+import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
+import { StaleBadge } from './stale-badge';
 
 const PIPELINE_STAGES = [
   { stage: 'NEW', label: 'New', topColor: 'border-t-blue-400' },
@@ -14,6 +16,12 @@ const PIPELINE_STAGES = [
   { stage: 'NOT_ANSWERED', label: 'Not Answered', topColor: 'border-t-red-400' },
   { stage: 'CONVERTED', label: 'Converted', topColor: 'border-t-emerald-500' },
 ];
+
+// Disqualified leads (INVALID + WRONG_ENQUIRY) get a single muted, view-only
+// column so they aren't silently dropped from the board.
+const DISQUALIFIED_STAGE = 'DISQUALIFIED';
+const DISQUALIFIED_STAGES = ['INVALID', 'WRONG_ENQUIRY'];
+const DISQUALIFIED_COLUMN = { stage: DISQUALIFIED_STAGE, label: 'Disqualified', topColor: 'border-t-slate-300' };
 
 const SOURCE_SHORT: Record<string, string> = {
   META: 'Meta',
@@ -25,32 +33,11 @@ const SOURCE_SHORT: Record<string, string> = {
   PHONE_INBOUND: 'Call',
 };
 
-function StaleBadge({ stageChangedAt }: { stageChangedAt: string }) {
-  const hours = (Date.now() - new Date(stageChangedAt).getTime()) / 3600000;
-  if (hours < 24) return null;
-  const isRotten = hours > 72;
-  return (
-    <span
-      className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-        isRotten ? 'text-red-600 bg-red-50' : 'text-amber-600 bg-amber-50'
-      }`}
-    >
-      <AlertCircle size={9} />
-      {isRotten ? `${Math.floor(hours / 24)}d` : `${Math.floor(hours)}h`}
-    </span>
-  );
-}
-
 function ScorePill({ score }: { score: number | null }) {
   if (score === null) return null;
-  const className =
-    score >= 80
-      ? 'bg-green-100 text-green-700'
-      : score >= 50
-        ? 'bg-amber-100 text-amber-700'
-        : 'bg-slate-100 text-slate-500';
+  const c = scoreColorClasses[scoreTier(score).color];
   return (
-    <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${className}`}>
+    <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${c.bg} ${c.text}`}>
       {score}
     </span>
   );
@@ -121,6 +108,7 @@ function KanbanColumn({
   leads,
   dragOverStage,
   draggingId,
+  droppable = true,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -133,22 +121,23 @@ function KanbanColumn({
   leads: Lead[];
   dragOverStage: string | null;
   draggingId: string | null;
+  droppable?: boolean;
   onDragOver: (stage: string) => void;
   onDragLeave: () => void;
   onDrop: (targetStage: string) => void;
   onDragStart: (leadId: string) => void;
   onDragEnd: () => void;
 }) {
-  const isOver = dragOverStage === stage;
+  const isOver = droppable && dragOverStage === stage;
 
   return (
     <div
       className={`flex flex-col min-w-[224px] w-[224px] rounded-xl border border-t-4 transition-colors ${topColor} ${
         isOver ? 'border-primary/40 bg-primary/5' : 'border-border bg-slate-50'
       }`}
-      onDragOver={(e) => { e.preventDefault(); onDragOver(stage); }}
-      onDragLeave={onDragLeave}
-      onDrop={(e) => { e.preventDefault(); onDrop(stage); }}
+      onDragOver={droppable ? (e) => { e.preventDefault(); onDragOver(stage); } : undefined}
+      onDragLeave={droppable ? onDragLeave : undefined}
+      onDrop={droppable ? (e) => { e.preventDefault(); onDrop(stage); } : undefined}
     >
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/60">
         <span className="text-sm font-semibold text-slate-700">{label}</span>
@@ -197,7 +186,7 @@ export function LeadsKanban() {
   if (isLoading) {
     return (
       <div className="flex gap-4 overflow-x-auto pb-4">
-        {PIPELINE_STAGES.map((col) => (
+        {[...PIPELINE_STAGES, DISQUALIFIED_COLUMN].map((col) => (
           <div
             key={col.stage}
             className={`min-w-[224px] w-[224px] h-64 rounded-xl border border-t-4 ${col.topColor} border-border bg-slate-50 animate-pulse`}
@@ -221,6 +210,9 @@ export function LeadsKanban() {
     acc[col.stage] = allLeads.filter((l) => l.stage === col.stage);
     return acc;
   }, {});
+  leadsByStage[DISQUALIFIED_STAGE] = allLeads.filter((l) => DISQUALIFIED_STAGES.includes(l.stage));
+
+  const columns = [...PIPELINE_STAGES, DISQUALIFIED_COLUMN];
 
   function handleDragStart(leadId: string) {
     const lead = allLeads.find((l) => l.id === leadId);
@@ -279,7 +271,7 @@ export function LeadsKanban() {
         </div>
       )}
       <div className="flex gap-3 overflow-x-auto pb-4">
-        {PIPELINE_STAGES.map((col) => (
+        {columns.map((col) => (
           <KanbanColumn
             key={col.stage}
             stage={col.stage}
@@ -288,6 +280,7 @@ export function LeadsKanban() {
             leads={leadsByStage[col.stage] ?? []}
             dragOverStage={dragOverStage}
             draggingId={draggingId}
+            droppable={col.stage !== DISQUALIFIED_STAGE}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}

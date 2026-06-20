@@ -229,7 +229,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
 
     const stats = await req.withTenant(async (tx) => {
       const tenantId = req.auth.tenantId;
-      const [totalLeads, newToday, callsToday, converted, newYesterday, callsYesterday] =
+      const [totalLeads, newToday, callsToday, converted, newYesterday, callsYesterday, byStageRaw] =
         await Promise.all([
           tx.lead.count({ where: { tenantId } }),
           tx.lead.count({ where: { tenantId, createdAt: { gte: today } } }),
@@ -237,8 +237,11 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
           tx.lead.count({ where: { tenantId, stage: 'CONVERTED' } }),
           tx.lead.count({ where: { tenantId, createdAt: { gte: yesterday, lt: yesterdayCutoff } } }),
           tx.call.count({ where: { tenantId, initiatedAt: { gte: yesterday, lt: yesterdayCutoff } } }),
+          tx.lead.groupBy({ by: ['stage'], where: { tenantId }, _count: { _all: true } }),
         ]);
-      return { totalLeads, newToday, callsToday, converted, newYesterday, callsYesterday };
+      const byStage: Record<string, number> = {};
+      for (const row of byStageRaw) byStage[row.stage] = row._count._all;
+      return { totalLeads, newToday, callsToday, converted, newYesterday, callsYesterday, byStage };
     });
 
     const conversionRate =
@@ -253,6 +256,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
         converted: stats.converted,
         newYesterday: stats.newYesterday,
         callsYesterday: stats.callsYesterday,
+        byStage: stats.byStage,
       },
     });
   });

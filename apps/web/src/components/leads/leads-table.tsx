@@ -2,13 +2,16 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
-import { Phone, Mail, MapPin, ChevronRight, MoreVertical, X, Loader2, AlertCircle, Info } from 'lucide-react';
+import { Phone, Mail, MapPin, ChevronRight, MoreVertical, X, Loader2, Inbox, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLeads } from '@/hooks/use-leads';
 import { useUsers } from '@/hooks/use-teams';
 import { useBulkAction } from '@/hooks/use-leads';
+import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
 import { StageBadge } from './stage-badge';
+import { StaleBadge } from './stale-badge';
 import { StageChangeMenu } from './stage-change-menu';
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -17,6 +20,7 @@ const SOURCE_LABELS: Record<string, string> = {
   JUSTDIAL: 'JustDial',
   WEBSITE: 'Website',
   WHATSAPP: 'WhatsApp',
+  PHONE_INBOUND: 'Phone',
   MANUAL: 'Manual',
 };
 
@@ -40,26 +44,37 @@ const SCORE_LABELS: Record<string, string> = {
 };
 
 function AiScoreBadge({ score, breakdown }: { score: number; breakdown: Record<string, unknown> | null }) {
-  const [visible, setVisible] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const visible = hovered || pinned;
   const factors = breakdown ? Object.entries(breakdown) : [];
-  const color = score >= 80 ? 'bg-green-50 text-green-700' : score >= 60 ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600';
+  const tier = scoreTier(score);
+  const c = scoreColorClasses[tier.color];
 
   return (
     <span className="relative inline-block">
       <button
         type="button"
-        onMouseEnter={() => setVisible(true)}
-        onMouseLeave={() => setVisible(false)}
-        onFocus={() => setVisible(true)}
-        onBlur={() => setVisible(false)}
-        className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full cursor-help ${color}`}
+        aria-label={`AI score ${score} (${tier.label}). Tap to view breakdown`}
+        aria-expanded={visible}
+        onClick={(e) => {
+          // The badge lives inside a Link — stop the row from navigating on tap.
+          e.preventDefault();
+          e.stopPropagation();
+          setPinned((p) => !p);
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => { setHovered(false); setPinned(false); }}
+        className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer ${c.bg} ${c.text}`}
       >
         AI {score}
         <Info size={8} className="opacity-60" />
       </button>
       {visible && (
-        <div className="absolute bottom-full left-0 mb-1.5 z-50 w-48 bg-white border border-border rounded-xl shadow-xl p-3 text-left pointer-events-none">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Score breakdown</p>
+        <div className="absolute bottom-full left-0 mb-1.5 z-50 w-48 max-w-[calc(100vw-2rem)] bg-white border border-border rounded-xl shadow-xl p-3 text-left">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">{tier.label} · Score breakdown</p>
           {factors.length === 0 ? (
             <p className="text-xs text-slate-400">AI confidence score based on lead quality, source, location match, and engagement speed.</p>
           ) : (
@@ -72,24 +87,12 @@ function AiScoreBadge({ score, breakdown }: { score: number; breakdown: Record<s
               ))}
               <div className="pt-1 border-t border-border flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-700">Total</span>
-                <span className={`text-[11px] font-bold ${score >= 80 ? 'text-green-700' : score >= 60 ? 'text-amber-700' : 'text-slate-600'}`}>{score}</span>
+                <span className={`text-[11px] font-bold ${c.text}`}>{score}</span>
               </div>
             </div>
           )}
         </div>
       )}
-    </span>
-  );
-}
-
-function SlaBadge({ stageChangedAt }: { stageChangedAt: string }) {
-  const hours = (Date.now() - new Date(stageChangedAt).getTime()) / 3600000;
-  if (hours < 24) return null;
-  const color = hours > 72 ? 'text-danger bg-red-50' : 'text-warning bg-amber-50';
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${color}`}>
-      <AlertCircle size={10} />
-      {hours > 72 ? `${Math.floor(hours / 24)}d stale` : `${Math.floor(hours)}h`}
     </span>
   );
 }
@@ -297,6 +300,7 @@ function BulkTagModal({
 
 export function LeadsTable() {
   const { leads: leadsData, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useLeads();
+  const searchParams = useSearchParams();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [stageMenuOpen, setStageMenuOpen] = useState<string | null>(null);
   const [assignModal, setAssignModal] = useState(false);
@@ -330,9 +334,26 @@ export function LeadsTable() {
   const leads = leadsData;
 
   if (leads.length === 0) {
+    const hasActiveFilters = ['search', 'stage', 'sourceType'].some((k) => (searchParams.get(k) ?? '') !== '');
     return (
-      <div className="bg-white rounded-xl border border-border p-12 text-center">
-        <p className="text-slate-500 text-sm">No leads found. Adjust filters or add a lead manually.</p>
+      <div className="bg-white rounded-xl border border-border p-12 flex flex-col items-center justify-center text-center">
+        <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+          <Inbox size={26} className="text-primary" />
+        </div>
+        <h3 className="text-base font-semibold text-slate-800">No leads found</h3>
+        <p className="text-sm text-slate-500 mt-1 max-w-xs">
+          {hasActiveFilters
+            ? 'No leads match your current filters. Try clearing them to see everything.'
+            : 'New leads will appear here as they arrive. You can also add one manually.'}
+        </p>
+        {hasActiveFilters && (
+          <Link
+            href="/leads"
+            className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-white bg-primary px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <X size={14} /> Clear filters
+          </Link>
+        )}
       </div>
     );
   }
@@ -426,6 +447,7 @@ export function LeadsTable() {
             type="checkbox"
             checked={selected.size === leads.length && leads.length > 0}
             onChange={toggleAll}
+            aria-label="Select all leads"
             className="rounded accent-primary"
           />
           <span className="flex-1">Lead</span>
@@ -448,6 +470,7 @@ export function LeadsTable() {
                 type="checkbox"
                 checked={selected.has(lead.id)}
                 onChange={() => toggle(lead.id)}
+                aria-label={`Select ${lead.name}`}
                 className="rounded mt-1 md:mt-0 accent-primary"
                 onClick={(e) => e.stopPropagation()}
               />
@@ -455,7 +478,11 @@ export function LeadsTable() {
               <Link href={`/leads/${lead.id}`} className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-medium text-slate-800 text-sm">{lead.name}</p>
-                  <SlaBadge stageChangedAt={lead.stageChangedAt} />
+                  {/* Stage is a dedicated column on desktop; surface it inline on mobile */}
+                  <span className="md:hidden">
+                    <StageBadge stage={lead.stage} />
+                  </span>
+                  <StaleBadge stageChangedAt={lead.stageChangedAt} />
                   {lead.aiScore !== null && (
                     <AiScoreBadge score={lead.aiScore} breakdown={lead.aiScoreBreakdown ?? null} />
                   )}
@@ -479,6 +506,10 @@ export function LeadsTable() {
                       <MapPin size={11} /> {lead.city}
                     </span>
                   )}
+                  {/* Source is a dedicated column on desktop; surface it inline on mobile */}
+                  <span className="md:hidden text-xs text-slate-400">
+                    {SOURCE_LABELS[lead.sourceType] ?? lead.sourceType}
+                  </span>
                 </div>
                 {lead.tags && lead.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1.5">
@@ -511,7 +542,9 @@ export function LeadsTable() {
               <div className="relative">
                 <button
                   onClick={() => setStageMenuOpen(stageMenuOpen === lead.id ? null : lead.id)}
-                  className="p-1 rounded hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label="Lead actions"
+                  title="Change stage"
+                  className="p-1 rounded hover:bg-slate-100 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                 >
                   <MoreVertical size={16} className="text-slate-400" />
                 </button>

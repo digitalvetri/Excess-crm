@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { useUpdateLead } from '@/hooks/use-leads';
 import { ConvertLeadModal } from './convert-lead-modal';
@@ -15,25 +16,33 @@ const STAGES = [
   { value: 'WRONG_ENQUIRY', label: 'Wrong Enquiry' },
 ];
 
+const MENU_WIDTH = 176; // w-44
+
 interface Props {
   leadId: string;
   currentStage: string;
+  anchorRect: DOMRect;
   onClose: () => void;
 }
 
-export function StageChangeMenu({ leadId, currentStage, onClose }: Props) {
+export function StageChangeMenu({ leadId, currentStage, anchorRect, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const { mutate, isPending } = useUpdateLead();
   const [converting, setConverting] = useState(false);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
-      }
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
     }
     document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
   }, [onClose]);
 
   function changeStage(stage: string) {
@@ -56,10 +65,20 @@ export function StageChangeMenu({ leadId, currentStage, onClose }: Props) {
     );
   }
 
-  return (
+  // Render in a portal with fixed positioning so the table's overflow-hidden can't
+  // clip the dropdown. Right-aligned to the trigger; opens upward if it would run
+  // off the bottom of the viewport.
+  const ITEM_COUNT = STAGES.filter((s) => s.value !== currentStage).length;
+  const estHeight = 36 + ITEM_COUNT * 36; // header + rows
+  const openUp = anchorRect.bottom + estHeight > window.innerHeight && anchorRect.top > estHeight;
+  const top = openUp ? anchorRect.top - estHeight : anchorRect.bottom + 4;
+  const left = Math.max(8, anchorRect.right - MENU_WIDTH);
+
+  const menu = (
     <div
       ref={ref}
-      className="absolute right-0 top-8 z-20 bg-white border border-border rounded-xl shadow-lg py-1 w-44"
+      style={{ position: 'fixed', top, left, width: MENU_WIDTH }}
+      className="z-50 bg-white border border-border rounded-xl shadow-lg py-1"
     >
       <p className="px-3 py-1.5 text-xs font-medium text-slate-400 uppercase tracking-wide">Change stage</p>
       {STAGES.filter((s) => s.value !== currentStage).map((s) => (
@@ -73,9 +92,15 @@ export function StageChangeMenu({ leadId, currentStage, onClose }: Props) {
           {s.label}
         </button>
       ))}
+    </div>
+  );
+
+  return (
+    <>
+      {typeof document !== 'undefined' ? createPortal(menu, document.body) : null}
       {converting && (
         <ConvertLeadModal leadId={leadId} onClose={() => { setConverting(false); onClose(); }} />
       )}
-    </div>
+    </>
   );
 }

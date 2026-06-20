@@ -307,7 +307,7 @@ export function LeadsTable() {
   // franchise users would only hit a 403, so hide selection + the action bar.
   const canBulk = role === 'ADMIN' || role === 'EMPLOYEE';
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [stageMenuOpen, setStageMenuOpen] = useState<string | null>(null);
+  const [stageMenu, setStageMenu] = useState<{ id: string; rect: DOMRect } | null>(null);
   const [assignModal, setAssignModal] = useState(false);
   const [stageModal, setStageModal] = useState(false);
   const [tagModal, setTagModal] = useState(false);
@@ -550,18 +550,25 @@ export function LeadsTable() {
 
               <div className="relative">
                 <button
-                  onClick={() => setStageMenuOpen(stageMenuOpen === lead.id ? null : lead.id)}
+                  onClick={(e) =>
+                    setStageMenu(
+                      stageMenu?.id === lead.id
+                        ? null
+                        : { id: lead.id, rect: e.currentTarget.getBoundingClientRect() },
+                    )
+                  }
                   aria-label="Lead actions"
                   title="Change stage"
                   className="p-1 rounded hover:bg-slate-100 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                 >
                   <MoreVertical size={16} className="text-slate-400" />
                 </button>
-                {stageMenuOpen === lead.id && (
+                {stageMenu?.id === lead.id && (
                   <StageChangeMenu
                     leadId={lead.id}
                     currentStage={lead.stage}
-                    onClose={() => setStageMenuOpen(null)}
+                    anchorRect={stageMenu.rect}
+                    onClose={() => setStageMenu(null)}
                   />
                 )}
               </div>

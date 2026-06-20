@@ -43,6 +43,7 @@ import { api } from '@/lib/api';
 import { useMessages, useSendMessage, useWhatsappStatus } from '@/hooks/use-whatsapp';
 import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
 import { StageBadge } from './stage-badge';
+import { ConvertLeadModal } from './convert-lead-modal';
 import { AppointmentsList } from '@/components/appointments/appointments-list';
 import { AssignLeadPanel } from './assign-lead-panel';
 
@@ -827,6 +828,7 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
   const { mutate: updateLead, isPending } = useUpdateLead();
   const computeScore = useComputeLeadScore();
   const [editingStage, setEditingStage] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [addingNote, setAddingNote] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
@@ -854,6 +856,12 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
   }
 
   function changeStage(stage: string) {
+    // Converting needs the system size (kW) for the commission — use the modal.
+    if (stage === 'CONVERTED') {
+      setEditingStage(false);
+      setConverting(true);
+      return;
+    }
     updateLead(
       { id, data: { stage } },
       {
@@ -934,6 +942,10 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
 
       {/* SLA banner */}
       <SlaBanner stage={lead.stage} stageChangedAt={lead.stageChangedAt} />
+
+      {converting && (
+        <ConvertLeadModal leadId={id} onClose={() => setConverting(false)} />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Left column ── */}

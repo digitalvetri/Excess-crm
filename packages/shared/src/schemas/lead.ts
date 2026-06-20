@@ -39,6 +39,8 @@ export const updateLeadSchema = z.object({
   notes: z.string().max(5000).optional(),
   language: z.enum(['ta', 'en', 'ta-en']).optional(),
   dealValueInr: z.number().positive().optional(),
+  // System size in kW captured at conversion — franchise commission is per-kW.
+  systemKw: z.number().positive().max(10000).optional(),
 });
 
 export const assignLeadSchema = z.object({

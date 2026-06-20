@@ -422,7 +422,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    const { stage, factSheet, notes, dealValueInr } = parsed.data;
+    const { stage, factSheet, notes, dealValueInr, systemKw } = parsed.data;
 
     // Stage gate validation — check before updating
     if (stage) {
@@ -509,11 +509,14 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       return updated;
     });
 
-    if (stage === 'CONVERTED' && dealValueInr !== undefined) {
+    // Fire commission calc on conversion when we have either a system size (kW)
+    // — franchise commission is ₹/kW — or a deal value (legacy % model).
+    if (stage === 'CONVERTED' && (systemKw !== undefined || dealValueInr !== undefined)) {
       await app.queues.commissionCalc.add('commission-calc', {
         leadId: id,
         tenantId: req.auth.tenantId,
-        dealValueInr,
+        dealValueInr: dealValueInr ?? 0,
+        ...(systemKw !== undefined && { systemKw }),
       });
     }
 

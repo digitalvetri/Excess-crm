@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useUpdateLead } from '@/hooks/use-leads';
+import { ConvertLeadModal } from './convert-lead-modal';
 
 const STAGES = [
   { value: 'NEW', label: 'New' },
@@ -23,6 +24,7 @@ interface Props {
 export function StageChangeMenu({ leadId, currentStage, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const { mutate, isPending } = useUpdateLead();
+  const [converting, setConverting] = useState(false);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -64,12 +66,16 @@ export function StageChangeMenu({ leadId, currentStage, onClose }: Props) {
         <button
           key={s.value}
           disabled={isPending}
-          onClick={() => changeStage(s.value)}
+          // Converting needs the system size (kW) for the commission — open the modal.
+          onClick={() => (s.value === 'CONVERTED' ? setConverting(true) : changeStage(s.value))}
           className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
         >
           {s.label}
         </button>
       ))}
+      {converting && (
+        <ConvertLeadModal leadId={leadId} onClose={() => { setConverting(false); onClose(); }} />
+      )}
     </div>
   );
 }

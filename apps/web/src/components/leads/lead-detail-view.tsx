@@ -8,7 +8,6 @@ import {
   Phone,
   Mail,
   MapPin,
-  Clock,
   Edit2,
   Check,
   FileText,
@@ -939,11 +938,39 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Left column ── */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Lead card */}
-          <div className="bg-white rounded-xl border border-border p-6">
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div className="min-w-0">
-                <h1 className="text-xl font-bold text-slate-800">{lead.name}</h1>
+          {/* Lead header band */}
+          <div className="bg-white rounded-xl border border-border p-5 sm:p-6">
+            <div className="flex items-start gap-4">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-bold text-primary">
+                {lead.name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h1 className="text-xl font-bold text-slate-800">{lead.name}</h1>
+                  {editingStage ? (
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        autoFocus
+                        defaultValue={lead.stage}
+                        onChange={(e) => changeStage(e.target.value)}
+                        className="text-sm border border-primary rounded-lg px-2 py-1 focus:outline-none"
+                        disabled={isPending}
+                      >
+                        {STAGES.map((s) => (
+                          <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                        ))}
+                      </select>
+                      <button onClick={() => setEditingStage(false)}>
+                        <X size={16} className="text-slate-400" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setEditingStage(true)} className="group flex items-center gap-1.5">
+                      <StageBadge stage={lead.stage} />
+                      <Edit2 size={12} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
                   <a href={`tel:${lead.phone}`} className="flex items-center gap-1 text-sm text-slate-600 hover:text-primary transition-colors">
                     <Phone size={14} /> {lead.phone}
@@ -960,35 +987,38 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
                   )}
                 </div>
               </div>
+            </div>
 
-              <div className="flex flex-col items-end gap-2 shrink-0">
-                {editingStage ? (
-                  <div className="flex items-center gap-2">
-                    <select
-                      autoFocus
-                      defaultValue={lead.stage}
-                      onChange={(e) => changeStage(e.target.value)}
-                      className="text-sm border border-primary rounded-lg px-2 py-1.5 focus:outline-none"
-                      disabled={isPending}
-                    >
-                      {STAGES.map((s) => (
-                        <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-                      ))}
-                    </select>
-                    <button onClick={() => setEditingStage(false)}>
-                      <X size={16} className="text-slate-400" />
-                    </button>
-                  </div>
-                ) : (
-                  <button onClick={() => setEditingStage(true)} className="group flex items-center gap-1.5">
-                    <StageBadge stage={lead.stage} />
-                    <Edit2 size={12} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+            {/* Stat strip — key intelligence at a glance */}
+            <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-px overflow-hidden rounded-lg border border-border bg-border">
+              <div className="bg-white px-4 py-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">AI Score</p>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <ScoreWithBreakdown score={lead.aiScore} breakdown={lead.aiScoreBreakdown} />
+                  <button
+                    onClick={() => computeScore.mutate(lead.id, {
+                      onSuccess: () => toast.success('Score refreshed'),
+                      onError: () => toast.error('Failed to refresh score'),
+                    })}
+                    disabled={computeScore.isPending}
+                    className="text-slate-400 hover:text-primary transition-colors"
+                    title="Refresh score"
+                  >
+                    <RefreshCw size={11} className={computeScore.isPending ? 'animate-spin' : ''} />
                   </button>
-                )}
-                <span className="text-xs text-slate-400 flex items-center gap-1">
-                  <Clock size={11} />
-                  {formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true })}
-                </span>
+                </div>
+              </div>
+              <div className="bg-white px-4 py-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Source</p>
+                <p className="mt-1 text-sm font-semibold text-slate-700 truncate">{SOURCE_LABELS[lead.sourceType] ?? lead.sourceType}</p>
+              </div>
+              <div className="bg-white px-4 py-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">In stage</p>
+                <p className="mt-1 text-sm font-semibold text-slate-700">{formatDistanceToNow(new Date(lead.stageChangedAt))}</p>
+              </div>
+              <div className="bg-white px-4 py-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Received</p>
+                <p className="mt-1 text-sm font-semibold text-slate-700">{format(new Date(lead.createdAt), 'MMM d, yyyy')}</p>
               </div>
             </div>
           </div>
@@ -1110,54 +1140,6 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
             </div>
           </div>
 
-          {/* WhatsApp inline thread */}
-          <WhatsAppThread leadId={id} leadName={lead.name} leadPhone={lead.phone} />
-        </div>
-
-        {/* ── Right sidebar ── */}
-        <div className="space-y-4">
-          {/* Source & intelligence */}
-          <div className="bg-white rounded-xl border border-border p-5">
-            <h2 className="font-semibold text-slate-800 mb-4">Lead Intelligence</h2>
-            <dl className="space-y-3 text-sm">
-              <div className="flex justify-between items-center">
-                <dt className="text-slate-500">Source</dt>
-                <dd className="text-slate-700 font-medium">{SOURCE_LABELS[lead.sourceType] ?? lead.sourceType}</dd>
-              </div>
-              <div className="flex justify-between items-center">
-                <dt className="text-slate-500">AI Score</dt>
-                <dd className="flex items-center gap-2">
-                  <ScoreWithBreakdown
-                    score={lead.aiScore}
-                    breakdown={lead.aiScoreBreakdown}
-                  />
-                  <button
-                    onClick={() => computeScore.mutate(lead.id, {
-                      onSuccess: () => toast.success('Score refreshed'),
-                      onError: () => toast.error('Failed to refresh score'),
-                    })}
-                    disabled={computeScore.isPending}
-                    className="text-slate-400 hover:text-primary transition-colors"
-                    title="Refresh score"
-                  >
-                    <RefreshCw size={12} className={computeScore.isPending ? 'animate-spin' : ''} />
-                  </button>
-                </dd>
-              </div>
-              <div className="flex justify-between items-center">
-                <dt className="text-slate-500">In stage since</dt>
-                <dd className="text-slate-700">{formatDistanceToNow(new Date(lead.stageChangedAt), { addSuffix: true })}</dd>
-              </div>
-              <div className="flex justify-between items-center">
-                <dt className="text-slate-500">Received</dt>
-                <dd className="text-slate-700">{format(new Date(lead.createdAt), 'MMM d, yyyy')}</dd>
-              </div>
-            </dl>
-          </div>
-
-          {/* UTM Attribution */}
-          <UtmCard lead={lead} />
-
           {/* Calls */}
           <div className="bg-white rounded-xl border border-border">
             <div className="px-5 py-4 border-b border-border flex items-center justify-between">
@@ -1191,6 +1173,15 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
               ))}
             </div>
           </div>
+
+          {/* WhatsApp inline thread */}
+          <WhatsAppThread leadId={id} leadName={lead.name} leadPhone={lead.phone} />
+        </div>
+
+        {/* ── Right sidebar ── */}
+        <div className="space-y-4">
+          {/* UTM Attribution */}
+          <UtmCard lead={lead} />
 
           {/* Appointments */}
           <div className="bg-white rounded-xl border border-border">

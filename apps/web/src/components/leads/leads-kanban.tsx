@@ -186,7 +186,7 @@ export function LeadsKanban() {
   const urlParams = Object.fromEntries(searchParams.entries());
   // Strip 'stage' from URL params so kanban always shows all pipeline stages
   const { stage: _stage, ...kanbanParams } = urlParams;
-  const { data, isLoading, isError } = useLeads(kanbanParams);
+  const { leads: allLeadsData, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useLeads(kanbanParams);
   const updateLead = useUpdateLead();
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -215,7 +215,7 @@ export function LeadsKanban() {
     );
   }
 
-  const allLeads = data?.leads ?? [];
+  const allLeads = allLeadsData;
 
   const leadsByStage = PIPELINE_STAGES.reduce<Record<string, Lead[]>>((acc, col) => {
     acc[col.stage] = allLeads.filter((l) => l.stage === col.stage);
@@ -263,14 +263,20 @@ export function LeadsKanban() {
   }
 
   const totalShown = allLeads.length;
-  const hasMore = data?.hasMore;
 
   return (
     <div className="space-y-2">
-      {hasMore && (
-        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-lg inline-block">
-          Showing first {totalShown} leads. Use filters or list view to see more.
-        </p>
+      {hasNextPage && (
+        <div className="flex items-center gap-3 text-xs text-amber-700 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-lg">
+          <span>Showing first {totalShown} leads.</span>
+          <button
+            onClick={() => void fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="font-medium text-primary hover:underline disabled:opacity-50"
+          >
+            {isFetchingNextPage ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
       )}
       <div className="flex gap-3 overflow-x-auto pb-4">
         {PIPELINE_STAGES.map((col) => (

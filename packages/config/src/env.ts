@@ -56,6 +56,9 @@ const envSchema = z.object({
   LIVEKIT_API_SECRET: z.string().optional(),
   LIVEKIT_SIP_TRUNK_ID: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
+  // Default Groq model for text AI features (lead summaries, broadcast copy).
+  // llama-3.1-8b-instant is fast + cheap; override per-env without a code change.
+  GROQ_MODEL: z.string().default('llama-3.1-8b-instant'),
   SARVAM_API_KEY: z.string().optional(),
   AGENT_WEBHOOK_SECRET: z.string().min(16).optional(),
   ENABLE_LIVEKIT: z

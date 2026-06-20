@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 
@@ -38,24 +38,47 @@ export interface Lead {
   utmTerm: string | null;
 }
 
-interface LeadsResponse {
-  data: {
-    leads: Lead[];
-    nextCursor: string | null;
-    hasMore: boolean;
-  };
+interface LeadsPage {
+  leads: Lead[];
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
+interface LeadsResponse {
+  data: LeadsPage;
+}
+
+// Cursor-paginated leads list. Flattens all fetched pages into a single `leads`
+// array and exposes the controls the UI needs for "Load more" / infinite scroll.
 export function useLeads(explicitParams?: Record<string, string>) {
   const searchParams = useSearchParams();
   const urlParams = Object.fromEntries(searchParams.entries());
   const filters = explicitParams !== undefined ? explicitParams : urlParams;
 
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: ['leads', filters],
-    queryFn: () =>
-      api.get<LeadsResponse>('/leads', { params: filters }).then((r) => r.data.data),
+    queryFn: ({ pageParam }) =>
+      api
+        .get<LeadsResponse>('/leads', {
+          params: { ...filters, ...(pageParam ? { cursor: pageParam } : {}) },
+        })
+        .then((r) => r.data.data),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor ?? undefined : undefined),
   });
+
+  // Defensive: tolerate a partial/malformed page (e.g. an empty API response)
+  // rather than producing [undefined].
+  const leads = query.data?.pages.flatMap((p) => p?.leads ?? []) ?? [];
+
+  return {
+    leads,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    fetchNextPage: query.fetchNextPage,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+  };
 }
 
 export function useLeadDetail(id: string) {

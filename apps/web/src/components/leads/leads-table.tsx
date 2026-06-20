@@ -296,7 +296,7 @@ function BulkTagModal({
 // ─── Leads table ─────────────────────────────────────────────────────────────
 
 export function LeadsTable() {
-  const { data, isLoading, isError } = useLeads();
+  const { leads: leadsData, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useLeads();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [stageMenuOpen, setStageMenuOpen] = useState<string | null>(null);
   const [assignModal, setAssignModal] = useState(false);
@@ -327,7 +327,7 @@ export function LeadsTable() {
     );
   }
 
-  const leads = data?.leads ?? [];
+  const leads = leadsData;
 
   if (leads.length === 0) {
     return (
@@ -535,9 +535,15 @@ export function LeadsTable() {
         </div>
 
         {/* Load more */}
-        {data?.hasMore && (
-          <div className="px-4 py-3 border-t border-border">
-            <button className="text-sm text-primary hover:underline">Load more</button>
+        {hasNextPage && (
+          <div className="px-4 py-3 border-t border-border text-center">
+            <button
+              onClick={() => void fetchNextPage()}
+              disabled={isFetchingNextPage}
+              className="text-sm font-medium text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isFetchingNextPage ? 'Loading…' : 'Load more'}
+            </button>
           </div>
         )}
       </div>

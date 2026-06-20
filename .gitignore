@@ -45,3 +45,4 @@ infra/cdk/cdk.out/
 
 # Uploads
 uploads/
+.claude/worktrees/

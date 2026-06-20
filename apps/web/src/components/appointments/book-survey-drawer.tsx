@@ -139,10 +139,9 @@ function LeadSearch({ value, onChange }: LeadSearchProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const { data, isFetching } = useLeads(
+  const { leads, isLoading } = useLeads(
     query.length >= 2 ? { search: query, limit: '8' } : { limit: '0' },
   );
-  const leads = data?.leads ?? [];
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -180,7 +179,7 @@ function LeadSearch({ value, onChange }: LeadSearchProps) {
           placeholder="Search by name or phone..."
           className="w-full rounded-xl border border-border bg-white py-3 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
-        {isFetching && (
+        {isLoading && query.length >= 2 && (
           <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin" />
         )}
       </div>
@@ -210,7 +209,7 @@ function LeadSearch({ value, onChange }: LeadSearchProps) {
         </div>
       )}
 
-      {open && query.length >= 2 && !isFetching && leads.length === 0 && (
+      {open && query.length >= 2 && !isLoading && leads.length === 0 && (
         <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-white shadow-lg px-4 py-3 text-sm text-slate-400">
           No leads found for &quot;{query}&quot;
         </div>

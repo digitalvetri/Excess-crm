@@ -1,13 +1,13 @@
 import { createHmac } from 'node:crypto';
-import Anthropic from '@anthropic-ai/sdk';
 import type { FastifyPluginAsync } from 'fastify';
 import type { LeadSourceType, LeadStage, ActivityType } from '@excess/db';
-import { can } from '@excess/shared';
+import { can, scoreLead, scoreLabel } from '@excess/shared';
 import { fireWebhooks } from '../lib/fire-webhook.js';
 import { fireGoogleAdsConversion } from '../lib/google-ads-conversion.js';
 import { notifyUser } from '../lib/notify-user.js';
 import { prisma, withSystemContext } from '@excess/db';
 import { enrollLeadInSequences } from '../lib/sequences.js';
+import { llmComplete } from '../lib/llm.js';
 import { env } from '@excess/config';
 import {
   updateLeadSchema,
@@ -19,8 +19,6 @@ import {
   createSavedViewSchema,
   createManualLeadSchema,
 } from '@excess/shared';
-
-const anthropic = new Anthropic();
 
 function generateProjectNumber(): string {
   const now = new Date();
@@ -615,7 +613,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
         userId: parsed.data.userId,
         type: 'lead.assigned',
         title: 'Lead assigned to you',
-        body: `A lead has been assigned to you by ${req.auth.userId === req.auth.userId ? 'an admin' : 'your team'}.`,
+        body: `A lead has been assigned to you.`,
         linkHref: `/leads/${id}`,
       });
     }
@@ -885,16 +883,14 @@ Calls (${lead.calls.length}): ${JSON.stringify(lead.calls.slice(0, 5))}
 
 Respond in English. Be brief and actionable.`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 300,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const summary = message.content[0]?.type === 'text' ? message.content[0].text : 'Summary unavailable.';
+    const summaryText = await llmComplete(prompt, { maxTokens: 300 });
+    const summary = summaryText ?? 'AI summary is unavailable right now. Please try again shortly.';
     const result = { summary, generatedAt: new Date().toISOString() };
 
-    await app.redis.setex(cacheKey, 3600, JSON.stringify(result));
+    // Only cache real summaries — never cache the fallback string for an hour.
+    if (summaryText) {
+      await app.redis.setex(cacheKey, 3600, JSON.stringify(result));
+    }
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id }, 'lead.summary_generated');
 
     return reply.send({ data: result });
@@ -1008,74 +1004,30 @@ Respond in English. Be brief and actionable.`;
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
-    const [lead, calls, referral] = await req.withTenant((tx) =>
+    // Uses the shared v2 scorer (same as the daily worker batch) so the persisted
+    // aiScore / aiScoreBreakdown is always computed one consistent way.
+    const [lead, activities] = await req.withTenant((tx) =>
       Promise.all([
         tx.lead.findUniqueOrThrow({
           where: { id },
-          select: { id: true, stage: true, sourceType: true, createdAt: true },
+          select: {
+            id: true, stage: true, email: true, city: true,
+            pincode: true, sourceType: true, receivedAt: true,
+          },
         }),
-        tx.call.findMany({
-          where: { leadId: id },
-          select: { status: true, durationSec: true, createdAt: true },
-          orderBy: { createdAt: 'asc' },
-        }),
-        tx.referral.findFirst({ where: { referredLeadId: id }, select: { id: true } }),
+        tx.leadActivity.findMany({ where: { leadId: id }, select: { type: true } }),
       ])
     );
 
-    let score = 40;
-    const sourceBonus: Record<string, number> = {
-      WEBSITE: 20, REFERRAL: 25, INDIAMART: 15, JUSTDIAL: 10, META: 8, MANUAL: 5, CSV: 3,
-    };
-    const sourcePts = sourceBonus[lead.sourceType] ?? 5;
-    score += sourcePts;
+    const activityTypes = new Set(activities.map((a) => a.type));
+    const { score, breakdown } = scoreLead(lead, activityTypes);
+    const { label, color } = scoreLabel(score);
 
-    const referralPts = referral ? 10 : 0;
-    score += referralPts;
-
-    const completedCalls = calls.filter((c) => c.status === 'COMPLETED' && (c.durationSec ?? 0) > 30);
-    let callPts = 0;
-    if (completedCalls.length > 0) callPts += 10;
-    if (completedCalls.length > 1) callPts += 5;
-    score += callPts;
-
-    const firstCall = calls[0];
-    let speedPts = 0;
-    if (firstCall) {
-      const lag = firstCall.createdAt.getTime() - lead.createdAt.getTime();
-      if (lag < 5 * 60_000) speedPts = 5;
-      else if (lag < 60 * 60_000) speedPts = 3;
-    }
-    score += speedPts;
-
-    const stageBonus: Record<string, number> = { QUALIFIED: 10, FOLLOW_UP: 5, CONVERTED: 20 };
-    const stagePts = stageBonus[lead.stage] ?? 0;
-    score += stagePts;
-
-    let deductions = 0;
-    if (calls.length === 0) deductions += 10;
-    else if (calls.every((c) => c.status === 'NO_ANSWER')) deductions += 15;
-    score -= deductions;
-
-    score = Math.max(0, Math.min(100, score));
-
-    const label = score >= 76 ? 'Burning' : score >= 51 ? 'Hot' : score >= 31 ? 'Warm' : 'Cold';
-    const color = score >= 76 ? 'red' : score >= 51 ? 'orange' : score >= 31 ? 'amber' : 'slate';
-
-    const breakdown = {
-      sourceBonus: sourcePts,
-      referralBonus: referralPts,
-      callEngagement: callPts,
-      speedToContact: speedPts,
-      stageBonus: stagePts,
-      deductions,
-    };
-
-    // Persist to DB so lead list and detail view reflect the fresh score
+    // Persist so the lead list and detail view reflect the fresh score
     await req.withTenant((tx) =>
       tx.lead.update({
         where: { id },
-        data: { aiScore: score, aiScoreBreakdown: breakdown as object },
+        data: { aiScore: score, aiScoreBreakdown: breakdown as object, scoredAt: new Date() },
       })
     );
 

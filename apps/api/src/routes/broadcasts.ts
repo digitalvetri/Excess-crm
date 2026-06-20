@@ -3,15 +3,7 @@ import { Prisma } from '@excess/db';
 import type { LeadSourceType, LeadStage } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
-import Anthropic from '@anthropic-ai/sdk';
-import { env } from '@excess/config';
-
-let anthropicClient: Anthropic | null = null;
-function getAnthropic(): Anthropic | null {
-  if (!env.ANTHROPIC_API_KEY) return null;
-  if (!anthropicClient) anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  return anthropicClient;
-}
+import { llmComplete } from '../lib/llm.js';
 
 const reEngagementSchema = z.object({
   daysInactive: z.number().int().min(1).max(90).default(7),
@@ -539,13 +531,7 @@ export const broadcastsRoutes: FastifyPluginAsync = async (app) => {
       festival_offer: 'Festival special: ₹10,000 off on solar installation this month only! Book your free survey today.',
     };
 
-    const client = getAnthropic();
-    if (!client) {
-      return reply.send({ data: { message: fallbacks[goal] ?? 'Contact us for solar savings!', generated: false } });
-    }
-
-    try {
-      const prompt = `You are a WhatsApp message writer for Excess Renew Solar, a solar energy company in Tamil Nadu, India.
+    const prompt = `You are a WhatsApp message writer for Excess Renew Solar, a solar energy company in Tamil Nadu, India.
 Write a WhatsApp message for the following goal: ${goalContext[goal] ?? goal}
 ${audienceDescription ? `Audience: ${audienceDescription}` : ''}
 Language preference: ${language === 'tamil' ? 'Tamil using Tamil script' : language === 'mixed' ? 'Tanglish (Tamil words written in English) mixed with English' : 'English'}
@@ -557,18 +543,11 @@ Requirements:
 - Do NOT use emojis excessively (max 2)
 Output ONLY the message text, no explanation.`;
 
-      const response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        messages: [{ role: 'user', content: prompt }],
-      });
-
-      const block = response.content[0];
-      const message = block && block.type === 'text' ? block.text.trim() : (fallbacks[goal] ?? 'Contact us for solar savings!');
-      return reply.send({ data: { message, generated: true } });
-    } catch {
+    const generated = await llmComplete(prompt, { maxTokens: 200 });
+    if (!generated) {
       return reply.send({ data: { message: fallbacks[goal] ?? 'Contact us for solar savings!', generated: false } });
     }
+    return reply.send({ data: { message: generated, generated: true } });
   });
 
   // POST /broadcasts/:id/enroll-sequence — enrol SENT recipients into a follow-up sequence

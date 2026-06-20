@@ -117,12 +117,9 @@ export function useDeleteSavedReport() {
 // ── Lead Score ────────────────────────────────────────────────────────────────
 
 export interface LeadScoreBreakdown {
-  sourceBonus: number;
-  referralBonus: number;
-  callEngagement: number;
-  speedToContact: number;
-  stageBonus: number;
-  deductions: number;
+  factors: { name: string; contribution: number; evidence: string }[];
+  total: number;
+  version: number;
 }
 
 export interface LeadScore {

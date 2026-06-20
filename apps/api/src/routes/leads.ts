@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import type { LeadSourceType, LeadStage, ActivityType } from '@excess/db';
-import { can, scoreLead, scoreLabel } from '@excess/shared';
+import { can, scoreLead, scoreLabel, computeCommission } from '@excess/shared';
 import { fireWebhooks } from '../lib/fire-webhook.js';
 import { fireGoogleAdsConversion } from '../lib/google-ads-conversion.js';
 import { notifyUser } from '../lib/notify-user.js';
@@ -509,15 +509,41 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       return updated;
     });
 
-    // Fire commission calc on conversion when we have either a system size (kW)
-    // — franchise commission is ₹/kW — or a deal value (legacy % model).
+    // Create the franchise commission SYNCHRONOUSLY on conversion (no worker
+    // dependency) so it shows up for the franchise and the admin immediately.
+    // Franchise rule: ₹1,500 per kW; falls back to the slab % model on deal value.
     if (stage === 'CONVERTED' && (systemKw !== undefined || dealValueInr !== undefined)) {
-      await app.queues.commissionCalc.add('commission-calc', {
-        leadId: id,
-        tenantId: req.auth.tenantId,
-        dealValueInr: dealValueInr ?? 0,
-        ...(systemKw !== undefined && { systemKw }),
-      });
+      try {
+        await req.withTenant(async (tx) => {
+          const tenant = await tx.tenant.findUnique({
+            where: { id: req.auth.tenantId },
+            select: { type: true, commissionSlabs: true },
+          });
+          if (!tenant || tenant.type !== 'FRANCHISE') return; // commissions are franchise-only
+
+          const existing = await tx.commission.findFirst({ where: { leadId: id, tenantId: req.auth.tenantId } });
+          if (existing) return; // idempotent
+
+          const slabs = (tenant.commissionSlabs ?? {}) as Record<string, number>;
+          const c = computeCommission(slabs, dealValueInr ?? 0, systemKw);
+
+          await tx.commission.create({
+            data: {
+              tenantId:      req.auth.tenantId,
+              leadId:        id,
+              dealValueInr:  dealValueInr ?? 0,
+              ratePercent:   c.ratePercent,
+              commissionInr: c.commissionInr,
+              gstInr:        c.gstInr,
+              netPayableInr: c.netPayableInr,
+              status:        'PENDING_APPROVAL',
+            },
+          });
+        });
+        req.log.info({ tenantId: req.auth.tenantId, leadId: id, systemKw }, 'commission.created');
+      } catch (err) {
+        req.log.error({ tenantId: req.auth.tenantId, leadId: id, err }, 'commission.create_failed');
+      }
     }
 
     // Auto-create install Project when a lead converts (one per lead)

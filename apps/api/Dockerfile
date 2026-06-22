@@ -13,5 +13,7 @@ EXPOSE 8000
 # Apply schema (this repo uses `prisma db push`, no migration files) before booting,
 # so additive schema changes land on deploy. --skip-generate: the client is already
 # generated at build time and node_modules isn't writable by the app user.
-# Non-destructive by default: db push refuses data-loss changes and the boot fails loudly.
-CMD ["sh", "-c", "pnpm --filter @excess/db exec prisma db push --skip-generate && exec tsx apps/api/src/server.ts"]
+# Non-blocking on purpose: if the push fails we still boot (no worse than the prior
+# schema) rather than crash-looping the whole API. db push is non-destructive by
+# default (refuses data-loss changes without --accept-data-loss).
+CMD ["sh", "-c", "pnpm --filter @excess/db exec prisma db push --skip-generate || echo 'WARN: prisma db push failed at boot; continuing with existing schema'; exec tsx apps/api/src/server.ts"]

@@ -453,10 +453,15 @@ export default function CommissionsPage() {
               const leadDisplay  = c.leadName ?? `${c.leadId.slice(0, 8)}…`;
               const franchiseDisplay = c.franchiseName ?? `${c.tenantId.slice(0, 8)}…`;
 
-              // Franchise commission = systemKw × per-kW rate (₹1,500 default).
-              const kw    = c.systemKw != null ? Number(c.systemKw) : null;
-              const perKw = kw && kw > 0 ? Math.round(Number(c.commissionInr) / kw) : null;
+              // Franchise commission = systemKw × ₹1,500/kW. The kW isn't stored, so
+              // derive it from the amount for per-kW rows (those carry no deal value).
+              // Legacy %-of-deal-value rows keep their rate badge instead.
               const hasDealValue = Number(c.dealValueInr) > 0;
+              const PER_KW = 1500;
+              const kw    = !hasDealValue && Number(c.commissionInr) > 0
+                ? Math.round((Number(c.commissionInr) / PER_KW) * 100) / 100
+                : null;
+              const perKw = kw ? PER_KW : null;
 
               return (
                 <div
@@ -499,13 +504,15 @@ export default function CommissionsPage() {
                     {hasDealValue ? inr(c.dealValueInr) : <span className="text-slate-400">—</span>}
                   </p>
 
-                  {/* Commission — flat ₹/kW basis (falls back to amount for legacy rows) */}
+                  {/* Commission — flat ₹/kW basis; legacy %-of-deal rows show the rate */}
                   <p className="text-sm text-slate-700">
                     {inr(c.commissionInr)}
                     {kw && perKw ? (
                       <span className="block text-xs text-slate-400">
                         {kw} kW × {inr(perKw)}
                       </span>
+                    ) : hasDealValue ? (
+                      <span className="text-xs text-slate-400"> ({c.ratePercent}%)</span>
                     ) : null}
                   </p>
 

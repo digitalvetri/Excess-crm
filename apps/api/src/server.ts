@@ -1,9 +1,7 @@
 import Fastify from 'fastify';
-import type { FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import { fileURLToPath } from 'url';
-import { prisma } from '@excess/db';
 import { env } from '@excess/config';
 import { requestIdPlugin } from './plugins/request-id.js';
 import { authPlugin } from './plugins/auth.js';
@@ -144,31 +142,8 @@ export async function buildServer() {
   return app;
 }
 
-/**
- * Idempotent, additive schema guards applied at boot. This repo uses `prisma db
- * push` (no migration files) and the deploy pipeline doesn't run it, so additive
- * columns are ensured here over the API's existing DB connection — no Prisma CLI,
- * engine, or pnpm needed in the container. `ADD COLUMN IF NOT EXISTS` is safe and
- * non-destructive; failures are logged but never block boot.
- */
-async function ensureSchema(app: FastifyInstance): Promise<void> {
-  const statements = [
-    // Franchise commission = systemKw × ₹1,500/kW (added 2026-06; see commission.ts).
-    'ALTER TABLE "commissions" ADD COLUMN IF NOT EXISTS "system_kw" numeric',
-  ];
-  for (const sql of statements) {
-    try {
-      await prisma.$executeRawUnsafe(sql);
-    } catch (err) {
-      app.log.error({ err, sql }, 'ensureSchema.statement_failed');
-    }
-  }
-  app.log.info('ensureSchema.done');
-}
-
 async function main() {
   const app = await buildServer();
-  await ensureSchema(app);
   try {
     await app.listen({ port: env.PORT, host: '0.0.0.0' });
   } catch (err) {

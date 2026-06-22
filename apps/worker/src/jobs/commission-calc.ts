@@ -45,7 +45,6 @@ export async function processCommissionCalc(job: Job<CommissionCalcPayload>): Pr
         gstInr,
         netPayableInr,
         status: 'PENDING_APPROVAL',
-        ...(systemKw !== undefined && { systemKw }),
       },
     });
 

@@ -88,7 +88,7 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
         orderBy: { createdAt: 'desc' },
         take: limit + 1,
         select: {
-          id: true, leadId: true, tenantId: true, systemKw: true, dealValueInr: true,
+          id: true, leadId: true, tenantId: true, dealValueInr: true,
           ratePercent: true, commissionInr: true, netPayableInr: true,
           gstInr: true, deductionsInr: true, status: true,
           approvedByUserId: true, paidAt: true, payoutId: true, createdAt: true,

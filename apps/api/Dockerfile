@@ -10,11 +10,4 @@ RUN addgroup -S app && adduser -S app -G app && \
 USER app
 ENV NODE_ENV=production
 EXPOSE 8000
-# Apply schema (this repo uses `prisma db push`, no migration files) before booting,
-# so additive schema changes land on deploy. Invoke the Prisma CLI directly via node
-# (not pnpm) — the app user can't write the pnpm store/cache, but the CLI only needs
-# to read the engine and connect to the DB. --skip-generate: client is built already.
-# Non-blocking on purpose: if the push fails we still boot (no worse than the prior
-# schema) rather than crash-looping the whole API. db push is non-destructive by
-# default (refuses data-loss changes without --accept-data-loss).
-CMD ["sh", "-c", "node packages/db/node_modules/prisma/build/index.js db push --schema=packages/db/prisma/schema.prisma --skip-generate || echo 'WARN: prisma db push failed at boot; continuing with existing schema'; exec tsx apps/api/src/server.ts"]
+CMD ["tsx", "apps/api/src/server.ts"]

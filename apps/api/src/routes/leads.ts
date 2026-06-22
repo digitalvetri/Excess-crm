@@ -537,7 +537,6 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
               gstInr:        c.gstInr,
               netPayableInr: c.netPayableInr,
               status:        'PENDING_APPROVAL',
-              ...(systemKw !== undefined && { systemKw }),
             },
           });
         });

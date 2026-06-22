@@ -37,7 +37,7 @@ export interface NetworkSummary {
 }
 
 export interface Commission {
-  id: string; leadId: string; tenantId: string;
+  id: string; leadId: string; tenantId: string; systemKw: string | null;
   dealValueInr: string; ratePercent: string; commissionInr: string; netPayableInr: string;
   gstInr: string | null; deductionsInr: string | null; status: CommissionStatus;
   approvedByUserId: string | null; paidAt: string | null; payoutId: string | null;

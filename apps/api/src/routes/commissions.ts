@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { Prisma } from '@excess/db';
-import { can } from '@excess/shared';
+import { can, DEFAULT_COMMISSION_PER_KW_INR } from '@excess/shared';
 import { z } from 'zod';
 
 const createCommissionSchema = z.object({
@@ -88,7 +88,7 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
         orderBy: { createdAt: 'desc' },
         take: limit + 1,
         select: {
-          id: true, leadId: true, tenantId: true, dealValueInr: true,
+          id: true, leadId: true, tenantId: true, systemKw: true, dealValueInr: true,
           ratePercent: true, commissionInr: true, netPayableInr: true,
           gstInr: true, deductionsInr: true, status: true,
           approvedByUserId: true, paidAt: true, payoutId: true, createdAt: true,
@@ -246,18 +246,26 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
 
     const paidCommissions = last90dCommissions.filter((c) => c.status !== 'DISPUTED');
 
-    const avgRatePercent =
+    // Franchise rule is flat ₹1,500/kW, so deal value is usually 0 — project on the
+    // historical commission amount directly, not a % of deal value (which divided by 0).
+    const avgCommissionInr =
       paidCommissions.length > 0
-        ? paidCommissions.reduce(
+        ? paidCommissions.reduce((s, c) => s + Number(c.netPayableInr), 0) / paidCommissions.length
+        : DEFAULT_COMMISSION_PER_KW_INR * 5; // assume a typical ~5 kW install
+
+    // Rate / deal-value averages only make sense for rows that actually carry a deal value.
+    const withDealValue = paidCommissions.filter((c) => Number(c.dealValueInr) > 0);
+    const avgRatePercent =
+      withDealValue.length > 0
+        ? withDealValue.reduce(
             (s, c) => s + (Number(c.netPayableInr) / Number(c.dealValueInr)) * 100,
             0,
-          ) / paidCommissions.length
-        : 3.5;
-
+          ) / withDealValue.length
+        : 0;
     const avgDealValueInr =
-      paidCommissions.length > 0
-        ? paidCommissions.reduce((s, c) => s + Number(c.dealValueInr), 0) / paidCommissions.length
-        : 350000;
+      withDealValue.length > 0
+        ? withDealValue.reduce((s, c) => s + Number(c.dealValueInr), 0) / withDealValue.length
+        : 0;
 
     const qualified = pipelineLeads.filter((l) => l.stage === 'QUALIFIED').length;
     const followUp  = pipelineLeads.filter((l) => l.stage === 'FOLLOW_UP').length;
@@ -266,7 +274,7 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
     const expectedConversions =
       qualified * 0.45 + followUp * 0.2 + newLeads * 0.05;
     const projectedRevenueInr    = expectedConversions * avgDealValueInr;
-    const projectedCommissionInr = projectedRevenueInr * (avgRatePercent / 100);
+    const projectedCommissionInr = expectedConversions * avgCommissionInr;
 
     const confidence =
       paidCommissions.length >= 20 ? 'high' : paidCommissions.length >= 5 ? 'medium' : 'low';
@@ -278,6 +286,7 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
         expectedConversions: Math.round(expectedConversions * 10) / 10,
         projectedRevenueInr:    Math.round(projectedRevenueInr),
         projectedCommissionInr: Math.round(projectedCommissionInr),
+        avgCommissionInr: Math.round(avgCommissionInr),
         avgRatePercent: Math.round(avgRatePercent * 10) / 10,
         avgDealValueInr: Math.round(avgDealValueInr),
         confidence,

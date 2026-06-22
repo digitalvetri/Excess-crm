@@ -8,6 +8,7 @@ export interface CommissionProjection {
   expectedConversions: number;
   projectedRevenueInr: number;
   projectedCommissionInr: number;
+  avgCommissionInr: number;
   avgRatePercent: number;
   avgDealValueInr: number;
   confidence: string;

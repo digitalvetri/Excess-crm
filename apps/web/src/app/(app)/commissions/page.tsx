@@ -215,9 +215,9 @@ function ProjectionBanner() {
         </div>
         <div>
           <p className="text-2xl font-bold text-slate-900">
-            {proj.avgRatePercent.toFixed(1)}%
+            ₹{(proj.avgCommissionInr / 1000).toFixed(1)}K
           </p>
-          <p className="text-xs text-slate-500">Avg commission rate</p>
+          <p className="text-xs text-slate-500">Avg / conversion</p>
         </div>
       </div>
       <div className="flex gap-4 mt-3 text-xs text-slate-500">
@@ -436,6 +436,11 @@ export default function CommissionsPage() {
               const leadDisplay  = c.leadName ?? `${c.leadId.slice(0, 8)}…`;
               const franchiseDisplay = c.franchiseName ?? `${c.tenantId.slice(0, 8)}…`;
 
+              // Franchise commission = systemKw × per-kW rate (₹1,500 default).
+              const kw    = c.systemKw != null ? Number(c.systemKw) : null;
+              const perKw = kw && kw > 0 ? Math.round(Number(c.commissionInr) / kw) : null;
+              const hasDealValue = Number(c.dealValueInr) > 0;
+
               return (
                 <div
                   key={c.id}
@@ -474,13 +479,17 @@ export default function CommissionsPage() {
 
                   {/* Deal Value */}
                   <p className="text-sm text-slate-700">
-                    {inr(c.dealValueInr)}
+                    {hasDealValue ? inr(c.dealValueInr) : <span className="text-slate-400">—</span>}
                   </p>
 
-                  {/* Commission */}
+                  {/* Commission — flat ₹/kW basis (falls back to amount for legacy rows) */}
                   <p className="text-sm text-slate-700">
-                    {inr(c.commissionInr)}{' '}
-                    <span className="text-xs text-slate-400">({c.ratePercent}%)</span>
+                    {inr(c.commissionInr)}
+                    {kw && perKw ? (
+                      <span className="block text-xs text-slate-400">
+                        {kw} kW × {inr(perKw)}
+                      </span>
+                    ) : null}
                   </p>
 
                   {/* Net Payable */}

@@ -31,6 +31,11 @@ export function StageChangeMenu({ leadId, currentStage, anchorRect, onClose }: P
   const [converting, setConverting] = useState(false);
 
   useEffect(() => {
+    // While the convert modal is open it owns the interaction layer. The modal is
+    // rendered outside this menu's ref, so a click on its inputs would read as an
+    // "outside click" and call onClose(), unmounting the menu and the modal with it.
+    // Skip the handlers entirely while converting; the modal has its own close paths.
+    if (converting) return;
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     }
@@ -43,7 +48,7 @@ export function StageChangeMenu({ leadId, currentStage, anchorRect, onClose }: P
       document.removeEventListener('mousedown', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
-  }, [onClose]);
+  }, [onClose, converting]);
 
   function changeStage(stage: string) {
     mutate(
@@ -95,12 +100,14 @@ export function StageChangeMenu({ leadId, currentStage, anchorRect, onClose }: P
     </div>
   );
 
-  return (
-    <>
-      {typeof document !== 'undefined' ? createPortal(menu, document.body) : null}
-      {converting && (
-        <ConvertLeadModal leadId={leadId} onClose={() => { setConverting(false); onClose(); }} />
-      )}
-    </>
-  );
+  if (typeof document === 'undefined') return null;
+
+  // Hide the menu while the modal is open, and portal the modal to <body> so it's
+  // free of the menu's lifecycle and any ancestor overflow/transform stacking.
+  return converting
+    ? createPortal(
+        <ConvertLeadModal leadId={leadId} onClose={() => { setConverting(false); onClose(); }} />,
+        document.body,
+      )
+    : createPortal(menu, document.body);
 }

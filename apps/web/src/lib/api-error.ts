@@ -15,3 +15,8 @@ export function getApiErrorCode(err: unknown): string | undefined {
   const shaped = err as ApiErrorShape;
   return shaped?.response?.data?.error?.code;
 }
+
+export function getApiErrorStatus(err: unknown): number | undefined {
+  const shaped = err as { response?: { status?: number } };
+  return shaped?.response?.status;
+}

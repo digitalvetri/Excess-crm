@@ -19,7 +19,7 @@ import {
   useCreatePayout,
   type CommissionStatus,
 } from '@/hooks/use-franchise';
-import { getApiErrorMessage } from '@/lib/api-error';
+import { getApiErrorMessage, getApiErrorStatus } from '@/lib/api-error';
 import { useCommissionProjections } from '@/hooks/use-financial';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -387,6 +387,23 @@ export default function CommissionsPage() {
       {/* ── Table ── */}
       {commissionsQuery.isLoading ? (
         <TableSkeleton />
+      ) : commissionsQuery.isError ? (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-8 text-center">
+          <XCircle className="mx-auto mb-3 text-red-400" size={36} />
+          <p className="text-red-700 text-sm font-semibold mb-1">
+            Couldn’t load commissions
+            {getApiErrorStatus(commissionsQuery.error) ? ` (HTTP ${getApiErrorStatus(commissionsQuery.error)})` : ''}
+          </p>
+          <p className="text-red-600 text-xs mb-3">
+            {getApiErrorMessage(commissionsQuery.error, 'Request failed.')}
+          </p>
+          <button
+            onClick={() => commissionsQuery.refetch()}
+            className="px-4 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       ) : commissions.length === 0 ? (
         <div className="bg-white rounded-xl border border-border p-14 text-center">
           <DollarSign className="mx-auto mb-3 text-slate-300" size={36} />

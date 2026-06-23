@@ -15,10 +15,13 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
+  // The live (E2E_LIVE) suites manage their own API + web; reuse the already-running
+  // web server in that mode instead of spawning a second `pnpm dev` (port clash).
+  // /login is a stable 200 readiness probe (root can 404 before middleware resolves).
   webServer: {
     command: 'pnpm dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
+    url: 'http://localhost:3000/login',
+    reuseExistingServer: !process.env.CI || !!process.env.E2E_LIVE,
     timeout: 120_000,
   },
 });

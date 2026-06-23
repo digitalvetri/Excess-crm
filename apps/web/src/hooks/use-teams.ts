@@ -2,6 +2,15 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { useAuth } from '@/hooks/use-auth';
+
+// GET /users and /teams require leads.assign / teams.read (ADMIN + EMPLOYEE).
+// Engineers/franchise reach pages that mount these hooks for management widgets
+// (dispatch, reports, reassign) they can't use — don't fire the request and 403.
+function useCanReadDirectory() {
+  const { role } = useAuth();
+  return role === 'ADMIN' || role === 'EMPLOYEE';
+}
 
 export interface TeamMember {
   id: string;
@@ -45,9 +54,11 @@ export interface CrmUser {
 }
 
 export function useTeams() {
+  const enabled = useCanReadDirectory();
   return useQuery({
     queryKey: ['teams'],
     queryFn: () => api.get<{ data: Team[] }>('/teams').then((r) => r.data.data),
+    enabled,
   });
 }
 
@@ -60,9 +71,11 @@ export function useTeam(id: string) {
 }
 
 export function useUsers() {
+  const enabled = useCanReadDirectory();
   return useQuery({
     queryKey: ['users'],
     queryFn: () => api.get<{ data: CrmUser[] }>('/users').then((r) => r.data.data),
+    enabled,
   });
 }
 

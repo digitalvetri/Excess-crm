@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { useAuth } from '@/hooks/use-auth';
 
 export type ServiceTicketType   = 'COMPLAINT' | 'AMC_VISIT' | 'WARRANTY' | 'GENERAL';
 export type ServiceTicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
@@ -139,12 +140,16 @@ export function useUnscheduledTickets() {
 export interface EngineerUser { id: string; name: string; role: string }
 
 export function useEngineers() {
+  // /users requires leads.assign (ADMIN/EMPLOYEE); engineers reach pages that mount
+  // this for assignment dropdowns they can't use — don't fire the request and 403.
+  const { role } = useAuth();
   return useQuery({
     queryKey: ['users', 'engineers'],
     queryFn: () =>
       api.get<{ data: EngineerUser[] }>('/users')
         .then((r) => r.data.data.filter((u) => u.role === 'ENGINEER'))
         .catch(() => [] as EngineerUser[]),
+    enabled: role === 'ADMIN' || role === 'EMPLOYEE',
   });
 }
 

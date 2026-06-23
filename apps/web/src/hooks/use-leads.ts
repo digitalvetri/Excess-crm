@@ -50,7 +50,10 @@ interface LeadsResponse {
 
 // Cursor-paginated leads list. Flattens all fetched pages into a single `leads`
 // array and exposes the controls the UI needs for "Load more" / infinite scroll.
-export function useLeads(explicitParams?: Record<string, string>) {
+export function useLeads(
+  explicitParams?: Record<string, string>,
+  options?: { enabled?: boolean },
+) {
   const searchParams = useSearchParams();
   const urlParams = Object.fromEntries(searchParams.entries());
   const filters = explicitParams !== undefined ? explicitParams : urlParams;
@@ -65,6 +68,7 @@ export function useLeads(explicitParams?: Record<string, string>) {
         .then((r) => r.data.data),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor ?? undefined : undefined),
+    enabled: options?.enabled ?? true,
   });
 
   // Defensive: tolerate a partial/malformed page (e.g. an empty API response)

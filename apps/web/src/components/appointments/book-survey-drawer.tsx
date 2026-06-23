@@ -139,8 +139,11 @@ function LeadSearch({ value, onChange }: LeadSearchProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  // Only search once 2+ chars are typed; don't fire /leads?limit=0 (the API rejects
+  // limit=0 with a 400) — disable the query instead.
   const { leads, isLoading } = useLeads(
-    query.length >= 2 ? { search: query, limit: '8' } : { limit: '0' },
+    { search: query, limit: '8' },
+    { enabled: query.length >= 2 },
   );
 
   useEffect(() => {

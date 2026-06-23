@@ -512,22 +512,34 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     // Create the franchise commission SYNCHRONOUSLY on conversion (no worker
     // dependency) so it shows up for the franchise and the admin immediately.
     // Franchise rule: ₹1,500 per kW; falls back to the slab % model on deal value.
-    if (stage === 'CONVERTED' && (systemKw !== undefined || dealValueInr !== undefined)) {
+    // The outcome is returned to the client so the convert UI can report exactly
+    // what happened (created / not a franchise tenant / no value / already exists).
+    let commissionOutcome:
+      | { created: true; netPayableInr: number }
+      | { created: false; reason: 'not_franchise' | 'no_value' | 'already_exists' | 'error' }
+      | undefined;
+    if (stage === 'CONVERTED') {
       try {
-        await req.withTenant(async (tx) => {
+        commissionOutcome = await req.withTenant(async (tx) => {
           const tenant = await tx.tenant.findUnique({
             where: { id: req.auth.tenantId },
             select: { type: true, commissionSlabs: true },
           });
-          if (!tenant || tenant.type !== 'FRANCHISE') return; // commissions are franchise-only
+          if (!tenant || tenant.type !== 'FRANCHISE') {
+            return { created: false as const, reason: 'not_franchise' as const }; // commissions are franchise-only
+          }
 
           const existing = await tx.commission.findFirst({ where: { leadId: id, tenantId: req.auth.tenantId } });
-          if (existing) return; // idempotent
+          if (existing) return { created: false as const, reason: 'already_exists' as const }; // idempotent
+
+          if (systemKw === undefined && dealValueInr === undefined) {
+            return { created: false as const, reason: 'no_value' as const };
+          }
 
           const slabs = (tenant.commissionSlabs ?? {}) as Record<string, number>;
           const c = computeCommission(slabs, dealValueInr ?? 0, systemKw);
 
-          await tx.commission.create({
+          const created = await tx.commission.create({
             data: {
               tenantId:      req.auth.tenantId,
               leadId:        id,
@@ -538,11 +550,14 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
               netPayableInr: c.netPayableInr,
               status:        'PENDING_APPROVAL',
             },
+            select: { netPayableInr: true },
           });
+          return { created: true as const, netPayableInr: Number(created.netPayableInr) };
         });
-        req.log.info({ tenantId: req.auth.tenantId, leadId: id, systemKw }, 'commission.created');
+        req.log.info({ tenantId: req.auth.tenantId, leadId: id, systemKw, commissionOutcome }, 'commission.outcome');
       } catch (err) {
         req.log.error({ tenantId: req.auth.tenantId, leadId: id, err }, 'commission.create_failed');
+        commissionOutcome = { created: false, reason: 'error' };
       }
     }
 
@@ -603,7 +618,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    return reply.send({ data: lead });
+    return reply.send({ data: lead, meta: { commission: commissionOutcome } });
   });
 
   // PATCH /leads/:id/assign

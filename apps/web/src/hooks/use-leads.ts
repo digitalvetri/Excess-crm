@@ -115,6 +115,9 @@ export function useUpdateLead() {
       api.patch(`/leads/${id}`, data).then((r) => r.data),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['leads'] });
+      // A conversion may have created a commission — refresh those views too.
+      void qc.invalidateQueries({ queryKey: ['commissions'] });
+      void qc.invalidateQueries({ queryKey: ['commission-summary'] });
     },
   });
 }

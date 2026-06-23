@@ -17,6 +17,7 @@ import {
   type ServiceTicketStatus,
   type ServiceTicketType,
 } from '@/hooks/use-service-tickets';
+import { useUsers } from '@/hooks/use-teams';
 
 type RangeKey = '7d' | '30d' | '90d';
 
@@ -135,8 +136,14 @@ export function ServiceTicketAnalytics() {
 
   const { data: current, isLoading } = useServiceTickets({ from, to, limit: 2000 });
   const { data: prev }               = useServiceTickets({ from: prevFrom, to: prevTo, limit: 2000 });
+  const { data: users }              = useUsers();
 
   const tickets     = useMemo(() => current?.tickets ?? [], [current?.tickets]);
+  // Ticket list items only carry assignedEngineerId; map IDs → names for the chart.
+  const engineerNameById = useMemo(
+    () => new Map((users ?? []).map((u) => [u.id, u.name])),
+    [users],
+  );
   const prevTickets = useMemo(() => prev?.tickets    ?? [], [prev?.tickets]);
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
@@ -209,14 +216,14 @@ export function ServiceTicketAnalytics() {
     for (const t of tickets) {
       if (!t.assignedEngineerId) continue;
       const key  = t.assignedEngineerId;
-      const name = key.slice(0, 8); // placeholder; real name not in list item
+      const name = engineerNameById.get(key) ?? `${key.slice(0, 8)}…`;
       if (!map.has(key)) map.set(key, { name, Open: 0, Resolved: 0 });
       const entry = map.get(key)!;
       if (t.status === 'RESOLVED' || t.status === 'CLOSED') entry.Resolved++;
       else entry.Open++;
     }
     return [...map.values()].sort((a, b) => (b.Open + b.Resolved) - (a.Open + a.Resolved)).slice(0, 10);
-  }, [tickets]);
+  }, [tickets, engineerNameById]);
 
   if (isLoading) {
     return (

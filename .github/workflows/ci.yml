@@ -196,6 +196,8 @@ jobs:
             e2e/employee-delivery-flows.spec.ts \
             e2e/employee-marketing-analytics-flows.spec.ts \
             e2e/employee-responsive.spec.ts \
+            e2e/admin-live.spec.ts \
+            e2e/admin-flows.spec.ts \
             --project=chromium
 
       - name: Upload Playwright report

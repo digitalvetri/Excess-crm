@@ -271,9 +271,15 @@ export function VoicePlayground() {
       await room.localParticipant.setMicrophoneEnabled(true);
       roomRef.current = room;
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
-        ?? (err as { message?: string })?.message
-        ?? 'Failed to start voice call';
+      const e = err as { name?: string; message?: string; response?: { data?: { error?: { message?: string } } } };
+      const apiMsg = e?.response?.data?.error?.message;
+      // setMicrophoneEnabled → getUserMedia throws NotAllowedError / "Permission denied"
+      // when the browser blocks the mic. Show an actionable message, not the raw error.
+      const micDenied = e?.name === 'NotAllowedError' || /permission denied|not ?allowed|dismissed/i.test(e?.message ?? '');
+      const msg = apiMsg
+        ?? (micDenied
+          ? 'Microphone access blocked. Click the mic/camera icon in your browser’s address bar, allow access, then start the call again.'
+          : (e?.message ?? 'Failed to start voice call'));
       setCallError(msg);
       setCallState('idle');
     }

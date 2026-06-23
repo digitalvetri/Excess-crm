@@ -12,7 +12,10 @@ import { api } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Persona = 'RESHMA_VERIFY' | 'KARTHIK_SALES' | 'RESHMA_FOLLOWUP';
+// Personas were consolidated into a single unified EXCESS_AGENT (the API's test
+// endpoints only accept 'EXCESS_AGENT'). Old names are kept only as display labels
+// for historical call records.
+type Persona = 'EXCESS_AGENT';
 type CallStatus = 'QUEUED' | 'IN_PROGRESS' | 'COMPLETED' | 'NO_ANSWER' | 'FAILED';
 
 interface QueueCounts {
@@ -74,6 +77,8 @@ interface LiveRoom {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const PERSONA_LABELS: Record<string, string> = {
+  EXCESS_AGENT: 'Excess Agent',
+  // Legacy labels — only for rendering historical call records.
   RESHMA_VERIFY: 'Reshma · Verify',
   KARTHIK_SALES: 'Karthik · Sales',
   RESHMA_FOLLOWUP: 'Reshma · Follow-up',
@@ -308,7 +313,7 @@ function QueueHealthPanel() {
 // ─── Payload Preview Panel ────────────────────────────────────────────────────
 
 function PayloadPreviewPanel() {
-  const [selectedPersona, setSelectedPersona] = useState<Persona>('RESHMA_VERIFY');
+  const [selectedPersona, setSelectedPersona] = useState<Persona>('EXCESS_AGENT');
   const [showFull, setShowFull] = useState(false);
   const { data, isLoading, refetch } = useTestPayload(selectedPersona);
 
@@ -325,9 +330,7 @@ function PayloadPreviewPanel() {
             onChange={(e) => { setSelectedPersona(e.target.value as Persona); setShowFull(false); }}
             className="text-xs px-2 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/30 bg-white"
           >
-            <option value="RESHMA_VERIFY">Reshma Verify</option>
-            <option value="KARTHIK_SALES">Karthik Sales</option>
-            <option value="RESHMA_FOLLOWUP">Reshma Follow-up</option>
+            <option value="EXCESS_AGENT">Excess Agent</option>
           </select>
           <button
             onClick={() => refetch()}
@@ -408,7 +411,7 @@ function PayloadPreviewPanel() {
 function TestDialPanel() {
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('Test Lead');
-  const [persona, setPersona] = useState<Persona>('RESHMA_VERIFY');
+  const [persona] = useState<Persona>('EXCESS_AGENT');
   const testDial = useTestDial();
 
   async function handleDial() {
@@ -451,20 +454,9 @@ function TestDialPanel() {
 
         <div>
           <label className="block text-xs text-slate-500 mb-1">Persona</label>
-          <div className="grid grid-cols-3 gap-2">
-            {(['RESHMA_VERIFY', 'KARTHIK_SALES', 'RESHMA_FOLLOWUP'] as const).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPersona(p)}
-                className={`px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
-                  persona === p
-                    ? 'border-primary/50 bg-primary/5 text-primary ring-1 ring-primary/30'
-                    : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                }`}
-              >
-                {p === 'RESHMA_VERIFY' ? 'Reshma Verify' : p === 'KARTHIK_SALES' ? 'Karthik Sales' : 'Reshma Followup'}
-              </button>
-            ))}
+          {/* Single unified agent — no persona to choose. */}
+          <div className="px-3 py-2 rounded-lg border border-primary/50 bg-primary/5 text-primary text-xs font-medium w-fit">
+            {PERSONA_LABELS[persona]}
           </div>
         </div>
 

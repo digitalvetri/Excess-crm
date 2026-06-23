@@ -27,6 +27,18 @@ const upsertSettingsSchema = z.object({
   aiDialEnabled: z.boolean().optional(),
 });
 
+// The retry/dial fields have no DB columns — they live in the retryConfig JSON.
+// Flatten them onto the response so the settings form reads them like flat fields.
+function flattenSettings<T extends { retryConfig: unknown }>(s: T) {
+  const retry = (s.retryConfig ?? {}) as Record<string, unknown>;
+  return {
+    ...s,
+    maxRetriesPerLead:  retry.maxRetriesPerLead  ?? null,
+    retryIntervalHours: retry.retryIntervalHours ?? null,
+    aiDialEnabled:      retry.aiDialEnabled       ?? null,
+  };
+}
+
 // ─── Playground helpers ───────────────────────────────────────────────────────
 
 function playgroundDefaultPrompt(
@@ -244,7 +256,10 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
       tx.voiceAgentSettings.findUnique({ where: { tenantId: req.auth.tenantId } }),
     );
 
-    return reply.send({ data: settings });
+    // maxRetriesPerLead / retryIntervalHours / aiDialEnabled live in the retryConfig
+    // JSON (no columns for them); flatten so the settings form can read them directly.
+    if (!settings) return reply.send({ data: null });
+    return reply.send({ data: flattenSettings(settings) });
   });
 
   // PUT /voice-agent/settings
@@ -263,33 +278,35 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
       timezone, maxRetriesPerLead, retryIntervalHours, aiDialEnabled,
     } = parsed.data;
 
-    const settings = await req.withTenant((tx) =>
-      tx.voiceAgentSettings.upsert({
+    // Only these have real columns. The retry/dial fields go into the retryConfig
+    // JSON bucket — the model has no columns for them and prod can't run DDL.
+    const columns = {
+      ...(dailyCallCap !== undefined && { dailyCallCap }),
+      ...(businessHoursStart !== undefined && { businessHoursStart }),
+      ...(businessHoursEnd !== undefined && { businessHoursEnd }),
+      ...(timezone !== undefined && { timezone }),
+    };
+    const retryPatch = {
+      ...(maxRetriesPerLead !== undefined && { maxRetriesPerLead }),
+      ...(retryIntervalHours !== undefined && { retryIntervalHours }),
+      ...(aiDialEnabled !== undefined && { aiDialEnabled }),
+    };
+
+    const settings = await req.withTenant(async (tx) => {
+      const existing = await tx.voiceAgentSettings.findUnique({
         where: { tenantId: req.auth.tenantId },
-        create: {
-          tenantId: req.auth.tenantId,
-          ...(dailyCallCap !== undefined && { dailyCallCap }),
-          ...(businessHoursStart !== undefined && { businessHoursStart }),
-          ...(businessHoursEnd !== undefined && { businessHoursEnd }),
-          ...(timezone !== undefined && { timezone }),
-          ...(maxRetriesPerLead !== undefined && { maxRetriesPerLead }),
-          ...(retryIntervalHours !== undefined && { retryIntervalHours }),
-          ...(aiDialEnabled !== undefined && { aiDialEnabled }),
-        },
-        update: {
-          ...(dailyCallCap !== undefined && { dailyCallCap }),
-          ...(businessHoursStart !== undefined && { businessHoursStart }),
-          ...(businessHoursEnd !== undefined && { businessHoursEnd }),
-          ...(timezone !== undefined && { timezone }),
-          ...(maxRetriesPerLead !== undefined && { maxRetriesPerLead }),
-          ...(retryIntervalHours !== undefined && { retryIntervalHours }),
-          ...(aiDialEnabled !== undefined && { aiDialEnabled }),
-        },
-      }),
-    );
+        select: { retryConfig: true },
+      });
+      const retryConfig = { ...((existing?.retryConfig as Record<string, unknown>) ?? {}), ...retryPatch };
+      return tx.voiceAgentSettings.upsert({
+        where:  { tenantId: req.auth.tenantId },
+        create: { tenantId: req.auth.tenantId, ...columns, retryConfig },
+        update: { ...columns, retryConfig },
+      });
+    });
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId }, 'voice_agent.settings_updated');
-    return reply.send({ data: settings });
+    return reply.send({ data: flattenSettings(settings) });
   });
 
   // PUT /voice-agent/ab-config — per-persona prompt A/B split percentages

@@ -76,6 +76,37 @@ test.describe('Admin management flows', () => {
     );
   });
 
+  test('voice agent config: settings save (round-trips) → persona config → activate → A/B', async ({ page }) => {
+    await login(page);
+    // Settings save — regression: retry/dial fields used to 500 (no DB columns).
+    await ok(
+      await page.request.put(`${API}/voice-agent/settings`, {
+        data: { dailyCallCap: 1500, businessHoursStart: '09:00', businessHoursEnd: '21:00', maxRetriesPerLead: 4, aiDialEnabled: false },
+      }),
+      'settings save',
+    );
+    const read = (await ok(await page.request.get(`${API}/voice-agent/settings`), 'settings read')).data;
+    expect(read.maxRetriesPerLead, 'retry fields round-trip').toBe(4);
+    expect(read.aiDialEnabled).toBe(false);
+
+    // Persona prompt config → activate.
+    const cfg = await ok(
+      await page.request.post(`${API}/voice-agent/configs`, {
+        data: {
+          personaId: 'EXCESS_AGENT',
+          systemPrompt: 'You are Excess Agent, a friendly solar assistant. Verify the customer’s interest in rooftop solar.',
+          voiceConfig: { language: 'en', voiceSpeed: 1.0 },
+        },
+      }),
+      'create persona config',
+    );
+    await ok(await page.request.post(`${API}/voice-agent/configs/${cfg.data.id}/activate`), 'activate config');
+    await ok(
+      await page.request.put(`${API}/voice-agent/ab-config`, { data: { abTestConfig: { EXCESS_AGENT: 100 } } }),
+      'ab-config',
+    );
+  });
+
   test('settings: create webhook + SLA rule', async ({ page }) => {
     await login(page);
     await ok(

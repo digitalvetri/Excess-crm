@@ -12,6 +12,7 @@ import {
   useDisconnectWhatsapp,
 } from '@/hooks/use-whatsapp';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { useAuth } from '@/hooks/use-auth';
 
 // ─── Connection panel ────────────────────────────────────────────────────────
 
@@ -296,6 +297,10 @@ export default function WhatsAppPage() {
 
   const selectedConv = conversations.find((c) => c.leadId === selectedLeadId);
   const isConnected  = config?.isConnected ?? false;
+  // Saving WhatsApp credentials is integrations.write (ADMIN-only); employees can use
+  // a connected number but can't connect/manage it. Don't show them a form that 403s.
+  const { role }   = useAuth();
+  const canManage  = role === 'ADMIN';
 
   return (
     <div className="space-y-4 h-full flex flex-col">
@@ -318,13 +323,17 @@ export default function WhatsAppPage() {
             </>
           )}
         </div>
-        <button
-          onClick={() => setShowConnect(true)}
-          className="inline-flex items-center gap-1.5 text-sm border border-border px-3 py-1.5 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
-        >
-          <Settings size={13} />
-          {isConnected ? 'Manage' : 'Connect WhatsApp'}
-        </button>
+        {canManage ? (
+          <button
+            onClick={() => setShowConnect(true)}
+            className="inline-flex items-center gap-1.5 text-sm border border-border px-3 py-1.5 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <Settings size={13} />
+            {isConnected ? 'Manage' : 'Connect WhatsApp'}
+          </button>
+        ) : !isConnected ? (
+          <span className="text-xs text-slate-400">Ask an administrator to connect WhatsApp</span>
+        ) : null}
       </div>
 
       {/* Connect modal */}

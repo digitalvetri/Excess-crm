@@ -559,7 +559,8 @@ export function LeadsTable() {
                   }
                   aria-label="Lead actions"
                   title="Change stage"
-                  className="p-1 rounded hover:bg-slate-100 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                  data-testid="lead-actions"
+                  className="p-1 rounded hover:bg-slate-100 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 focus:opacity-100 transition-opacity"
                 >
                   <MoreVertical size={16} className="text-slate-400" />
                 </button>

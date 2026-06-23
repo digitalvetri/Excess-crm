@@ -82,6 +82,7 @@ export function ConvertLeadModal({ leadId, onClose }: { leadId: string; onClose:
               min="0"
               step="0.1"
               placeholder="e.g. 5"
+              data-testid="convert-kw"
               autoFocus
               className="w-full rounded-lg border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
@@ -111,6 +112,7 @@ export function ConvertLeadModal({ leadId, onClose }: { leadId: string; onClose:
             <button
               type="submit"
               disabled={!canSubmit || isPending}
+              data-testid="convert-submit"
               className="rounded-lg bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isPending ? 'Converting…' : 'Convert'}

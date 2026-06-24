@@ -6,6 +6,8 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import multipart from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
+import { llmComplete } from '../lib/llm.js';
+import { AI_SYSTEM_PROMPTS } from '../lib/ai-prompts.js';
 
 const s3 = new S3Client({ region: env.AWS_REGION });
 
@@ -260,6 +262,61 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({
       data: { conversations: result, hasMore, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null },
     });
+  });
+
+  // GET /whatsapp/conversations/:leadId/assist — AI summary of the chat + 3 suggested
+  // replies (on-demand; reuses the shared Groq helper). Degrades to 503 without a key.
+  app.get('/conversations/:leadId/assist', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { leadId } = req.params as { leadId: string };
+    const lead = await req.withTenant((tx) =>
+      tx.lead.findUnique({
+        where: { id: leadId },
+        select: {
+          name: true, city: true, stage: true, language: true,
+          activities: {
+            where: { type: 'WHATSAPP' },
+            orderBy: { createdAt: 'desc' },
+            take: 15,
+            select: { payload: true },
+          },
+        },
+      }),
+    );
+    if (!lead) {
+      return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
+    }
+
+    const history = [...lead.activities]
+      .reverse()
+      .map((a) => {
+        const p = (a.payload ?? {}) as Record<string, unknown>;
+        const text = String(p['message'] ?? '').slice(0, 200);
+        if (!text) return '';
+        const who = p['direction'] === 'outbound' ? 'Us' : 'Customer';
+        return `${who}: ${text}`;
+      })
+      .filter(Boolean)
+      .join('\n');
+
+    const prompt = `Lead: ${lead.name}${lead.city ? `, ${lead.city}` : ''} · Stage: ${lead.stage} · Language: ${lead.language ?? 'unknown'}
+
+Conversation:
+${history || '(no messages yet)'}`;
+
+    const text = await llmComplete(prompt, { system: AI_SYSTEM_PROMPTS.conversationAssist, maxTokens: 320, temperature: 0.5 });
+    if (!text) {
+      return reply.code(503).send({ error: { code: 'ai.unavailable', message: 'AI assist is unavailable right now (check GROQ_API_KEY).' } });
+    }
+
+    const summaryMatch = text.match(/SUMMARY:\s*([\s\S]*?)(?=\nREPLY:|$)/i);
+    const summary = (summaryMatch?.[1] ?? '').trim();
+    const suggestions = [...text.matchAll(/REPLY:\s*(.+)/gi)].map((m) => (m[1] ?? '').trim()).filter(Boolean).slice(0, 3);
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId }, 'whatsapp.assist');
+    return reply.send({ data: { summary, suggestions } });
   });
 
   // PATCH /whatsapp/conversations/:leadId/status — triage status (Redis-backed).

@@ -172,6 +172,18 @@ test.describe('Employee Sales flows (Phase 1)', () => {
     expect(r.status(), `react → ${r.status()}`).toBe(202);
   });
 
+  test('WhatsApp AI assist responds (summary+suggestions or graceful 503)', async ({ page }) => {
+    await login(page);
+    const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;
+    const r = await page.request.get(`${API}/whatsapp/conversations/${leadId}/assist`);
+    expect([200, 503], `assist → ${r.status()}`).toContain(r.status());
+    if (r.status() === 200) {
+      const d = (await r.json()).data;
+      expect(d).toHaveProperty('summary');
+      expect(Array.isArray(d.suggestions)).toBe(true);
+    }
+  });
+
   test('quotation: create → send', async ({ page }) => {
     await login(page);
     const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;

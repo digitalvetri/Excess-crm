@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
-import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare, Search, ExternalLink, Clock, UserPlus, FileText, ChevronLeft, Reply, Paperclip } from 'lucide-react';
+import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare, Search, ExternalLink, Clock, UserPlus, FileText, ChevronLeft, Reply, Paperclip, Sparkles } from 'lucide-react';
 import {
   useConversations,
   useMessages,
@@ -13,6 +13,7 @@ import {
   useSaveWhatsappConfig,
   useDisconnectWhatsapp,
   useConversationActions,
+  useConversationAssist,
   useWhatsappTemplates,
   useSendTemplate,
   useSendMedia,
@@ -429,6 +430,7 @@ export default function WhatsAppPage() {
   const { messages, loading: msgsLoading, error: msgsError, refetch: refetchMsgs } = useMessages(selectedLeadId);
   const { send, loading: sending }                                                  = useSendMessage();
   const { setStatus, markRead, assign, react }                                      = useConversationActions();
+  const { run: runAssist, data: assist, loading: assistLoading, reset: resetAssist } = useConversationAssist();
   const { sendMedia, sending: sendingMedia }                                        = useSendMedia();
   const { user, role }                                                              = useAuth();
   const myId = user?.id ?? null;
@@ -484,6 +486,7 @@ export default function WhatsAppPage() {
 
   async function handleSelect(leadId: string) {
     setSelectedLeadId(leadId);
+    resetAssist();
     try {
       await markRead(leadId);
       refetchConvs();
@@ -752,6 +755,15 @@ export default function WhatsAppPage() {
                   })}
                 </div>
                 <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={() => selectedLeadId && void runAssist(selectedLeadId)}
+                    disabled={assistLoading}
+                    title="AI: summarise this chat + suggest replies"
+                    className="inline-flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/5 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-60"
+                  >
+                    {assistLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                    Assist
+                  </button>
                   {selectedConv?.assignee ? (
                     <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
                       <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-[9px] font-bold text-slate-600">
@@ -857,6 +869,30 @@ export default function WhatsAppPage() {
                   <div className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
                     <Clock size={13} className="mt-0.5 shrink-0" />
                     <span>The 24-hour window has closed — free-text replies may not be delivered. Use an approved template to re-engage.</span>
+                  </div>
+                )}
+                {assist && (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-2.5 space-y-2">
+                    <div className="flex items-start gap-1.5">
+                      <Sparkles size={13} className="mt-0.5 shrink-0 text-primary" />
+                      <p className="flex-1 text-xs text-slate-700">{assist.summary}</p>
+                      <button onClick={resetAssist} className="shrink-0 text-slate-400 hover:text-slate-700">
+                        <X size={13} />
+                      </button>
+                    </div>
+                    {assist.suggestions.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {assist.suggestions.map((s, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setDraft(s)}
+                            className="rounded-full border border-primary/30 bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-primary hover:bg-primary/5 transition-colors"
+                          >
+                            {s.length > 60 ? `${s.slice(0, 60)}…` : s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
                 {replyingTo && (

@@ -22,4 +22,11 @@ WHY: <one short sentence>`,
 
   leadIntent:
     `You are a lead-qualification analyst for ${ORG}. Be conservative — only give large positive deltas for clear buying signals (budget confirmed, ready to install, asking for a quote or site survey).`,
+
+  conversationAssist:
+    `You help a sales agent at ${ORG} handle a WhatsApp chat with a customer lead. Given the conversation, write a 2-3 sentence summary of where it stands, then 3 short, ready-to-send reply suggestions (varied — e.g. answer their question, offer a free site survey, nudge the next step). Match the customer's language (Tamil / English / Tanglish), keep replies to 1-2 sentences, no placeholders, never invent prices. Reply in EXACTLY this format:
+SUMMARY: <2-3 sentences>
+REPLY: <a ready-to-send reply>
+REPLY: <a different ready-to-send reply>
+REPLY: <a different ready-to-send reply>`,
 } as const;

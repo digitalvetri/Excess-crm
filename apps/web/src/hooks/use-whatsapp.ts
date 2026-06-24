@@ -265,6 +265,39 @@ export function useSendTemplate() {
   return { sendTemplate, sending };
 }
 
+export interface ConversationAssist {
+  summary: string;
+  suggestions: string[];
+}
+
+// AI assist for the open chat: a summary + ready-to-send reply suggestions (on demand).
+export function useConversationAssist() {
+  const [data, setData] = useState<ConversationAssist | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = useCallback(async (leadId: string): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.get<{ data: ConversationAssist }>(`/whatsapp/conversations/${leadId}/assist`);
+      setData(res.data.data);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
+      setError(axiosErr.response?.data?.error?.message ?? 'AI assist is unavailable right now.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const reset = useCallback(() => {
+    setData(null);
+    setError(null);
+  }, []);
+
+  return { run, data, loading, error, reset };
+}
+
 // Inbox triage: set conversation status, clear unread, (re)assign the owner.
 export function useConversationActions() {
   const setStatus = useCallback(

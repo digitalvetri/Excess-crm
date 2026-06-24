@@ -102,6 +102,16 @@ test.describe('Employee Sales flows (Phase 1)', () => {
     }
   });
 
+  test('AI next-action endpoint responds (suggestion or graceful 503)', async ({ page }) => {
+    await login(page);
+    const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;
+    const r = await page.request.get(`${API}/leads/${leadId}/next-action`);
+    expect([200, 503], `next-action → ${r.status()}`).toContain(r.status());
+    if (r.status() === 200) {
+      expect((await r.json()).data.action.length).toBeGreaterThan(0);
+    }
+  });
+
   test('quotation: create → send', async ({ page }) => {
     await login(page);
     const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;

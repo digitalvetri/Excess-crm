@@ -1034,6 +1034,69 @@ Write the next ${channel} message to ${lead.name}:`;
     return reply.send({ data: { draft: draft.trim(), channel } });
   });
 
+  // GET /leads/:id/next-action — AI "what to do next" for this lead (suggestion only;
+  // cached 4h). Returns { action, reason }. Degrades to 503 without GROQ_API_KEY.
+  app.get('/:id/next-action', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { id } = req.params as { id: string };
+    const cacheKey = `lead_next_action:${req.auth.tenantId}:${id}`;
+    const cached = await app.redis.get(cacheKey);
+    if (cached) return reply.send({ data: JSON.parse(cached) as unknown });
+
+    const lead = await req.withTenant((tx) =>
+      tx.lead.findUnique({
+        where: { id },
+        select: {
+          name: true, city: true, stage: true, aiScore: true, factSheet: true, stageChangedAt: true,
+          activities: {
+            orderBy: { createdAt: 'desc' },
+            take: 8,
+            select: { type: true, payload: true, actorIsAi: true },
+          },
+        },
+      }),
+    );
+    if (!lead) {
+      return reply.code(404).send({ error: { code: 'leads.not_found', message: 'Lead not found' } });
+    }
+
+    const daysInStage = Math.floor((Date.now() - new Date(lead.stageChangedAt).getTime()) / 86_400_000);
+    const recent = lead.activities
+      .map((a) => {
+        const p = (a.payload ?? {}) as Record<string, unknown>;
+        const t = String(p['message'] ?? p['text'] ?? p['note'] ?? '').slice(0, 120);
+        return `${a.type}${a.actorIsAi ? '(AI)' : ''}${t ? `: ${t}` : ''}`;
+      })
+      .join('; ');
+
+    const system = `You are a sales coach for Excess Renew (rooftop solar, Coimbatore). Recommend the single highest-value next action for this lead right now — a concrete thing a rep can do today (e.g. Call now, Send a WhatsApp follow-up, Book a free site survey, Send a quotation, Re-engage, Mark not-answered). Reply in EXACTLY this format, two lines:
+ACTION: <max 6 words, imperative>
+WHY: <one short sentence>`;
+    const prompt = `Lead: ${lead.name}${lead.city ? `, ${lead.city}` : ''}
+Stage: ${lead.stage} (${daysInStage} day(s) in stage)
+AI score: ${lead.aiScore ?? 'N/A'}
+Fact sheet: ${JSON.stringify(lead.factSheet ?? {})}
+Recent activity: ${recent || 'none'}`;
+
+    const text = await llmComplete(prompt, { system, maxTokens: 80, temperature: 0.3 });
+    if (!text) {
+      return reply.code(503).send({ error: { code: 'ai.unavailable', message: 'AI suggestions are unavailable right now (check GROQ_API_KEY).' } });
+    }
+
+    const actionM = text.match(/ACTION:\s*(.+)/i);
+    const whyM = text.match(/WHY:\s*(.+)/i);
+    const result = {
+      action: (actionM?.[1] ?? text.split('\n')[0] ?? 'Follow up').trim().replace(/[.*]+$/, '').slice(0, 60),
+      reason: (whyM?.[1] ?? '').trim().slice(0, 180),
+      generatedAt: new Date().toISOString(),
+    };
+    await app.redis.setex(cacheKey, 4 * 3600, JSON.stringify(result));
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id }, 'lead.next_action');
+    return reply.send({ data: result });
+  });
+
   // GET /leads/views — list saved views
   app.get('/views', async (req, reply) => {
     if (!can(req.auth.role, 'saved_views.read')) {

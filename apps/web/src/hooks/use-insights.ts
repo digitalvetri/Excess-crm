@@ -163,3 +163,24 @@ export function useCallInsights(callId: string | null) {
     enabled: !!callId,
   });
 }
+
+export interface NextAction {
+  action: string;
+  reason: string;
+  generatedAt: string;
+}
+
+// AI "what to do next" for a lead. Cached server-side (4h); errors/no-key resolve to
+// undefined so the UI can hide cleanly.
+export function useNextAction(leadId: string) {
+  return useQuery({
+    queryKey: ['leads', leadId, 'next-action'],
+    queryFn: () =>
+      api
+        .get<{ data: NextAction }>(`/leads/${leadId}/next-action`)
+        .then((r) => r.data.data)
+        .catch(() => null),
+    enabled: !!leadId,
+    staleTime: 4 * 3600 * 1000,
+  });
+}

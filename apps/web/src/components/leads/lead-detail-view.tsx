@@ -38,7 +38,7 @@ import {
 import { toast } from 'sonner';
 import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMergeLeads, useSendLeadEmail } from '@/hooks/use-leads';
 import { useQuery } from '@tanstack/react-query';
-import { useComputeLeadScore, useCallInsights } from '@/hooks/use-insights';
+import { useComputeLeadScore, useCallInsights, useNextAction } from '@/hooks/use-insights';
 import { api } from '@/lib/api';
 import { useMessages, useSendMessage, useWhatsappStatus, useDraftReply } from '@/hooks/use-whatsapp';
 import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
@@ -77,6 +77,39 @@ const ACTIVITY_CONFIG: Record<string, { icon: React.ElementType; color: string; 
   APPOINTMENT_BOOKED: { icon: CalendarCheck, color: 'text-blue-600 bg-blue-50', label: 'Appointment' },
   EMAIL: { icon: Mail, color: 'text-violet-600 bg-violet-50', label: 'Email' },
 };
+
+// AI "what to do next" for this lead. Hides cleanly when AI is off (no GROQ key).
+function NextActionCard({ leadId }: { leadId: string }) {
+  const { data, isLoading, refetch, isFetching } = useNextAction(leadId);
+  if (!isLoading && !data) return null;
+
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-primary/25 bg-primary/5 p-4">
+      <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+        <Sparkles size={15} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-primary/70">Next best action</p>
+        {isLoading ? (
+          <div className="mt-1.5 h-4 w-44 rounded bg-primary/10 animate-pulse" />
+        ) : (
+          <>
+            <p className="text-sm font-semibold text-slate-800">{data!.action}</p>
+            {data!.reason && <p className="mt-0.5 text-xs text-slate-600">{data!.reason}</p>}
+          </>
+        )}
+      </div>
+      <button
+        onClick={() => void refetch()}
+        disabled={isFetching}
+        title="Refresh suggestion"
+        className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 disabled:opacity-50"
+      >
+        <RefreshCw size={13} className={isFetching ? 'animate-spin' : ''} />
+      </button>
+    </div>
+  );
+}
 
 function SlaBanner({ stage, stageChangedAt }: { stage: string; stageChangedAt: string }) {
   const hours = differenceInHours(new Date(), new Date(stageChangedAt));
@@ -950,6 +983,9 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
 
       {/* SLA banner */}
       <SlaBanner stage={lead.stage} stageChangedAt={lead.stageChangedAt} />
+
+      {/* AI next-best-action */}
+      <NextActionCard leadId={id} />
 
       {converting && (
         <ConvertLeadModal leadId={id} onClose={() => setConverting(false)} />

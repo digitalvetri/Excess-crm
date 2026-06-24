@@ -73,7 +73,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   }
 
   // POST /auth/login
-  app.post('/login', { config: { public: true } }, async (req, reply) => {
+  app.post('/login', { config: { public: true, rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -165,7 +165,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // POST /auth/2fa/verify
-  app.post('/2fa/verify', { config: { public: true } }, async (req, reply) => {
+  app.post('/2fa/verify', { config: { public: true, rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
     const parsed = totpVerifySchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input' } });
@@ -269,7 +269,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // POST /auth/forgot-password
-  app.post('/forgot-password', { config: { public: true } }, async (req, reply) => {
+  app.post('/forgot-password', { config: { public: true, rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (req, reply) => {
     const parsed = forgotPasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid email' } });
@@ -307,7 +307,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // POST /auth/reset-password
-  app.post('/reset-password', { config: { public: true } }, async (req, reply) => {
+  app.post('/reset-password', { config: { public: true, rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
     const parsed = resetPasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input' } });

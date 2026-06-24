@@ -1,9 +1,32 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { can } from '@excess/shared';
 import { llmComplete } from '../lib/llm.js';
-import { AI_SYSTEM_PROMPTS } from '../lib/ai-prompts.js';
+import { AI_SYSTEM_PROMPTS, AI_PROMPT_VERSION } from '../lib/ai-prompts.js';
 
 export const aiRoutes: FastifyPluginAsync = async (app) => {
+  // GET /ai/usage — AI acceptance analytics for the tenant (draft-reply usage).
+  app.get('/usage', async (req, reply) => {
+    if (!can(req.auth.role, 'metrics.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const [gen, acc] = await Promise.all([
+      app.redis.get(`ai_metrics:${req.auth.tenantId}:drafts_generated`),
+      app.redis.get(`ai_metrics:${req.auth.tenantId}:drafts_accepted`),
+    ]);
+    const generated = Number(gen ?? 0);
+    const accepted = Number(acc ?? 0);
+    return reply.send({
+      data: {
+        promptVersion: AI_PROMPT_VERSION,
+        drafts: {
+          generated,
+          accepted,
+          acceptanceRate: generated > 0 ? Math.round((accepted / generated) * 100) : 0,
+        },
+      },
+    });
+  });
+
   // GET /ai/daily-brief — an AI-phrased "your day" briefing for the current user.
   // RLS-scoped (each role sees their own pipeline). Cached per user per day. Always
   // returns something useful — a deterministic brief when GROQ_API_KEY is unset.

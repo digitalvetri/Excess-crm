@@ -292,6 +292,14 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
       }),
     );
 
+    // AI acceptance analytics: if an AI draft was generated for this lead recently,
+    // a send shortly after counts as "draft used".
+    const draftedKey = `ai_drafted:${req.auth.tenantId}:${leadId}`;
+    if (await app.redis.get(draftedKey)) {
+      await app.redis.incr(`ai_metrics:${req.auth.tenantId}:drafts_accepted`);
+      await app.redis.del(draftedKey);
+    }
+
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId }, 'whatsapp.message_queued');
     return reply.code(202).send({ data: { queued: true } });
   });

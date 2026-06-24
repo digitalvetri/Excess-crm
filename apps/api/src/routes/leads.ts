@@ -8,7 +8,7 @@ import { notifyUser } from '../lib/notify-user.js';
 import { prisma, withSystemContext } from '@excess/db';
 import { enrollLeadInSequences } from '../lib/sequences.js';
 import { llmComplete } from '../lib/llm.js';
-import { AI_SYSTEM_PROMPTS } from '../lib/ai-prompts.js';
+import { AI_SYSTEM_PROMPTS, AI_PROMPT_VERSION } from '../lib/ai-prompts.js';
 import { env } from '@excess/config';
 import {
   updateLeadSchema,
@@ -1031,7 +1031,12 @@ Write the next ${channel} message to ${lead.name}:`;
     if (!draft) {
       return reply.code(503).send({ error: { code: 'ai.unavailable', message: 'AI drafting is unavailable right now (check GROQ_API_KEY).' } });
     }
-    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id, channel }, 'lead.draft_reply');
+    // Acceptance analytics: count generations and flag the lead so a subsequent send
+    // can be attributed as "draft used" (see whatsapp /send).
+    await app.redis.incr(`ai_metrics:${req.auth.tenantId}:drafts_generated`);
+    await app.redis.setex(`ai_drafted:${req.auth.tenantId}:${id}`, 1800, '1');
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id, channel, promptVersion: AI_PROMPT_VERSION }, 'lead.draft_reply');
     return reply.send({ data: { draft: draft.trim(), channel } });
   });
 

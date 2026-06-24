@@ -119,6 +119,13 @@ test.describe('Employee Sales flows (Phase 1)', () => {
     expect(brief.data.stats).toHaveProperty('hot');
   });
 
+  test('AI usage analytics endpoint responds', async ({ page }) => {
+    await login(page);
+    const usage = await ok(await page.request.get(`${API}/ai/usage`), 'ai usage');
+    expect(usage.data.drafts).toHaveProperty('acceptanceRate');
+    expect(usage.data).toHaveProperty('promptVersion');
+  });
+
   test('quotation: create → send', async ({ page }) => {
     await login(page);
     const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;

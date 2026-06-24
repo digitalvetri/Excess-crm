@@ -197,6 +197,41 @@ export function useSendMessage() {
   return { send, loading, error };
 }
 
+export interface WaTemplate {
+  id: string;
+  name: string;
+  templateName: string;
+  previewText: string;
+  description: string;
+}
+
+// Approved template library (for sending outside the 24h window). Tolerant of 403
+// (e.g. roles without broadcasts.read) — resolves to [] so the UI just hides the button.
+export function useWhatsappTemplates() {
+  return useQuery({
+    queryKey: ['whatsapp', 'templates'],
+    queryFn: () =>
+      api.get<{ data: WaTemplate[] }>('/broadcasts/templates').then((r) => r.data.data).catch(() => [] as WaTemplate[]),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useSendTemplate() {
+  const [sending, setSending] = useState(false);
+  const sendTemplate = useCallback(
+    async (leadId: string, templateName: string, label: string, params: Record<string, string>): Promise<void> => {
+      setSending(true);
+      try {
+        await api.post('/whatsapp/send-template', { leadId, templateName, label, params });
+      } finally {
+        setSending(false);
+      }
+    },
+    [],
+  );
+  return { sendTemplate, sending };
+}
+
 // Inbox triage: set conversation status, clear unread, (re)assign the owner.
 export function useConversationActions() {
   const setStatus = useCallback(

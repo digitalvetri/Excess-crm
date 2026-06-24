@@ -368,4 +368,55 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId }, 'whatsapp.message_queued');
     return reply.code(202).send({ data: { queued: true } });
   });
+
+  // POST /whatsapp/send-template — send an approved template (works OUTSIDE the 24h
+  // window). Reuses the same send worker, which builds the Meta template payload from
+  // `vars` (positional, in insertion order).
+  app.post('/send-template', async (req, reply) => {
+    if (!can(req.auth.role, 'whatsapp.send')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const body = (req.body ?? {}) as {
+      leadId?: string;
+      templateName?: string;
+      label?: string;
+      params?: Record<string, string>;
+    };
+    const leadId = body.leadId;
+    const templateName = body.templateName;
+    if (!leadId || !templateName) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'leadId and templateName are required' } });
+    }
+
+    const lead = await req.withTenant((tx) =>
+      tx.lead.findUnique({ where: { id: leadId }, select: { id: true, phone: true } }),
+    );
+    if (!lead) {
+      return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
+    }
+
+    await app.queues.whatsappSend.add('whatsapp-send', {
+      tenantId: req.auth.tenantId,
+      leadId,
+      phone: lead.phone,
+      template: templateName,
+      vars: body.params ?? {},
+    });
+
+    await req.withTenant((tx) =>
+      tx.leadActivity.create({
+        data: {
+          leadId,
+          tenantId: req.auth.tenantId,
+          actorUserId: req.auth.userId,
+          actorIsAi: false,
+          type: 'WHATSAPP',
+          payload: { template: templateName, message: body.label ?? `Template: ${templateName}`, direction: 'outbound' } as object,
+        },
+      }),
+    );
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, template: templateName }, 'whatsapp.template_queued');
+    return reply.code(202).send({ data: { queued: true } });
+  });
 };

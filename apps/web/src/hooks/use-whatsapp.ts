@@ -231,6 +231,24 @@ export function useWhatsappTemplates() {
   });
 }
 
+export function useSendMedia() {
+  const [sending, setSending] = useState(false);
+  const sendMedia = useCallback(async (leadId: string, file: File, caption: string): Promise<void> => {
+    setSending(true);
+    try {
+      // Order matters: text fields must precede the file part so the server parses them.
+      const form = new FormData();
+      form.append('leadId', leadId);
+      if (caption) form.append('caption', caption);
+      form.append('file', file);
+      await api.post('/whatsapp/send-media', form);
+    } finally {
+      setSending(false);
+    }
+  }, []);
+  return { sendMedia, sending };
+}
+
 export function useSendTemplate() {
   const [sending, setSending] = useState(false);
   const sendTemplate = useCallback(

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
-import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare, Search, ExternalLink, Clock, UserPlus, FileText, ChevronLeft, Reply } from 'lucide-react';
+import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare, Search, ExternalLink, Clock, UserPlus, FileText, ChevronLeft, Reply, Paperclip } from 'lucide-react';
 import {
   useConversations,
   useMessages,
@@ -15,6 +15,7 @@ import {
   useConversationActions,
   useWhatsappTemplates,
   useSendTemplate,
+  useSendMedia,
   useMediaUrl,
   type ConversationStatus,
   type WaTemplate,
@@ -428,10 +429,27 @@ export default function WhatsAppPage() {
   const { messages, loading: msgsLoading, error: msgsError, refetch: refetchMsgs } = useMessages(selectedLeadId);
   const { send, loading: sending }                                                  = useSendMessage();
   const { setStatus, markRead, assign, react }                                      = useConversationActions();
+  const { sendMedia, sending: sendingMedia }                                        = useSendMedia();
   const { user, role }                                                              = useAuth();
   const myId = user?.id ?? null;
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedLeadId) return;
+    setSendErr(null);
+    try {
+      await sendMedia(selectedLeadId, file, draft.trim());
+      setDraft('');
+      refetchMsgs();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
+      setSendErr(axiosErr.response?.data?.error?.message ?? 'Could not send the file');
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -854,6 +872,21 @@ export default function WhatsAppPage() {
                 )}
                 {sendErr && <p className="text-xs text-red-600">{sendErr}</p>}
                 <div className="flex gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    hidden
+                    accept="image/*,application/pdf,audio/*,video/*"
+                    onChange={(e) => void handleFile(e)}
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!isConnected || sendingMedia}
+                    title="Attach a photo or document"
+                    className="shrink-0 px-2.5 py-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  >
+                    {sendingMedia ? <Loader2 size={15} className="animate-spin" /> : <Paperclip size={15} />}
+                  </button>
                   <button
                     onClick={() => setShowTemplates(true)}
                     disabled={!isConnected}

@@ -56,6 +56,17 @@ export async function processWhatsappSend(job: Job<WhatsappSendPayload>): Promis
       type: 'reaction',
       reaction: { message_id: vars['waId'] ?? '', emoji: vars['emoji'] ?? '' },
     };
+  } else if (template === 'MEDIA') {
+    const mediaType = vars['mediaType'] || 'document';
+    const mediaObject: Record<string, string> = { id: vars['mediaId'] ?? '' };
+    if (vars['caption']) mediaObject['caption'] = vars['caption'];
+    if (mediaType === 'document' && vars['filename']) mediaObject['filename'] = vars['filename'];
+    body = {
+      messaging_product: 'whatsapp',
+      to: phone,
+      type: mediaType,
+      [mediaType]: mediaObject,
+    };
   } else {
     const parameters = Object.values(vars).map((value) => ({
       type: 'text',

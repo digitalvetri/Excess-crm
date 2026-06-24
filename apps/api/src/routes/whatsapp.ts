@@ -2,8 +2,10 @@ import type { FastifyPluginAsync } from 'fastify';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 import { env } from '@excess/config';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import multipart from '@fastify/multipart';
+import { randomUUID } from 'node:crypto';
 
 const s3 = new S3Client({ region: env.AWS_REGION });
 
@@ -20,6 +22,8 @@ const whatsappConfigSchema = z.object({
 });
 
 export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
+  await app.register(multipart, { limits: { fileSize: 16 * 1024 * 1024 } });
+
   // GET /whatsapp/config — return saved WhatsApp Business config (token redacted)
   app.get('/config', async (req, reply) => {
     if (!can(req.auth.role, 'broadcasts.read')) {
@@ -450,6 +454,96 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
       expiresIn: 300,
     });
     return reply.send({ data: { url, ready: true, mime: media.mime ?? null, type: media.type ?? null } });
+  });
+
+  // POST /whatsapp/send-media — upload a file (multipart) → archive to S3 + upload to
+  // Meta → send as a media message. Field `leadId` (+ optional `caption`) accompany the file.
+  app.post('/send-media', async (req, reply) => {
+    if (!can(req.auth.role, 'whatsapp.send')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const data = await req.file();
+    if (!data) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'A file is required' } });
+    }
+    const leadId = (data.fields['leadId'] as { value?: string } | undefined)?.value;
+    const caption = (data.fields['caption'] as { value?: string } | undefined)?.value ?? '';
+    if (!leadId) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'leadId is required' } });
+    }
+    const buffer = await data.toBuffer();
+    const mime = data.mimetype;
+    const filename = data.filename || 'file';
+    const mediaType = mime.startsWith('image/') ? 'image'
+      : mime.startsWith('audio/') ? 'audio'
+      : mime.startsWith('video/') ? 'video'
+      : 'document';
+
+    const [lead, cfg] = await req.withTenant((tx) =>
+      Promise.all([
+        tx.lead.findUnique({ where: { id: leadId }, select: { id: true, phone: true } }),
+        tx.whatsappConfig.findUnique({ where: { tenantId: req.auth.tenantId }, select: { phoneNumberId: true, accessToken: true, isConnected: true } }),
+      ]),
+    );
+    if (!lead) {
+      return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
+    }
+    const phoneNumberId = (cfg?.isConnected && cfg.phoneNumberId) || process.env['WHATSAPP_PHONE_NUMBER_ID'];
+    const accessToken = (cfg?.isConnected && cfg.accessToken) || process.env['WHATSAPP_ACCESS_TOKEN'];
+    if (!phoneNumberId || !accessToken) {
+      return reply.code(400).send({ error: { code: 'whatsapp.not_connected', message: 'WhatsApp is not connected' } });
+    }
+
+    // 1. Archive to S3 (only the key is persisted).
+    const s3Key = `whatsapp-media/${req.auth.tenantId}/${randomUUID()}`;
+    await s3.send(new PutObjectCommand({ Bucket: env.S3_BUCKET_ASSETS, Key: s3Key, Body: buffer, ContentType: mime }));
+
+    // 2. Upload to Meta media to obtain a media id.
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mime);
+    form.append('file', new Blob([buffer], { type: mime }), filename);
+    const metaRes = await fetch(`https://graph.facebook.com/v18.0/${phoneNumberId}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form,
+    });
+    if (!metaRes.ok) {
+      req.log.error({ tenantId: req.auth.tenantId, leadId, status: metaRes.status }, 'whatsapp.media_upload_failed');
+      return reply.code(502).send({ error: { code: 'whatsapp.media_upload_failed', message: 'Meta rejected the media upload' } });
+    }
+    const mediaId = ((await metaRes.json()) as { id?: string }).id;
+    if (!mediaId) {
+      return reply.code(502).send({ error: { code: 'whatsapp.media_upload_failed', message: 'Meta did not return a media id' } });
+    }
+
+    // 3. Enqueue the send + record the thread activity (rendered immediately via S3).
+    await app.queues.whatsappSend.add('whatsapp-send', {
+      tenantId: req.auth.tenantId,
+      leadId,
+      phone: lead.phone,
+      template: 'MEDIA',
+      vars: { mediaId, mediaType, caption, filename },
+    });
+    await req.withTenant((tx) =>
+      tx.leadActivity.create({
+        data: {
+          leadId,
+          tenantId: req.auth.tenantId,
+          actorUserId: req.auth.userId,
+          actorIsAi: false,
+          type: 'WHATSAPP',
+          payload: {
+            message: caption || (mediaType === 'document' ? `📄 ${filename}` : mediaType === 'audio' ? '🎤 Voice note' : '📷 Photo'),
+            direction: 'outbound',
+            media: { type: mediaType, s3Key, mime, caption, filename },
+          } as object,
+        },
+      }),
+    );
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, mediaType }, 'whatsapp.media_queued');
+    return reply.code(202).send({ data: { queued: true } });
   });
 
   // POST /whatsapp/react — emoji-react to a message (sent natively via WhatsApp).

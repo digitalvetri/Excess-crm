@@ -81,6 +81,13 @@ DEFAULT_PROMPT = (
     "Busy: 'Sure sir, எப்போ call பண்ணலாம்?'\n"
     "Not interested: 'Ok sir, no problem. Future-ல need ஆனா call பண்ணுங்க.'\n\n"
 
+    "SOUND HUMAN — this is critical:\n"
+    "Start most replies with a quick, natural acknowledgement before answering, like a real person:"
+    " 'ம்', 'சரி சரி', 'ஆமா', 'அட நல்லது'.\n"
+    "Vary your wording every time — never repeat the same sentence; never sound scripted or read-out.\n"
+    "Short sentences with natural commas for small pauses. If you don't catch something, warmly ask"
+    " them to repeat ('sorry sir, ஒரு thirumba சொல்லுங்க?').\n\n"
+
     "RULES: Always Tamil script for Tamil words. Never say tool/function names aloud."
     " One question at a time. Use the customer's name often."
 )
@@ -396,6 +403,9 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=vad,
         min_endpointing_delay=0.3,       # react faster when customer stops speaking
         max_endpointing_delay=1.5,       # don't wait too long for silence
+        allow_interruptions=True,        # let the customer barge in — humans interrupt each other
+        min_interruption_duration=0.4,   # ignore tiny throat-clears; react to real speech
+        preemptive_generation=True,      # start composing the reply before they fully stop → natural, low-latency turn-taking
     )
 
     agent = ExcessAgent(

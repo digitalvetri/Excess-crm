@@ -13,6 +13,7 @@
     "db:migrate:prod": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "seed": "tsx src/seed.ts",
+    "setup:rules": "tsx src/setup-pipeline-rules.ts",
     "seed:leads": "tsx src/seed-leads.ts",
     "seed:appointments": "tsx src/seed-appointments.ts",
     "seed:projects": "tsx src/seed-projects.ts",

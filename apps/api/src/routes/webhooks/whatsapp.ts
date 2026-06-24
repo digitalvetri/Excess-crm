@@ -210,6 +210,7 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
                   return created.id;
                 });
                 await app.redis.incr(`wa_unread:${source.tenantId}:${mediaLead.id}`).catch(() => {});
+                void app.redis.publish(`wa_events:${source.tenantId}`, JSON.stringify({ type: 'update', leadId: mediaLead.id })).catch(() => {});
                 // Download the media to S3 (async) so the inbox can serve it.
                 if (media?.id) {
                   await req.server.queues.callWebhook.add('download-whatsapp-media', {
@@ -313,6 +314,7 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
             });
             // Inbox unread badge (Redis-backed; cleared when an agent opens the chat).
             await app.redis.incr(`wa_unread:${source.tenantId}:${existingLead.id}`).catch(() => {});
+            void app.redis.publish(`wa_events:${source.tenantId}`, JSON.stringify({ type: 'update', leadId: existingLead.id })).catch(() => {});
             req.log.info({ tenantId: source.tenantId, leadId: existingLead.id, waMessageId: msg.id }, 'whatsapp.inbound_reply_stored');
             continue;
           }

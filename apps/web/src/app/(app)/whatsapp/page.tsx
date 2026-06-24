@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
@@ -12,6 +12,7 @@ import {
   useWhatsappConfig,
   useSaveWhatsappConfig,
   useDisconnectWhatsapp,
+  useWhatsappStream,
   useConversationActions,
   useConversationAssist,
   useWhatsappTemplates,
@@ -457,11 +458,22 @@ export default function WhatsAppPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Live updates via SSE; the interval below is just a slow safety net if the stream drops.
+  useWhatsappStream(
+    useCallback(
+      (leadId: string) => {
+        refetchConvs();
+        if (leadId === selectedLeadId) refetchMsgs();
+      },
+      [refetchConvs, refetchMsgs, selectedLeadId],
+    ),
+  );
+
   useEffect(() => {
     const id = setInterval(() => {
       if (selectedLeadId) refetchMsgs();
       else refetchConvs();
-    }, 10_000);
+    }, 30_000);
     return () => clearInterval(id);
   }, [selectedLeadId, refetchMsgs, refetchConvs]);
 

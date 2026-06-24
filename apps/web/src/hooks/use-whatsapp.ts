@@ -265,6 +265,26 @@ export function useSendTemplate() {
   return { sendTemplate, sending };
 }
 
+// Live inbox updates via Server-Sent Events (proxied same-origin). Calls onUpdate(leadId)
+// whenever a conversation changes (inbound/outbound message, status). Auto-reconnects.
+export function useWhatsappStream(onUpdate: (leadId: string) => void) {
+  const cb = useRef(onUpdate);
+  cb.current = onUpdate;
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+    const es = new EventSource('/api/v1/whatsapp/stream');
+    es.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data) as { leadId?: string };
+        if (d?.leadId) cb.current(d.leadId);
+      } catch {
+        /* ignore malformed frames (e.g. keep-alive comments) */
+      }
+    };
+    return () => es.close();
+  }, []);
+}
+
 export interface ConversationAssist {
   summary: string;
   suggestions: string[];

@@ -26,6 +26,43 @@ const whatsappConfigSchema = z.object({
 export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
   await app.register(multipart, { limits: { fileSize: 16 * 1024 * 1024 } });
 
+  // GET /whatsapp/stream — Server-Sent Events of inbox changes for the tenant, fed by
+  // Redis pub/sub. The web proxies this same-origin (cookies flow), so EventSource just
+  // works. Each connection gets its own subscriber connection, cleaned up on disconnect.
+  app.get('/stream', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const channel = `wa_events:${req.auth.tenantId}`;
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    reply.raw.write('retry: 5000\n\n');
+
+    const sub = app.redis.duplicate({ lazyConnect: false });
+    await sub.subscribe(channel);
+    sub.on('message', (_ch, message) => {
+      reply.raw.write(`data: ${message}\n\n`);
+    });
+
+    const ping = setInterval(() => reply.raw.write(': ping\n\n'), 25_000);
+
+    req.raw.on('close', () => {
+      clearInterval(ping);
+      void sub.unsubscribe(channel).catch(() => {});
+      void sub.quit().catch(() => {});
+    });
+  });
+
+  // Notify connected inbox clients (via /stream) that a conversation changed.
+  const publishUpdate = (tenantId: string, leadId: string): void => {
+    void app.redis.publish(`wa_events:${tenantId}`, JSON.stringify({ type: 'update', leadId })).catch(() => {});
+  };
+
   // GET /whatsapp/config — return saved WhatsApp Business config (token redacted)
   app.get('/config', async (req, reply) => {
     if (!can(req.auth.role, 'broadcasts.read')) {
@@ -330,6 +367,7 @@ ${history || '(no messages yet)'}`;
       return reply.code(400).send({ error: { code: 'validation_error', message: 'status must be OPEN, PENDING or RESOLVED' } });
     }
     await app.redis.set(`wa_status:${req.auth.tenantId}:${leadId}`, status);
+    publishUpdate(req.auth.tenantId, leadId);
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, status }, 'whatsapp.conversation_status');
     return reply.send({ data: { leadId, status } });
   });
@@ -436,6 +474,7 @@ ${history || '(no messages yet)'}`;
       await app.redis.del(draftedKey);
     }
 
+    publishUpdate(req.auth.tenantId, leadId);
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId }, 'whatsapp.message_queued');
     return reply.code(202).send({ data: { queued: true } });
   });
@@ -487,6 +526,7 @@ ${history || '(no messages yet)'}`;
       }),
     );
 
+    publishUpdate(req.auth.tenantId, leadId);
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, template: templateName }, 'whatsapp.template_queued');
     return reply.code(202).send({ data: { queued: true } });
   });
@@ -599,6 +639,7 @@ ${history || '(no messages yet)'}`;
       }),
     );
 
+    publishUpdate(req.auth.tenantId, leadId);
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, mediaType }, 'whatsapp.media_queued');
     return reply.code(202).send({ data: { queued: true } });
   });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { formatDistanceToNow, format, differenceInHours } from 'date-fns';
 import {
@@ -11,6 +11,7 @@ import {
   Edit2,
   Check,
   FileText,
+  Paperclip,
   PhoneCall,
   MessageSquare,
   UserCheck,
@@ -40,7 +41,8 @@ import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMer
 import { useQuery } from '@tanstack/react-query';
 import { useComputeLeadScore, useCallInsights, useNextAction } from '@/hooks/use-insights';
 import { api } from '@/lib/api';
-import { useMessages, useSendMessage, useWhatsappStatus, useDraftReply } from '@/hooks/use-whatsapp';
+import { useMessages, useSendMessage, useWhatsappStatus, useDraftReply, useSendMedia } from '@/hooks/use-whatsapp';
+import { TemplatePicker } from '@/components/whatsapp/template-picker';
 import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
 import { StageBadge } from './stage-badge';
 import { ConvertLeadModal } from './convert-lead-modal';
@@ -1287,10 +1289,28 @@ export function LeadDetailView({ id }: LeadDetailViewProps) {
 function WhatsAppThread({ leadId, leadName, leadPhone }: { leadId: string; leadName: string; leadPhone: string }) {
   const [draft, setDraft] = useState('');
   const [sendErr, setSendErr] = useState<string | null>(null);
-  const { messages, loading } = useMessages(leadId);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const { messages, loading, refetch } = useMessages(leadId);
   const { send, loading: sending } = useSendMessage();
   const { data: status } = useWhatsappStatus();
   const { draftReply, drafting } = useDraftReply();
+  const { sendMedia, sending: sendingMedia } = useSendMedia();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setSendErr(null);
+    try {
+      await sendMedia(leadId, file, draft.trim());
+      setDraft('');
+      refetch();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
+      setSendErr(axiosErr.response?.data?.error?.message ?? 'Could not send the file');
+    }
+  }
 
   async function handleDraft() {
     setSendErr(null);
@@ -1323,7 +1343,15 @@ function WhatsAppThread({ leadId, leadName, leadPhone }: { leadId: string; leadN
   }
 
   return (
-    <div className="bg-white rounded-xl border border-border">
+    <div className="relative bg-white rounded-xl border border-border overflow-hidden">
+      {showTemplates && (
+        <TemplatePicker
+          leadId={leadId}
+          leadName={leadName}
+          onClose={() => setShowTemplates(false)}
+          onSent={() => refetch()}
+        />
+      )}
       <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
         <MessageSquare size={15} className="text-emerald-500" />
         <h2 className="font-semibold text-slate-800">WhatsApp — {leadName}</h2>
@@ -1380,6 +1408,25 @@ function WhatsAppThread({ leadId, leadName, leadPhone }: { leadId: string; leadN
           {drafting ? 'Drafting…' : 'Draft with AI'}
         </button>
         <div className="flex gap-2">
+          <input ref={fileRef} type="file" hidden accept="image/*,application/pdf,audio/*,video/*" onChange={(e) => void handleFile(e)} />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={!connected || sendingMedia}
+            title="Attach a photo or document"
+            className="shrink-0 px-2.5 py-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            {sendingMedia ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowTemplates(true)}
+            disabled={!connected}
+            title="Send an approved template (works outside the 24-hour window)"
+            className="shrink-0 px-2.5 py-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            <FileText size={14} />
+          </button>
           <input
             type="text"
             value={draft}

@@ -9,6 +9,7 @@ import { TodayAppointments } from '@/components/dashboard/today-appointments';
 import { VoiceActivity } from '@/components/dashboard/voice-activity';
 import { FranchiseSnapshot } from '@/components/dashboard/franchise-snapshot';
 import { DashboardBanner } from '@/components/dashboard/dashboard-banner';
+import { DailyBriefCard } from '@/components/dashboard/daily-brief-card';
 import { FranchiseDashboard } from '@/components/dashboard/franchise-dashboard';
 import { EngineerDashboard } from '@/components/dashboard/engineer-dashboard';
 
@@ -24,6 +25,8 @@ function AdminDashboard() {
   return (
     <div className="space-y-6">
       <DashboardBanner />
+
+      <DailyBriefCard />
 
       <Suspense
         fallback={
@@ -80,6 +83,8 @@ function EmployeeDashboard() {
   return (
     <div className="space-y-6">
       <DashboardBanner />
+
+      <DailyBriefCard />
 
       <Suspense
         fallback={

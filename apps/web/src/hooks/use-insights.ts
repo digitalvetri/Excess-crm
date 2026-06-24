@@ -170,6 +170,23 @@ export interface NextAction {
   generatedAt: string;
 }
 
+export interface DailyBrief {
+  brief: string;
+  stats: { hot: number; overdue: number; qualified: number; followUp: number; newToday: number };
+  hotLeads: { id: string; name: string; stage: string; aiScore: number | null; city: string | null }[];
+  generatedAt: string;
+}
+
+// AI-phrased "your day" briefing for the dashboard. Always returns something useful.
+export function useDailyBrief() {
+  return useQuery({
+    queryKey: ['ai', 'daily-brief'],
+    queryFn: () =>
+      api.get<{ data: DailyBrief }>('/ai/daily-brief').then((r) => r.data.data).catch(() => null),
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
 // AI "what to do next" for a lead. Cached server-side (4h); errors/no-key resolve to
 // undefined so the UI can hide cleanly.
 export function useNextAction(leadId: string) {

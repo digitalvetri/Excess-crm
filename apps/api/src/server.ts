@@ -30,6 +30,7 @@ import { whatsappMessagingRoutes } from './routes/whatsapp.js';
 import { kbRoutes } from './routes/kb.js';
 import { referralsRoutes } from './routes/referrals.js';
 import { leaderboardRoutes } from './routes/leaderboard.js';
+import { aiRoutes } from './routes/ai.js';
 import { reviewsRoutes } from './routes/reviews.js';
 import { walletRoutes } from './routes/wallet.js';
 import { reportsRoutes } from './routes/reports.js';
@@ -105,6 +106,7 @@ export async function buildServer() {
     await api.register(kbRoutes, { prefix: '/kb' });
     await api.register(referralsRoutes, { prefix: '/referrals' });
     await api.register(leaderboardRoutes, { prefix: '/leaderboard' });
+    await api.register(aiRoutes, { prefix: '/ai' });
     await api.register(reviewsRoutes, { prefix: '/reviews' });
     await api.register(walletRoutes, { prefix: '/wallet' });
     await api.register(engagementRoutes, { prefix: '/engagement' });

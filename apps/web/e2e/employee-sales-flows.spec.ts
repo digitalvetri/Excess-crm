@@ -112,6 +112,13 @@ test.describe('Employee Sales flows (Phase 1)', () => {
     }
   });
 
+  test('AI daily-brief returns a brief + stats', async ({ page }) => {
+    await login(page);
+    const brief = await ok(await page.request.get(`${API}/ai/daily-brief`), 'daily-brief');
+    expect(brief.data.brief.length).toBeGreaterThan(0);
+    expect(brief.data.stats).toHaveProperty('hot');
+  });
+
   test('quotation: create → send', async ({ page }) => {
     await login(page);
     const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;

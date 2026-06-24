@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
-import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare, Search, ExternalLink, Clock } from 'lucide-react';
+import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare, Search, ExternalLink, Clock, UserPlus } from 'lucide-react';
 import {
   useConversations,
   useMessages,
@@ -12,6 +12,8 @@ import {
   useWhatsappConfig,
   useSaveWhatsappConfig,
   useDisconnectWhatsapp,
+  useConversationActions,
+  type ConversationStatus,
 } from '@/hooks/use-whatsapp';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { useAuth } from '@/hooks/use-auth';
@@ -254,17 +256,39 @@ function WhatsappConnectPanel({ onClose }: { onClose: () => void }) {
 
 // ─── Main WhatsApp page ───────────────────────────────────────────────────────
 
+const STATUS_STYLES: Record<ConversationStatus, string> = {
+  OPEN: 'bg-emerald-50 text-emerald-700',
+  PENDING: 'bg-amber-50 text-amber-700',
+  RESOLVED: 'bg-slate-100 text-slate-500',
+};
+
+function StatusPill({ status }: { status: ConversationStatus }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize ${STATUS_STYLES[status]}`}>
+      {status.toLowerCase()}
+    </span>
+  );
+}
+
+function initials(name: string) {
+  return name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+}
+
 export default function WhatsAppPage() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [draft, setDraft]                   = useState('');
   const [sendErr, setSendErr]               = useState<string | null>(null);
   const [showConnect, setShowConnect]       = useState(false);
   const [search, setSearch]                 = useState('');
+  const [filter, setFilter]                 = useState<'all' | 'mine' | 'unassigned' | 'open' | 'resolved'>('all');
 
   const { data: config }                                                            = useWhatsappConfig();
   const { conversations, loading: convsLoading, error: convsError, refetch: refetchConvs } = useConversations();
   const { messages, loading: msgsLoading, error: msgsError, refetch: refetchMsgs } = useMessages(selectedLeadId);
   const { send, loading: sending }                                                  = useSendMessage();
+  const { setStatus, markRead, assign }                                             = useConversationActions();
+  const { user, role }                                                              = useAuth();
+  const myId = user?.id ?? null;
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -298,20 +322,54 @@ export default function WhatsAppPage() {
     }
   }
 
+  async function handleSelect(leadId: string) {
+    setSelectedLeadId(leadId);
+    try {
+      await markRead(leadId);
+      refetchConvs();
+    } catch {
+      /* unread is best-effort */
+    }
+  }
+
+  async function handleAssignToMe() {
+    if (!selectedLeadId || !myId) return;
+    try {
+      await assign(selectedLeadId, myId);
+      refetchConvs();
+      toast.success('Assigned to you');
+    } catch {
+      toast.error('Could not assign this conversation');
+    }
+  }
+
+  async function handleSetStatus(status: ConversationStatus) {
+    if (!selectedLeadId) return;
+    try {
+      await setStatus(selectedLeadId, status);
+      refetchConvs();
+    } catch {
+      toast.error('Could not update status');
+    }
+  }
+
   const selectedConv = conversations.find((c) => c.leadId === selectedLeadId);
   const filteredConvs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter(
-      (c) => (c.lead?.name ?? '').toLowerCase().includes(q) || c.phone.toLowerCase().includes(q),
-    );
-  }, [conversations, search]);
+    return conversations.filter((c) => {
+      if (q && !(c.lead?.name ?? '').toLowerCase().includes(q) && !c.phone.toLowerCase().includes(q)) return false;
+      if (filter === 'mine') return c.assignee?.userId === myId;
+      if (filter === 'unassigned') return !c.assignee;
+      if (filter === 'open') return (c.status ?? 'OPEN') === 'OPEN';
+      if (filter === 'resolved') return c.status === 'RESOLVED';
+      return true;
+    });
+  }, [conversations, search, filter, myId]);
   // 24-hour WhatsApp session window: free-text is only deliverable while it's open.
   const windowOpen = selectedConv ? new Date(selectedConv.sessionExpiresAt).getTime() > Date.now() : true;
   const isConnected  = config?.isConnected ?? false;
   // Saving WhatsApp credentials is integrations.write (ADMIN-only); employees can use
   // a connected number but can't connect/manage it. Don't show them a form that 403s.
-  const { role }   = useAuth();
   const canManage  = role === 'ADMIN';
 
   return (
@@ -388,6 +446,19 @@ export default function WhatsAppPage() {
                 className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
+            <div className="flex flex-wrap gap-1">
+              {(['all', 'mine', 'unassigned', 'open', 'resolved'] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize transition-colors ${
+                    filter === f ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto">
             {convsLoading ? (
@@ -406,21 +477,39 @@ export default function WhatsAppPage() {
                 return (
                   <button
                     key={conv.id}
-                    onClick={() => setSelectedLeadId(conv.leadId)}
+                    onClick={() => void handleSelect(conv.leadId)}
                     className={`w-full text-left px-4 py-3 border-b border-border transition-colors ${
                       active ? 'bg-primary/5' : 'hover:bg-slate-50'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-sm text-slate-900 truncate">
+                      <span className={`text-sm truncate ${conv.unread ? 'font-bold text-slate-900' : 'font-medium text-slate-900'}`}>
                         {conv.lead?.name ?? conv.phone}
                       </span>
-                      <span className="text-xs text-slate-400 shrink-0 whitespace-nowrap">
-                        {formatDistanceToNow(new Date(conv.lastMessageAt), { addSuffix: true })}
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        {!!conv.unread && (
+                          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-white">
+                            {conv.unread}
+                          </span>
+                        )}
+                        <span className="text-xs text-slate-400 whitespace-nowrap">
+                          {formatDistanceToNow(new Date(conv.lastMessageAt), { addSuffix: true })}
+                        </span>
                       </span>
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5 truncate">
                       {conv.lastMessagePreview?.trim() || conv.phone}
+                    </div>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <StatusPill status={conv.status ?? 'OPEN'} />
+                      {conv.assignee && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+                          <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-200 text-[8px] font-bold text-slate-600">
+                            {initials(conv.assignee.name)}
+                          </span>
+                          {conv.assignee.userId === myId ? 'You' : conv.assignee.name.split(' ')[0]}
+                        </span>
+                      )}
                     </div>
                   </button>
                 );
@@ -462,6 +551,48 @@ export default function WhatsAppPage() {
                 >
                   Open lead <ExternalLink size={12} />
                 </Link>
+              </div>
+
+              {/* Triage toolbar — status + assignment */}
+              <div className="px-4 py-2 border-b border-border flex items-center gap-2 bg-slate-50/60">
+                <div className="flex items-center gap-1">
+                  {(['OPEN', 'PENDING', 'RESOLVED'] as const).map((st) => {
+                    const activeStatus = (selectedConv?.status ?? 'OPEN') === st;
+                    return (
+                      <button
+                        key={st}
+                        onClick={() => void handleSetStatus(st)}
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize transition-colors ${
+                          activeStatus
+                            ? `${STATUS_STYLES[st]} ring-1 ring-inset ring-black/5`
+                            : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {st.toLowerCase()}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                  {selectedConv?.assignee ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-[9px] font-bold text-slate-600">
+                        {initials(selectedConv.assignee.name)}
+                      </span>
+                      {selectedConv.assignee.userId === myId ? 'Assigned to you' : selectedConv.assignee.name}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">Unassigned</span>
+                  )}
+                  {myId && selectedConv?.assignee?.userId !== myId && (
+                    <button
+                      onClick={() => void handleAssignToMe()}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+                    >
+                      <UserPlus size={12} /> Assign to me
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-3">

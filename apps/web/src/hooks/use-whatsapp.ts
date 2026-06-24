@@ -63,6 +63,8 @@ export function useDisconnectWhatsapp() {
   });
 }
 
+export type ConversationStatus = 'OPEN' | 'PENDING' | 'RESOLVED';
+
 export interface WaConversation {
   id: string;
   leadId: string;
@@ -70,6 +72,9 @@ export interface WaConversation {
   sessionExpiresAt: string;
   lastMessageAt: string;
   lastMessagePreview?: string | null;
+  assignee?: { userId: string; name: string } | null;
+  status?: ConversationStatus;
+  unread?: number;
   lead?: { name: string; phone: string; stage: string; aiScore?: number | null };
 }
 
@@ -190,6 +195,25 @@ export function useSendMessage() {
   }, []);
 
   return { send, loading, error };
+}
+
+// Inbox triage: set conversation status, clear unread, (re)assign the owner.
+export function useConversationActions() {
+  const setStatus = useCallback(
+    (leadId: string, status: ConversationStatus) =>
+      api.patch(`/whatsapp/conversations/${leadId}/status`, { status }).then(() => undefined),
+    [],
+  );
+  const markRead = useCallback(
+    (leadId: string) => api.post(`/whatsapp/conversations/${leadId}/read`).then(() => undefined),
+    [],
+  );
+  const assign = useCallback(
+    (leadId: string, userId: string) =>
+      api.patch(`/leads/${leadId}/assign`, { userId }).then(() => undefined),
+    [],
+  );
+  return { setStatus, markRead, assign };
 }
 
 // AI-drafts a reply for the lead's conversation. Returns the suggested text; the rep

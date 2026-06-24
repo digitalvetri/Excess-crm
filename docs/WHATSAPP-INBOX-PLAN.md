@@ -28,12 +28,13 @@ No schema change — uses data you already have.
 - **24-hour window indicator** in the composer (free-text allowed only inside the window; template-only outside — you already store `sessionExpiresAt`).
 - *Files:* `whatsapp/page.tsx`, `use-whatsapp.ts` (expose `sessionExpiresAt`, unread, preview from the conversations endpoint).
 
-### Phase 2 — Multi-agent (assignment · status · notes) *(~1 week)*
-The "shared" in shared inbox.
-- **Schema:** add to `WaSession` → `assignedUserId`, `status` (OPEN/PENDING/RESOLVED), `unreadCount`, `lastMessagePreview`, `lastMessageDirection`. *(Additive columns — apply via `prisma db push` from the Coolify API-container terminal, like the pipeline rules.)*
-- **API:** `PATCH /whatsapp/conversations/:id` (assign / set status); the inbound webhook bumps `unreadCount` + preview; `POST .../read` clears unread.
-- **UI:** assignee avatar + status pill per conversation; filter chips (Mine / Unassigned / Open / Resolved); assign + status controls in the thread header.
-- *Reuses:* your `can()` model and the existing webhook worker.
+### Phase 2 — Multi-agent (assignment · status · unread) ✅ SHIPPED — no DDL
+The "shared" in shared inbox — built **without any schema change** to avoid prod DDL risk:
+- **Assignment → lead ownership.** "Assign to me" calls the existing `PATCH /leads/:id/assign`; assignee = the lead's owner. Durable, zero new columns.
+- **Status (Open/Pending/Resolved) + unread → Redis.** `PATCH /whatsapp/conversations/:leadId/status` and `POST /whatsapp/conversations/:leadId/read`; the inbound webhook bumps `wa_unread:*`. Low-stakes triage state, tolerant of a reset.
+- **UI:** filter chips (All / Mine / Unassigned / Open / Resolved), unread badges, status pills, assignee initials, and a triage toolbar (status + Assign-to-me) in the thread header.
+
+> **⚠️ Migration policy (applies to Phases 3+):** the prod schema-change path is unresolved (the `system_kw` incident). **Do NOT run `prisma db push` on prod** — it diffs and can *drop* columns (data loss). If/when DDL is confirmed available, apply additive changes with a hand-written `ALTER TABLE … ADD COLUMN IF NOT EXISTS` only. Status/unread were kept in Redis precisely to avoid this until the DDL question is answered.
 
 ### Phase 3 — Rich messaging *(~1–2 weeks)*
 - **Media** send + receive (image / document / voice note) — extend the send endpoint + inbound webhook to handle Meta media; store the S3 key (you already have S3 wiring).

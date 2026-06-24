@@ -126,6 +126,20 @@ test.describe('Employee Sales flows (Phase 1)', () => {
     expect(usage.data).toHaveProperty('promptVersion');
   });
 
+  test('WhatsApp inbox: conversations carry triage fields; status + read work', async ({ page }) => {
+    await login(page);
+    const convs = (await ok(await page.request.get(`${API}/whatsapp/conversations?limit=1`), 'convs')).data.conversations;
+    if (convs.length === 0) return; // nothing to triage in this environment
+    const c = convs[0];
+    expect(c).toHaveProperty('status');
+    expect(c).toHaveProperty('unread');
+    await ok(
+      await page.request.patch(`${API}/whatsapp/conversations/${c.leadId}/status`, { data: { status: 'PENDING' } }),
+      'set status',
+    );
+    await ok(await page.request.post(`${API}/whatsapp/conversations/${c.leadId}/read`), 'mark read');
+  });
+
   test('quotation: create → send', async ({ page }) => {
     await login(page);
     const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;

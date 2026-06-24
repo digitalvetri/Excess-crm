@@ -234,6 +234,8 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
                 update: { lastMessageAt: new Date(), sessionExpiresAt: sessionExpiry },
               });
             });
+            // Inbox unread badge (Redis-backed; cleared when an agent opens the chat).
+            await app.redis.incr(`wa_unread:${source.tenantId}:${existingLead.id}`).catch(() => {});
             req.log.info({ tenantId: source.tenantId, leadId: existingLead.id, waMessageId: msg.id }, 'whatsapp.inbound_reply_stored');
             continue;
           }

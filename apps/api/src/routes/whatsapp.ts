@@ -195,7 +195,7 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
           Promise.all([
             tx.lead.findMany({
               where: { id: { in: leadIds } },
-              select: { id: true, name: true, phone: true, stage: true, aiScore: true },
+              select: { id: true, name: true, phone: true, stage: true, aiScore: true, ownerUserId: true },
             }),
             tx.leadActivity.findMany({
               where: { leadId: { in: leadIds }, type: 'WHATSAPP' },
@@ -216,18 +216,67 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    // Assignee = the lead's owner (durable, no new schema). Status + unread are
+    // Redis-backed triage state (low-stakes; tolerant of a reset).
+    const ownerIds = [...new Set(leads.map((l) => l.ownerUserId).filter(Boolean))] as string[];
+    const owners = ownerIds.length > 0
+      ? await req.withTenant((tx) => tx.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, name: true } }))
+      : [];
+    const ownerMap = new Map(owners.map((u) => [u.id, u.name]));
+
+    const [statuses, unreads] = leadIds.length > 0
+      ? await Promise.all([
+          app.redis.mget(leadIds.map((id) => `wa_status:${req.auth.tenantId}:${id}`)),
+          app.redis.mget(leadIds.map((id) => `wa_unread:${req.auth.tenantId}:${id}`)),
+        ])
+      : [[], []];
+    const statusMap = new Map(leadIds.map((id, i) => [id, statuses[i] || 'OPEN']));
+    const unreadMap = new Map(leadIds.map((id, i) => [id, Number(unreads[i] ?? 0)]));
+
     const hasMore = sessions.length > limit;
     const items = hasMore ? sessions.slice(0, limit) : sessions;
 
-    const result = items.map((s) => ({
-      ...s,
-      lead: leadMap.get(s.leadId) ?? null,
-      lastMessagePreview: previewMap.get(s.leadId) ?? null,
-    }));
+    const result = items.map((s) => {
+      const lead = leadMap.get(s.leadId);
+      const ownerId = lead?.ownerUserId ?? null;
+      return {
+        ...s,
+        lead: lead ? { name: lead.name, phone: lead.phone, stage: lead.stage, aiScore: lead.aiScore } : null,
+        lastMessagePreview: previewMap.get(s.leadId) ?? null,
+        assignee: ownerId ? { userId: ownerId, name: ownerMap.get(ownerId) ?? 'Unknown' } : null,
+        status: statusMap.get(s.leadId) ?? 'OPEN',
+        unread: unreadMap.get(s.leadId) ?? 0,
+      };
+    });
 
     return reply.send({
       data: { conversations: result, hasMore, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null },
     });
+  });
+
+  // PATCH /whatsapp/conversations/:leadId/status — triage status (Redis-backed).
+  app.patch('/conversations/:leadId/status', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { leadId } = req.params as { leadId: string };
+    const status = (req.body as { status?: string } | null)?.status;
+    if (!status || !['OPEN', 'PENDING', 'RESOLVED'].includes(status)) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'status must be OPEN, PENDING or RESOLVED' } });
+    }
+    await app.redis.set(`wa_status:${req.auth.tenantId}:${leadId}`, status);
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, status }, 'whatsapp.conversation_status');
+    return reply.send({ data: { leadId, status } });
+  });
+
+  // POST /whatsapp/conversations/:leadId/read — clear the unread badge.
+  app.post('/conversations/:leadId/read', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { leadId } = req.params as { leadId: string };
+    await app.redis.del(`wa_unread:${req.auth.tenantId}:${leadId}`);
+    return reply.send({ data: { leadId, unread: 0 } });
   });
 
   // GET /whatsapp/conversations/:leadId — WhatsApp message history for a lead

@@ -249,7 +249,12 @@ export function useConversationActions() {
       api.patch(`/leads/${leadId}/assign`, { userId }).then(() => undefined),
     [],
   );
-  return { setStatus, markRead, assign };
+  const react = useCallback(
+    (leadId: string, messageId: string, waId: string, emoji: string) =>
+      api.post('/whatsapp/react', { leadId, messageId, waId, emoji }).then(() => undefined),
+    [],
+  );
+  return { setStatus, markRead, assign, react };
 }
 
 // AI-drafts a reply for the lead's conversation. Returns the suggested text; the rep

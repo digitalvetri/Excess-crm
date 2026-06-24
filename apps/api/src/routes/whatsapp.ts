@@ -425,4 +425,47 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, template: templateName }, 'whatsapp.template_queued');
     return reply.code(202).send({ data: { queued: true } });
   });
+
+  // POST /whatsapp/react — emoji-react to a message (sent natively via WhatsApp).
+  // Needs the target message's wamid (we have it for inbound messages).
+  app.post('/react', async (req, reply) => {
+    if (!can(req.auth.role, 'whatsapp.send')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const body = (req.body ?? {}) as { leadId?: string; messageId?: string; waId?: string; emoji?: string };
+    const leadId = body.leadId;
+    const waId = body.waId;
+    const emoji = body.emoji;
+    if (!leadId || !waId || !emoji) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'leadId, waId and emoji are required' } });
+    }
+
+    const lead = await req.withTenant((tx) => tx.lead.findUnique({ where: { id: leadId }, select: { id: true, phone: true } }));
+    if (!lead) {
+      return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
+    }
+
+    await app.queues.whatsappSend.add('whatsapp-send', {
+      tenantId: req.auth.tenantId,
+      leadId,
+      phone: lead.phone,
+      template: 'REACTION',
+      vars: { waId, emoji },
+    });
+
+    // Reflect the reaction on the target message so the thread shows it immediately.
+    const messageId = body.messageId;
+    if (messageId) {
+      await req.withTenant(async (tx) => {
+        const act = await tx.leadActivity.findUnique({ where: { id: messageId }, select: { payload: true } });
+        if (act) {
+          const payload = { ...((act.payload ?? {}) as Record<string, unknown>), reaction: emoji };
+          await tx.leadActivity.update({ where: { id: messageId }, data: { payload: payload as object } });
+        }
+      });
+    }
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, emoji }, 'whatsapp.reaction_queued');
+    return reply.code(202).send({ data: { reacted: true } });
+  });
 };

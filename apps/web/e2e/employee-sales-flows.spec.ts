@@ -160,6 +160,18 @@ test.describe('Employee Sales flows (Phase 1)', () => {
     expect(r.status(), `reply send → ${r.status()}`).toBe(202);
   });
 
+  test('WhatsApp reactions: react endpoint accepts an emoji', async ({ page }) => {
+    await login(page);
+    const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;
+    await ok(await page.request.post(`${API}/whatsapp/send`, { data: { leadId, message: `e2e react ${Date.now()}` } }), 'send');
+    const msgs = (await ok(await page.request.get(`${API}/whatsapp/conversations/${leadId}`), 'msgs')).data.messages;
+    const target = msgs[msgs.length - 1];
+    const r = await page.request.post(`${API}/whatsapp/react`, {
+      data: { leadId, messageId: target.id, waId: 'wamid.e2e', emoji: '👍' },
+    });
+    expect(r.status(), `react → ${r.status()}`).toBe(202);
+  });
+
   test('quotation: create → send', async ({ page }) => {
     await login(page);
     const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;

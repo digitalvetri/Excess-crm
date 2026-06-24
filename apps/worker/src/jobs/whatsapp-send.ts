@@ -49,6 +49,13 @@ export async function processWhatsappSend(job: Job<WhatsappSendPayload>): Promis
       text: { body: vars['message'] ?? '' },
       ...(contextWaId ? { context: { message_id: contextWaId } } : {}),
     };
+  } else if (template === 'REACTION') {
+    body = {
+      messaging_product: 'whatsapp',
+      to: phone,
+      type: 'reaction',
+      reaction: { message_id: vars['waId'] ?? '', emoji: vars['emoji'] ?? '' },
+    };
   } else {
     const parameters = Object.values(vars).map((value) => ({
       type: 'text',

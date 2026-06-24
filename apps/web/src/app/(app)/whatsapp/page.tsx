@@ -405,7 +405,7 @@ export default function WhatsAppPage() {
   const { conversations, loading: convsLoading, error: convsError, refetch: refetchConvs } = useConversations();
   const { messages, loading: msgsLoading, error: msgsError, refetch: refetchMsgs } = useMessages(selectedLeadId);
   const { send, loading: sending }                                                  = useSendMessage();
-  const { setStatus, markRead, assign }                                             = useConversationActions();
+  const { setStatus, markRead, assign, react }                                      = useConversationActions();
   const { user, role }                                                              = useAuth();
   const myId = user?.id ?? null;
 
@@ -470,6 +470,16 @@ export default function WhatsAppPage() {
       refetchConvs();
     } catch {
       toast.error('Could not update status');
+    }
+  }
+
+  async function handleReact(messageId: string, waId: string, emoji: string) {
+    if (!selectedLeadId) return;
+    try {
+      await react(selectedLeadId, messageId, waId, emoji);
+      refetchMsgs();
+    } catch {
+      toast.error('Could not send reaction');
     }
   }
 
@@ -741,6 +751,7 @@ export default function WhatsAppPage() {
                       (!msg.payload.direction && msg.actorIsAi);
                     const quoted = (msg.payload.replyTo as { text?: string } | undefined)?.text;
                     const waId = msg.payload.waMessageId as string | undefined;
+                    const reaction = msg.payload.reaction as string | undefined;
                     return (
                       <div key={msg.id} className={`group flex items-center gap-1.5 ${isOutbound ? 'justify-end' : 'justify-start'}`}>
                         {isOutbound && (
@@ -753,7 +764,7 @@ export default function WhatsAppPage() {
                           </button>
                         )}
                         <div
-                          className={`max-w-xs lg:max-w-md px-3 py-2 rounded-xl text-sm ${
+                          className={`relative max-w-xs lg:max-w-md px-3 py-2 rounded-xl text-sm ${
                             isOutbound
                               ? 'bg-blue-500 text-white rounded-br-none'
                               : 'bg-slate-100 text-slate-800 rounded-bl-none'
@@ -771,15 +782,23 @@ export default function WhatsAppPage() {
                               minute: '2-digit',
                             })}
                           </p>
+                          {reaction && (
+                            <span className="absolute -bottom-2.5 right-1 rounded-full border border-white bg-white px-1 text-xs shadow-sm">
+                              {reaction}
+                            </span>
+                          )}
                         </div>
                         {!isOutbound && (
-                          <button
-                            onClick={() => setReplyingTo({ text, ...(waId ? { waId } : {}) })}
-                            title="Reply"
-                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 transition-opacity"
-                          >
-                            <Reply size={13} />
-                          </button>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => setReplyingTo({ text, ...(waId ? { waId } : {}) })} title="Reply" className="text-slate-400 hover:text-slate-700">
+                              <Reply size={13} />
+                            </button>
+                            {waId && ['👍', '❤️', '🙏'].map((e) => (
+                              <button key={e} onClick={() => void handleReact(msg.id, waId, e)} title={`React ${e}`} className="text-sm leading-none hover:scale-125 transition-transform">
+                                {e}
+                              </button>
+                            ))}
+                          </div>
                         )}
                       </div>
                     );

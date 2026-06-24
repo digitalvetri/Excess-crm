@@ -76,5 +76,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next|api|favicon.ico|logo.jpeg|solar-hero.png|banner-hero.png).*)'],
+  matcher: ['/((?!_next|api|favicon.ico|logo.jpeg|solar-hero.png).*)'],
 };

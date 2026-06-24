@@ -100,11 +100,22 @@ export default function LoginPage() {
     <div className="min-h-screen flex bg-white">
       {/* Brand panel */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
+        {/* Pure-CSS solar brand hero — no raster image (was a 2.2MB PNG) */}
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,#08512A_0%,#0B7A3D_50%,#0A5E30_100%)]" />
         <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: 'url(/solar-hero.png)' }}
+          aria-hidden
+          className="absolute -right-20 -top-28 h-[28rem] w-[28rem] rounded-full blur-3xl
+                     bg-[radial-gradient(circle,rgba(243,156,18,0.45),rgba(243,156,18,0)_70%)]"
         />
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/95 via-primary/85 to-primary-dark/95" />
+        <div
+          aria-hidden
+          className="absolute inset-0 opacity-[0.06]"
+          style={{
+            backgroundImage:
+              'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
+            backgroundSize: '30px 30px',
+          }}
+        />
         <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full">
           <div className="bg-white rounded-xl p-3 self-start shadow-lg">
             {/* eslint-disable-next-line @next/next/no-img-element */}

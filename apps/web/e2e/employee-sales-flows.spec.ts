@@ -133,6 +133,7 @@ test.describe('Employee Sales flows (Phase 1)', () => {
     const c = convs[0];
     expect(c).toHaveProperty('status');
     expect(c).toHaveProperty('unread');
+    expect(c).toHaveProperty('waitingSince');
     await ok(
       await page.request.patch(`${API}/whatsapp/conversations/${c.leadId}/status`, { data: { status: 'PENDING' } }),
       'set status',

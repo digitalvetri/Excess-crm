@@ -75,6 +75,7 @@ export interface WaConversation {
   assignee?: { userId: string; name: string } | null;
   status?: ConversationStatus;
   unread?: number;
+  waitingSince?: string | null;
   lead?: { name: string; phone: string; stage: string; aiScore?: number | null };
 }
 

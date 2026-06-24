@@ -281,6 +281,21 @@ function initials(name: string) {
   return name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 }
 
+// First-response SLA: how long the customer has been waiting for a reply.
+function SlaTimer({ since }: { since: string }) {
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 60000));
+  const tone = mins >= 120 ? 'bg-danger/10 text-danger' : mins >= 30 ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500';
+  const elapsed = mins >= 60 ? `${Math.floor(mins / 60)}h` : `${mins}m`;
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${tone}`}
+      title="Customer is waiting for a reply"
+    >
+      <Clock size={9} /> {elapsed}
+    </span>
+  );
+}
+
 // Renders a message's media once it's in S3 (presigned URL). Falls back to the text
 // label while the download is still in flight.
 function WaMediaView({ activityId, mediaType, label }: { activityId: string; mediaType: string | undefined; label: string }) {
@@ -422,7 +437,7 @@ export default function WhatsAppPage() {
   const [sendErr, setSendErr]               = useState<string | null>(null);
   const [showConnect, setShowConnect]       = useState(false);
   const [search, setSearch]                 = useState('');
-  const [filter, setFilter]                 = useState<'all' | 'mine' | 'unassigned' | 'open' | 'resolved'>('all');
+  const [filter, setFilter]                 = useState<'all' | 'awaiting' | 'mine' | 'unassigned' | 'open' | 'resolved'>('all');
   const [showTemplates, setShowTemplates]   = useState(false);
   const [replyingTo, setReplyingTo]         = useState<{ text: string; waId?: string } | null>(null);
 
@@ -543,6 +558,7 @@ export default function WhatsAppPage() {
     const q = search.trim().toLowerCase();
     return conversations.filter((c) => {
       if (q && !(c.lead?.name ?? '').toLowerCase().includes(q) && !c.phone.toLowerCase().includes(q)) return false;
+      if (filter === 'awaiting') return !!c.waitingSince;
       if (filter === 'mine') return c.assignee?.userId === myId;
       if (filter === 'unassigned') return !c.assignee;
       if (filter === 'open') return (c.status ?? 'OPEN') === 'OPEN';
@@ -632,7 +648,7 @@ export default function WhatsAppPage() {
               />
             </div>
             <div className="flex flex-wrap gap-1">
-              {(['all', 'mine', 'unassigned', 'open', 'resolved'] as const).map((f) => (
+              {(['all', 'awaiting', 'mine', 'unassigned', 'open', 'resolved'] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -687,6 +703,7 @@ export default function WhatsAppPage() {
                     </div>
                     <div className="mt-1 flex items-center gap-1.5">
                       <StatusPill status={conv.status ?? 'OPEN'} />
+                      {conv.waitingSince && <SlaTimer since={conv.waitingSince} />}
                       {conv.assignee && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
                           <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-200 text-[8px] font-bold text-slate-600">

@@ -248,7 +248,7 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
               where: { leadId: { in: leadIds }, type: 'WHATSAPP' },
               orderBy: { createdAt: 'desc' },
               take: 200,
-              select: { leadId: true, payload: true },
+              select: { leadId: true, payload: true, createdAt: true },
             }),
           ]),
         )
@@ -256,10 +256,13 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
 
     const leadMap = new Map(leads.map((l) => [l.id, l]));
     const previewMap = new Map<string, string>();
+    // SLA: a conversation is "awaiting reply" when its most recent message is inbound.
+    const waitMap = new Map<string, string | null>();
     for (const a of previews) {
       if (a.leadId && !previewMap.has(a.leadId)) {
         const p = (a.payload ?? {}) as Record<string, unknown>;
         previewMap.set(a.leadId, String(p['message'] ?? p['template'] ?? p['text'] ?? '').slice(0, 80));
+        waitMap.set(a.leadId, p['direction'] === 'inbound' ? a.createdAt.toISOString() : null);
       }
     }
 
@@ -293,6 +296,7 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
         assignee: ownerId ? { userId: ownerId, name: ownerMap.get(ownerId) ?? 'Unknown' } : null,
         status: statusMap.get(s.leadId) ?? 'OPEN',
         unread: unreadMap.get(s.leadId) ?? 0,
+        waitingSince: waitMap.get(s.leadId) ?? null,
       };
     });
 

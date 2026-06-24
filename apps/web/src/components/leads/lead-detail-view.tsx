@@ -797,6 +797,14 @@ function CallInsightsMini({ callId }: { callId: string }) {
           {isLoading && <p className="text-slate-400">Loading…</p>}
           {insights && (
             <>
+              {insights.summary && (
+                <div className="pb-1.5 mb-1.5 border-b border-border">
+                  <span className="inline-flex items-center gap-1 font-medium text-primary">
+                    <Sparkles size={11} /> AI summary
+                  </span>
+                  <p className="mt-1 text-slate-700 leading-relaxed whitespace-pre-line">{insights.summary}</p>
+                </div>
+              )}
               <p className="font-medium text-slate-700">Interest: <span className={
                 insights.interestLevel === 'High' ? 'text-success' :
                 insights.interestLevel === 'Medium' ? 'text-amber-600' : 'text-slate-500'

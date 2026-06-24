@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { can } from '@excess/shared';
+import { llmComplete } from '../lib/llm.js';
 
 export const callsRoutes: FastifyPluginAsync = async (app) => {
   // GET /calls/:id/insights — keyword extraction from transcript.
@@ -83,12 +84,37 @@ export const callsRoutes: FastifyPluginAsync = async (app) => {
       );
     }
 
+    // AI summary of the transcript (cached — transcript is immutable once the call
+    // ends). Falls back to null when there's no transcript or GROQ_API_KEY is unset,
+    // in which case the UI shows the keyword-derived fields above.
+    let summary: string | null = (analysis?.['summary'] as string | undefined) ?? null;
+    if (!summary && transcriptText.length > 40) {
+      const cacheKey = `call_summary:${req.auth.tenantId}:${id}`;
+      const cached = await app.redis.get(cacheKey);
+      if (cached) {
+        summary = cached;
+      } else {
+        const ai = await llmComplete(
+          `Summarise this solar sales call in 2-3 short bullet points: the customer's interest level, their key concern/objection, and the single best next step.\n\nTranscript:\n${transcriptText.slice(0, 4000)}`,
+          {
+            system: 'You are a sales-call analyst for Excess Renew (rooftop solar, Coimbatore). Be concise and concrete. No markdown headers, no preamble.',
+            maxTokens: 200,
+          },
+        );
+        if (ai) {
+          summary = ai.trim();
+          await app.redis.setex(cacheKey, 86400, summary);
+        }
+      }
+    }
+
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, callId: id }, 'call.insights_extracted');
 
     return reply.send({
       data: {
         callId: id,
         durationSec: call.durationSec,
+        summary,
         interestLevel,
         painPoints,
         objections,

@@ -146,6 +146,7 @@ export function useComputeLeadScore() {
 export interface CallInsights {
   callId: string;
   durationSec: number | null;
+  summary: string | null;
   interestLevel: 'High' | 'Medium' | 'Low' | 'Unknown';
   painPoints: string[];
   objections: string[];

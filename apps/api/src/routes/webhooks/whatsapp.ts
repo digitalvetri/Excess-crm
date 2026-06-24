@@ -70,12 +70,24 @@ async function tryCaptureNps(
   return true;
 }
 
+interface WaMedia {
+  id?: string;
+  caption?: string;
+  filename?: string;
+  mime_type?: string;
+}
+
 interface WaMessage {
   from: string;
   id: string;
   timestamp: string;
   type: string;
   text?: { body: string };
+  image?: WaMedia;
+  document?: WaMedia;
+  audio?: WaMedia;
+  video?: WaMedia;
+  sticker?: WaMedia;
 }
 
 interface WaWebhookBody {
@@ -147,7 +159,60 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
         if (!source) continue;
 
         for (const msg of v.messages ?? []) {
-          if (msg.type !== 'text') continue;
+          // Inbound media (image / document / audio / video / sticker): record it so
+          // it appears in the thread instead of vanishing. We store the Meta media id
+          // for a later download-to-S3 step; the thread shows a labelled placeholder.
+          if (msg.type !== 'text') {
+            if (['image', 'document', 'audio', 'video', 'sticker'].includes(msg.type)) {
+              const mediaLead = await withSystemContext(prisma, source.tenantId, (tx) =>
+                tx.lead.findFirst({
+                  where: { tenantId: source.tenantId, phone: msg.from, isDuplicate: false },
+                  select: { id: true },
+                  orderBy: { createdAt: 'desc' },
+                }),
+              );
+              if (mediaLead) {
+                const media = (msg as unknown as Record<string, WaMedia | undefined>)[msg.type];
+                const label =
+                  msg.type === 'document' ? `📄 ${media?.filename ?? 'Document'}`
+                  : msg.type === 'audio' ? '🎤 Voice note'
+                  : msg.type === 'image' ? '📷 Photo'
+                  : msg.type === 'video' ? '🎬 Video'
+                  : '📎 Attachment';
+                await withSystemContext(prisma, source.tenantId, async (tx) => {
+                  await tx.leadActivity.create({
+                    data: {
+                      leadId: mediaLead.id,
+                      tenantId: source.tenantId,
+                      actorIsAi: true,
+                      type: 'WHATSAPP',
+                      payload: {
+                        message: media?.caption ? `${label} — ${media.caption}` : label,
+                        direction: 'inbound',
+                        waMessageId: msg.id,
+                        media: {
+                          type: msg.type,
+                          mediaId: media?.id,
+                          caption: media?.caption,
+                          filename: media?.filename,
+                          mime: media?.mime_type,
+                        },
+                      } as object,
+                    },
+                  });
+                  const sessionExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+                  await tx.waSession.upsert({
+                    where: { tenantId_phone: { tenantId: source.tenantId, phone: msg.from } },
+                    create: { tenantId: source.tenantId, leadId: mediaLead.id, phone: msg.from, sessionExpiresAt: sessionExpiry, lastMessageAt: new Date() },
+                    update: { lastMessageAt: new Date(), sessionExpiresAt: sessionExpiry },
+                  });
+                });
+                await app.redis.incr(`wa_unread:${source.tenantId}:${mediaLead.id}`).catch(() => {});
+                req.log.info({ tenantId: source.tenantId, leadId: mediaLead.id, mediaType: msg.type }, 'whatsapp.inbound_media_stored');
+              }
+            }
+            continue;
+          }
 
           // Capture NPS replies before treating the message as a fresh lead
           const npsCaptured = await tryCaptureNps(

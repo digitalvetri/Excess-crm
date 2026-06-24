@@ -14,6 +14,7 @@
     "db:studio": "prisma studio",
     "seed": "tsx src/seed.ts",
     "setup:rules": "tsx src/setup-pipeline-rules.ts",
+    "seed:voice-prompts": "tsx src/seed-voice-prompts.ts",
     "probe:ddl": "tsx src/ddl-probe.ts",
     "seed:leads": "tsx src/seed-leads.ts",
     "seed:appointments": "tsx src/seed-appointments.ts",
@@ -24,7 +25,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "^5.14.0"
+    "@prisma/client": "^5.14.0",
+    "@excess/voice-agent": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

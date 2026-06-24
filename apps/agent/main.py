@@ -417,11 +417,39 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @ctx.room.on("participant_disconnected")
     def _on_disconnect(participant: rtc.RemoteParticipant) -> None:
+        transcript = _extract_transcript(session)
         asyncio.ensure_future(
-            _notify_call_ended(call_id, tenant_id, lead_id, call_start_ts)
+            _notify_call_ended(call_id, tenant_id, lead_id, call_start_ts, transcript)
         )
 
     await session.start(agent=agent, room=ctx.room)
+
+
+def _extract_transcript(session: AgentSession) -> str:
+    """Serialise the conversation history to 'Agent: …/Customer: …' lines. Defensive —
+    returns '' on any API shape mismatch so callEnded still fires."""
+    try:
+        lines: list[str] = []
+        for item in session.history.items:
+            role = getattr(item, "role", None)
+            if role not in ("user", "assistant"):
+                continue
+            text = getattr(item, "text_content", None)
+            if callable(text):
+                text = text()
+            if not text:
+                content = getattr(item, "content", None)
+                if isinstance(content, list):
+                    text = " ".join(str(c) for c in content if isinstance(c, str))
+                else:
+                    text = str(content) if content else ""
+            text = (text or "").strip()
+            if text:
+                lines.append(f"{'Agent' if role == 'assistant' else 'Customer'}: {text}")
+        return "\n".join(lines)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("transcript extraction failed: %s", exc)
+        return ""
 
 
 async def _notify_call_ended(
@@ -429,6 +457,7 @@ async def _notify_call_ended(
     tenant_id: str,
     lead_id: str,
     call_start_ts: float,
+    transcript: str = "",
 ) -> None:
     """POST callEnded to the CRM after the participant hangs up."""
     duration_sec = round(time.monotonic() - call_start_ts)
@@ -442,9 +471,15 @@ async def _notify_call_ended(
                 "endedAt": datetime.now(timezone.utc).isoformat(),
                 "durationSec": duration_sec,
                 "endReason": "participant_disconnected",
+                "transcript": transcript,
             },
         )
-        logger.info("callEnded call_id=%s duration_sec=%d", call_id, duration_sec)
+        logger.info(
+            "callEnded call_id=%s duration_sec=%d transcript_chars=%d",
+            call_id,
+            duration_sec,
+            len(transcript),
+        )
     except Exception as exc:
         logger.error("callEnded POST failed call_id=%s error=%s", call_id, exc)
 

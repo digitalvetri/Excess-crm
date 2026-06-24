@@ -1240,10 +1240,14 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
             return reply.send({ data: { success: true }, message: 'ok' });
           }
 
-          const cePayload = actionPayload as { endedAt?: unknown; durationSec?: unknown; endReason?: unknown };
+          const cePayload = actionPayload as { endedAt?: unknown; durationSec?: unknown; endReason?: unknown; transcript?: unknown };
           const endedAt = typeof cePayload.endedAt === 'string' ? new Date(cePayload.endedAt) : new Date();
           const durationSec = typeof cePayload.durationSec === 'number' ? Math.round(cePayload.durationSec) : null;
           const endReason = typeof cePayload.endReason === 'string' ? cePayload.endReason : null;
+          // LiveKit calls send their conversation transcript here so it's reviewable and
+          // the call-insights endpoint can derive an AI summary + sentiment (like Vapi).
+          const transcriptText =
+            typeof cePayload.transcript === 'string' && cePayload.transcript.trim() ? cePayload.transcript.trim() : null;
 
           await withSystemContext(prisma, tenantId, (tx) =>
             tx.call.update({
@@ -1253,6 +1257,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
                 endedAt,
                 ...(durationSec !== null && { durationSec }),
                 ...(endReason !== null && { endReason }),
+                ...(transcriptText && { transcript: { text: transcriptText } as object }),
               },
             }),
           );

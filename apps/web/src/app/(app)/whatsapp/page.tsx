@@ -15,6 +15,7 @@ import {
   useConversationActions,
   useWhatsappTemplates,
   useSendTemplate,
+  useMediaUrl,
   type ConversationStatus,
   type WaTemplate,
 } from '@/hooks/use-whatsapp';
@@ -275,6 +276,27 @@ function StatusPill({ status }: { status: ConversationStatus }) {
 
 function initials(name: string) {
   return name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+}
+
+// Renders a message's media once it's in S3 (presigned URL). Falls back to the text
+// label while the download is still in flight.
+function WaMediaView({ activityId, mediaType, label }: { activityId: string; mediaType: string | undefined; label: string }) {
+  const { data } = useMediaUrl(activityId, true);
+  if (data?.ready && data.url) {
+    if (mediaType === 'image' || mediaType === 'sticker') {
+      // eslint-disable-next-line @next/next/no-img-element
+      return <img src={data.url} alt={label} className="max-w-[220px] rounded-lg" />;
+    }
+    if (mediaType === 'audio') {
+      return <audio controls src={data.url} className="max-w-[220px]" />;
+    }
+    return (
+      <a href={data.url} target="_blank" rel="noopener noreferrer" className="underline">
+        {label} ↓
+      </a>
+    );
+  }
+  return <span>{label}</span>;
 }
 
 function templateVars(previewText: string): string[] {
@@ -752,6 +774,7 @@ export default function WhatsAppPage() {
                     const quoted = (msg.payload.replyTo as { text?: string } | undefined)?.text;
                     const waId = msg.payload.waMessageId as string | undefined;
                     const reaction = msg.payload.reaction as string | undefined;
+                    const media = msg.payload.media as { type?: string; s3Key?: string } | undefined;
                     return (
                       <div key={msg.id} className={`group flex items-center gap-1.5 ${isOutbound ? 'justify-end' : 'justify-start'}`}>
                         {isOutbound && (
@@ -775,7 +798,11 @@ export default function WhatsAppPage() {
                               {quoted.length > 80 ? `${quoted.slice(0, 80)}…` : quoted}
                             </p>
                           )}
-                          <p>{text}</p>
+                          {media?.s3Key ? (
+                            <WaMediaView activityId={msg.id} mediaType={media.type} label={text} />
+                          ) : (
+                            <p>{text}</p>
+                          )}
                           <p className={`text-xs mt-1 ${isOutbound ? 'text-blue-100' : 'text-slate-400'}`}>
                             {new Date(msg.createdAt).toLocaleTimeString('en-IN', {
                               hour: '2-digit',

@@ -2,6 +2,10 @@ import type { FastifyPluginAsync } from 'fastify';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 import { env } from '@excess/config';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
+const s3 = new S3Client({ region: env.AWS_REGION });
 
 const sendMessageSchema = z.object({
   leadId: z.string().uuid(),
@@ -424,6 +428,28 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, template: templateName }, 'whatsapp.template_queued');
     return reply.code(202).send({ data: { queued: true } });
+  });
+
+  // GET /whatsapp/media/:activityId — short-lived presigned URL for a message's media
+  // (downloaded to S3 by the inbound worker). Returns null url until the download lands.
+  app.get('/media/:activityId', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.read.own')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { activityId } = req.params as { activityId: string };
+    const act = await req.withTenant((tx) =>
+      tx.leadActivity.findUnique({ where: { id: activityId }, select: { payload: true } }),
+    );
+    const media = ((act?.payload ?? {}) as Record<string, unknown>)['media'] as
+      | { s3Key?: string; mime?: string; type?: string }
+      | undefined;
+    if (!media?.s3Key) {
+      return reply.send({ data: { url: null, ready: false } });
+    }
+    const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: env.S3_BUCKET_ASSETS, Key: media.s3Key }), {
+      expiresIn: 300,
+    });
+    return reply.send({ data: { url, ready: true, mime: media.mime ?? null, type: media.type ?? null } });
   });
 
   // POST /whatsapp/react — emoji-react to a message (sent natively via WhatsApp).

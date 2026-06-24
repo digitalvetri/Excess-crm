@@ -198,6 +198,20 @@ export function useSendMessage() {
   return { send, loading, error };
 }
 
+// Short-lived presigned URL for a message's media (once the worker has stored it in S3).
+export function useMediaUrl(activityId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['whatsapp', 'media', activityId],
+    queryFn: () =>
+      api
+        .get<{ data: { url: string | null; ready: boolean; type?: string | null } }>(`/whatsapp/media/${activityId}`)
+        .then((r) => r.data.data)
+        .catch(() => ({ url: null, ready: false })),
+    enabled,
+    staleTime: 4 * 60_000,
+  });
+}
+
 export interface WaTemplate {
   id: string;
   name: string;

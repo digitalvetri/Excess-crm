@@ -15,6 +15,9 @@ export interface CallWebhookPayload {
   callId?: string;
   tenantId?: string;
   recordingUrl?: string;
+  // WhatsApp inbound-media download (download-whatsapp-media)
+  mediaActivityId?: string;
+  mediaId?: string;
   raw: Record<string, unknown>;
 }
 
@@ -51,6 +54,9 @@ export async function processCallWebhook(job: Job<CallWebhookPayload>): Promise<
       break;
     case 'download-recording':
       await handleDownloadRecording(callId!, tenantId!, recordingUrl!);
+      break;
+    case 'download-whatsapp-media':
+      await handleDownloadWhatsappMedia(tenantId!, job.data.mediaActivityId!, job.data.mediaId!);
       break;
     default:
       await job.log(`Unhandled event type: ${eventType}`);
@@ -208,6 +214,44 @@ async function handleDownloadRecording(
       data: { recordingS3Key: s3Key, recordingUrl: null },
     }),
   );
+}
+
+// Download an inbound WhatsApp media object from Meta and stash it in S3, then record
+// the s3Key on the message activity so the inbox can serve it via a presigned URL.
+async function handleDownloadWhatsappMedia(tenantId: string, activityId: string, mediaId: string): Promise<void> {
+  const cfg = await withSystemContext(prisma, tenantId, (tx) =>
+    tx.whatsappConfig.findUnique({ where: { tenantId }, select: { accessToken: true, isConnected: true } }),
+  );
+  const accessToken = (cfg?.isConnected && cfg.accessToken) || process.env['WHATSAPP_ACCESS_TOKEN'];
+  if (!accessToken) throw new Error('WhatsApp not connected — cannot download media');
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  // 1. Resolve the media id → a short-lived download URL + mime.
+  const meta = await axios.get<{ url: string; mime_type?: string }>(
+    `https://graph.facebook.com/v18.0/${mediaId}`,
+    { headers },
+  );
+  const mime = meta.data.mime_type ?? 'application/octet-stream';
+
+  // 2. Download the binary (Meta requires the same auth header on the CDN URL).
+  const bin = await axios.get<ArrayBuffer>(meta.data.url, { headers, responseType: 'arraybuffer' });
+  const buffer = Buffer.from(bin.data);
+
+  // 3. Store in S3 (assets bucket) — only the key is persisted, never a public URL.
+  const s3Key = `whatsapp-media/${tenantId}/${activityId}`;
+  await s3.send(
+    new PutObjectCommand({ Bucket: env.S3_BUCKET_ASSETS, Key: s3Key, Body: buffer, ContentType: mime }),
+  );
+
+  // 4. Merge the s3Key + mime into the activity's media payload.
+  await withSystemContext(prisma, tenantId, async (tx) => {
+    const act = await tx.leadActivity.findUnique({ where: { id: activityId }, select: { payload: true } });
+    if (!act) return;
+    const payload = (act.payload ?? {}) as Record<string, unknown>;
+    const media = (payload['media'] ?? {}) as Record<string, unknown>;
+    payload['media'] = { ...media, s3Key, mime };
+    await tx.leadActivity.update({ where: { id: activityId }, data: { payload: payload as object } });
+  });
 }
 
 function deriveStageFromCallOutcome(

@@ -179,8 +179,8 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
                   : msg.type === 'image' ? '📷 Photo'
                   : msg.type === 'video' ? '🎬 Video'
                   : '📎 Attachment';
-                await withSystemContext(prisma, source.tenantId, async (tx) => {
-                  await tx.leadActivity.create({
+                const mediaActivityId = await withSystemContext(prisma, source.tenantId, async (tx) => {
+                  const created = await tx.leadActivity.create({
                     data: {
                       leadId: mediaLead.id,
                       tenantId: source.tenantId,
@@ -199,6 +199,7 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
                         },
                       } as object,
                     },
+                    select: { id: true },
                   });
                   const sessionExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
                   await tx.waSession.upsert({
@@ -206,8 +207,19 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
                     create: { tenantId: source.tenantId, leadId: mediaLead.id, phone: msg.from, sessionExpiresAt: sessionExpiry, lastMessageAt: new Date() },
                     update: { lastMessageAt: new Date(), sessionExpiresAt: sessionExpiry },
                   });
+                  return created.id;
                 });
                 await app.redis.incr(`wa_unread:${source.tenantId}:${mediaLead.id}`).catch(() => {});
+                // Download the media to S3 (async) so the inbox can serve it.
+                if (media?.id) {
+                  await req.server.queues.callWebhook.add('download-whatsapp-media', {
+                    eventType: 'download-whatsapp-media',
+                    tenantId: source.tenantId,
+                    mediaActivityId,
+                    mediaId: media.id,
+                    raw: {},
+                  });
+                }
                 req.log.info({ tenantId: source.tenantId, leadId: mediaLead.id, mediaType: msg.type }, 'whatsapp.inbound_media_stored');
               }
             }

@@ -976,6 +976,64 @@ Respond in English. Be brief and actionable.`;
     return reply.send({ data: result });
   });
 
+  // POST /leads/:id/draft-reply — AI-drafted WhatsApp/email reply (a suggestion the
+  // rep edits and sends; never sent autonomously). Built on the shared Groq helper.
+  app.post('/:id/draft-reply', async (req, reply) => {
+    if (!can(req.auth.role, 'leads.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const { id } = req.params as { id: string };
+    const rawChannel = (req.body as { channel?: string } | null)?.channel;
+    const channel: 'whatsapp' | 'email' = rawChannel === 'email' ? 'email' : 'whatsapp';
+
+    const lead = await req.withTenant((tx) =>
+      tx.lead.findUnique({
+        where: { id },
+        select: {
+          name: true, city: true, stage: true, language: true, factSheet: true,
+          activities: {
+            where: { type: { in: ['WHATSAPP', 'NOTE', 'EMAIL', 'CALL'] } },
+            orderBy: { createdAt: 'desc' },
+            take: 12,
+            select: { type: true, payload: true, actorIsAi: true },
+          },
+        },
+      }),
+    );
+    if (!lead) {
+      return reply.code(404).send({ error: { code: 'leads.not_found', message: 'Lead not found' } });
+    }
+
+    const history = [...lead.activities]
+      .reverse()
+      .map((a) => {
+        const p = (a.payload ?? {}) as Record<string, unknown>;
+        const text = String(p['message'] ?? p['text'] ?? p['body'] ?? p['note'] ?? '').slice(0, 200);
+        if (!text) return '';
+        const who = a.actorIsAi ? 'Us' : a.type === 'WHATSAPP' || a.type === 'EMAIL' ? 'Customer' : 'Internal';
+        return `${who}: ${text}`;
+      })
+      .filter(Boolean)
+      .join('\n');
+
+    const system = `You are a warm, professional sales rep for Excess Renew, a rooftop-solar company in Coimbatore, Tamil Nadu. Write a short ${channel} reply to a customer lead. Match their language (Tamil / English / Tanglish). Keep it 1-3 sentences, friendly and helpful, and move the deal forward — answer their question, offer a free site survey, or suggest the next step. Use the customer's real name. No markdown, no placeholders, never invent prices.`;
+
+    const prompt = `Lead: ${lead.name}${lead.city ? `, ${lead.city}` : ''} · Stage: ${lead.stage} · Language: ${lead.language ?? 'unknown'}
+Fact sheet: ${JSON.stringify(lead.factSheet ?? {})}
+
+Conversation so far (oldest first):
+${history || '(no prior messages — this is the opener)'}
+
+Write the next ${channel} message to ${lead.name}:`;
+
+    const draft = await llmComplete(prompt, { system, maxTokens: 220, temperature: 0.6 });
+    if (!draft) {
+      return reply.code(503).send({ error: { code: 'ai.unavailable', message: 'AI drafting is unavailable right now (check GROQ_API_KEY).' } });
+    }
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id, channel }, 'lead.draft_reply');
+    return reply.send({ data: { draft: draft.trim(), channel } });
+  });
+
   // GET /leads/views — list saved views
   app.get('/views', async (req, reply) => {
     if (!can(req.auth.role, 'saved_views.read')) {

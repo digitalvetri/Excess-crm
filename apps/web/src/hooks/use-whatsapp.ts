@@ -190,3 +190,24 @@ export function useSendMessage() {
 
   return { send, loading, error };
 }
+
+// AI-drafts a reply for the lead's conversation. Returns the suggested text; the rep
+// edits and sends it (never sent autonomously).
+export function useDraftReply() {
+  const [drafting, setDrafting] = useState(false);
+
+  const draftReply = useCallback(
+    async (leadId: string, channel: 'whatsapp' | 'email' = 'whatsapp'): Promise<string> => {
+      setDrafting(true);
+      try {
+        const res = await api.post<{ data: { draft: string } }>(`/leads/${leadId}/draft-reply`, { channel });
+        return res.data.data.draft;
+      } finally {
+        setDrafting(false);
+      }
+    },
+    [],
+  );
+
+  return { draftReply, drafting };
+}

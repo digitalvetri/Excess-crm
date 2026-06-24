@@ -40,7 +40,7 @@ import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMer
 import { useQuery } from '@tanstack/react-query';
 import { useComputeLeadScore, useCallInsights } from '@/hooks/use-insights';
 import { api } from '@/lib/api';
-import { useMessages, useSendMessage, useWhatsappStatus } from '@/hooks/use-whatsapp';
+import { useMessages, useSendMessage, useWhatsappStatus, useDraftReply } from '@/hooks/use-whatsapp';
 import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
 import { StageBadge } from './stage-badge';
 import { ConvertLeadModal } from './convert-lead-modal';
@@ -1246,6 +1246,18 @@ function WhatsAppThread({ leadId, leadName, leadPhone }: { leadId: string; leadN
   const { messages, loading } = useMessages(leadId);
   const { send, loading: sending } = useSendMessage();
   const { data: status } = useWhatsappStatus();
+  const { draftReply, drafting } = useDraftReply();
+
+  async function handleDraft() {
+    setSendErr(null);
+    try {
+      const text = await draftReply(leadId, 'whatsapp');
+      setDraft(text);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
+      setSendErr(axiosErr.response?.data?.error?.message ?? 'Could not draft a reply right now.');
+    }
+  }
 
   // Treat status as connected until we know otherwise, so we don't flash the
   // warning while the status query is loading.
@@ -1313,6 +1325,16 @@ function WhatsAppThread({ leadId, leadName, leadPhone }: { leadId: string; leadN
 
       <div className="px-4 py-3 border-t border-border space-y-2">
         {sendErr && <p className="text-xs text-danger">{sendErr}</p>}
+        <button
+          type="button"
+          onClick={() => void handleDraft()}
+          disabled={drafting}
+          title="Generate a reply with AI — you can edit it before sending"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 disabled:opacity-60 transition-colors"
+        >
+          {drafting ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+          {drafting ? 'Drafting…' : 'Draft with AI'}
+        </button>
         <div className="flex gap-2">
           <input
             type="text"

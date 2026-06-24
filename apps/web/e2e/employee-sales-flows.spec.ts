@@ -91,6 +91,17 @@ test.describe('Employee Sales flows (Phase 1)', () => {
     );
   });
 
+  test('AI draft-reply endpoint responds (draft or graceful 503)', async ({ page }) => {
+    await login(page);
+    const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;
+    const r = await page.request.post(`${API}/leads/${leadId}/draft-reply`, { data: { channel: 'whatsapp' } });
+    // With GROQ_API_KEY set → 200 + draft text; without it → graceful 503 (never 500).
+    expect([200, 503], `draft-reply → ${r.status()}`).toContain(r.status());
+    if (r.status() === 200) {
+      expect((await r.json()).data.draft.length).toBeGreaterThan(0);
+    }
+  });
+
   test('quotation: create → send', async ({ page }) => {
     await login(page);
     const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;

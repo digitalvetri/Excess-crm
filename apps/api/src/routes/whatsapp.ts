@@ -188,18 +188,33 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
       }),
     );
 
-    // Enrich with lead data — fetch leads for returned sessions
+    // Enrich with lead data + a last-message preview for each conversation.
     const leadIds = sessions.map((s) => s.leadId).filter(Boolean) as string[];
-    const leads = leadIds.length > 0
+    const [leads, previews] = leadIds.length > 0
       ? await req.withTenant(async (tx) =>
-          tx.lead.findMany({
-            where: { id: { in: leadIds } },
-            select: { id: true, name: true, phone: true, stage: true },
-          }),
+          Promise.all([
+            tx.lead.findMany({
+              where: { id: { in: leadIds } },
+              select: { id: true, name: true, phone: true, stage: true, aiScore: true },
+            }),
+            tx.leadActivity.findMany({
+              where: { leadId: { in: leadIds }, type: 'WHATSAPP' },
+              orderBy: { createdAt: 'desc' },
+              take: 200,
+              select: { leadId: true, payload: true },
+            }),
+          ]),
         )
-      : [];
+      : [[], []];
 
     const leadMap = new Map(leads.map((l) => [l.id, l]));
+    const previewMap = new Map<string, string>();
+    for (const a of previews) {
+      if (a.leadId && !previewMap.has(a.leadId)) {
+        const p = (a.payload ?? {}) as Record<string, unknown>;
+        previewMap.set(a.leadId, String(p['message'] ?? p['template'] ?? p['text'] ?? '').slice(0, 80));
+      }
+    }
 
     const hasMore = sessions.length > limit;
     const items = hasMore ? sessions.slice(0, limit) : sessions;
@@ -207,6 +222,7 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
     const result = items.map((s) => ({
       ...s,
       lead: leadMap.get(s.leadId) ?? null,
+      lastMessagePreview: previewMap.get(s.leadId) ?? null,
     }));
 
     return reply.send({

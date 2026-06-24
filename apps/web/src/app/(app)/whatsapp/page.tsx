@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
-import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare, Search, ExternalLink, Clock } from 'lucide-react';
 import {
   useConversations,
   useMessages,
@@ -257,6 +259,7 @@ export default function WhatsAppPage() {
   const [draft, setDraft]                   = useState('');
   const [sendErr, setSendErr]               = useState<string | null>(null);
   const [showConnect, setShowConnect]       = useState(false);
+  const [search, setSearch]                 = useState('');
 
   const { data: config }                                                            = useWhatsappConfig();
   const { conversations, loading: convsLoading, error: convsError, refetch: refetchConvs } = useConversations();
@@ -296,6 +299,15 @@ export default function WhatsAppPage() {
   }
 
   const selectedConv = conversations.find((c) => c.leadId === selectedLeadId);
+  const filteredConvs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter(
+      (c) => (c.lead?.name ?? '').toLowerCase().includes(q) || c.phone.toLowerCase().includes(q),
+    );
+  }, [conversations, search]);
+  // 24-hour WhatsApp session window: free-text is only deliverable while it's open.
+  const windowOpen = selectedConv ? new Date(selectedConv.sessionExpiresAt).getTime() > Date.now() : true;
   const isConnected  = config?.isConnected ?? false;
   // Saving WhatsApp credentials is integrations.write (ADMIN-only); employees can use
   // a connected number but can't connect/manage it. Don't show them a form that 403s.
@@ -364,20 +376,32 @@ export default function WhatsAppPage() {
       {isConnected && <div className="flex-1 flex gap-0 rounded-xl overflow-hidden border border-border bg-white min-h-0">
         {/* Left panel — conversation list */}
         <aside className="w-1/3 border-r border-border flex flex-col">
-          <div className="px-4 py-3 border-b border-border">
+          <div className="px-4 py-3 border-b border-border space-y-2">
             <h2 className="text-sm font-semibold text-slate-900">Conversations</h2>
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name or number…"
+                className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto">
             {convsLoading ? (
               <p className="px-4 py-6 text-sm text-slate-500">Loading…</p>
             ) : convsError ? (
               <p className="px-4 py-6 text-sm text-red-600">{convsError}</p>
-            ) : conversations.length === 0 ? (
+            ) : filteredConvs.length === 0 ? (
               <p className="px-4 py-8 text-sm text-slate-400 text-center">
-                {isConnected ? 'No conversations yet' : 'Connect WhatsApp to see conversations'}
+                {conversations.length === 0
+                  ? isConnected ? 'No conversations yet' : 'Connect WhatsApp to see conversations'
+                  : 'No conversations match your search'}
               </p>
             ) : (
-              conversations.map((conv) => {
+              filteredConvs.map((conv) => {
                 const active = conv.leadId === selectedLeadId;
                 return (
                   <button
@@ -387,15 +411,17 @@ export default function WhatsAppPage() {
                       active ? 'bg-primary/5' : 'hover:bg-slate-50'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-sm text-slate-900 truncate">
                         {conv.lead?.name ?? conv.phone}
                       </span>
-                      <span className="text-xs text-slate-400 ml-2 whitespace-nowrap">
-                        {new Date(conv.lastMessageAt).toLocaleDateString('en-IN')}
+                      <span className="text-xs text-slate-400 shrink-0 whitespace-nowrap">
+                        {formatDistanceToNow(new Date(conv.lastMessageAt), { addSuffix: true })}
                       </span>
                     </div>
-                    <div className="text-xs text-slate-500 mt-0.5">{conv.phone}</div>
+                    <div className="text-xs text-slate-500 mt-0.5 truncate">
+                      {conv.lastMessagePreview?.trim() || conv.phone}
+                    </div>
                   </button>
                 );
               })
@@ -411,13 +437,31 @@ export default function WhatsAppPage() {
             </div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b border-border">
-                <div className="font-semibold text-slate-900 text-sm">
-                  {selectedConv?.lead?.name ?? selectedConv?.phone ?? selectedLeadId}
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold text-slate-900 text-sm truncate">
+                    {selectedConv?.lead?.name ?? selectedConv?.phone ?? selectedLeadId}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    {selectedConv?.lead?.stage && (
+                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                        {selectedConv.lead.stage.replace('_', ' ').toLowerCase()}
+                      </span>
+                    )}
+                    {typeof selectedConv?.lead?.aiScore === 'number' && (
+                      <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                        Score {selectedConv.lead.aiScore}
+                      </span>
+                    )}
+                    <span className="text-[11px] text-slate-400">{selectedConv?.phone}</span>
+                  </div>
                 </div>
-                {selectedConv?.lead?.stage && (
-                  <div className="text-xs text-slate-500 mt-0.5">{selectedConv.lead.stage}</div>
-                )}
+                <Link
+                  href={`/leads/${selectedLeadId}`}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Open lead <ExternalLink size={12} />
+                </Link>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -461,6 +505,12 @@ export default function WhatsAppPage() {
               </div>
 
               <div className="px-4 py-3 border-t border-border space-y-2">
+                {!windowOpen && (
+                  <div className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+                    <Clock size={13} className="mt-0.5 shrink-0" />
+                    <span>The 24-hour window has closed — free-text replies may not be delivered. Use an approved template to re-engage.</span>
+                  </div>
+                )}
                 {sendErr && <p className="text-xs text-red-600">{sendErr}</p>}
                 <div className="flex gap-2">
                   <input

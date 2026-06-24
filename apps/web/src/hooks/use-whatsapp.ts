@@ -69,7 +69,8 @@ export interface WaConversation {
   phone: string;
   sessionExpiresAt: string;
   lastMessageAt: string;
-  lead?: { name: string; phone: string; stage: string };
+  lastMessagePreview?: string | null;
+  lead?: { name: string; phone: string; stage: string; aiScore?: number | null };
 }
 
 export interface WaMessage {

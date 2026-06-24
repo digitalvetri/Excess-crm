@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { can } from '@excess/shared';
 import { llmComplete } from '../lib/llm.js';
+import { AI_SYSTEM_PROMPTS } from '../lib/ai-prompts.js';
 
 export const callsRoutes: FastifyPluginAsync = async (app) => {
   // GET /calls/:id/insights — keyword extraction from transcript.
@@ -97,7 +98,7 @@ export const callsRoutes: FastifyPluginAsync = async (app) => {
         const ai = await llmComplete(
           `Summarise this solar sales call in 2-3 short bullet points: the customer's interest level, their key concern/objection, and the single best next step.\n\nTranscript:\n${transcriptText.slice(0, 4000)}`,
           {
-            system: 'You are a sales-call analyst for Excess Renew (rooftop solar, Coimbatore). Be concise and concrete. No markdown headers, no preamble.',
+            system: AI_SYSTEM_PROMPTS.callSummary,
             maxTokens: 200,
           },
         );

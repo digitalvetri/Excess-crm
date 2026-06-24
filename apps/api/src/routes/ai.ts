@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { can } from '@excess/shared';
 import { llmComplete } from '../lib/llm.js';
+import { AI_SYSTEM_PROMPTS } from '../lib/ai-prompts.js';
 
 export const aiRoutes: FastifyPluginAsync = async (app) => {
   // GET /ai/daily-brief — an AI-phrased "your day" briefing for the current user.
@@ -48,10 +49,7 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
 - Hot leads to contact now: ${hotList}
 - Follow-ups overdue (>48h in stage): ${overdue}
 - Pipeline: ${qualified} qualified, ${followUp} in follow-up`;
-    const system =
-      'You are an upbeat sales coach for Excess Renew (rooftop solar, Coimbatore). Write a short morning briefing (2-3 sentences, no bullet points, no headers) that names the top priority and ends with a clear, motivating call to action. Use only the numbers given.';
-
-    const briefText = await llmComplete(prompt, { system, maxTokens: 160, temperature: 0.5 });
+    const briefText = await llmComplete(prompt, { system: AI_SYSTEM_PROMPTS.dailyBrief, maxTokens: 160, temperature: 0.5 });
     const brief =
       briefText?.trim() ??
       `You have ${stats.hot} hot lead${stats.hot === 1 ? '' : 's'} to contact, ${overdue} follow-up${overdue === 1 ? '' : 's'} overdue, and ${qualified + followUp} deal${qualified + followUp === 1 ? '' : 's'} in your pipeline. Start with the hottest lead.`;

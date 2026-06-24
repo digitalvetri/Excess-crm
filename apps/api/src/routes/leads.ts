@@ -8,6 +8,7 @@ import { notifyUser } from '../lib/notify-user.js';
 import { prisma, withSystemContext } from '@excess/db';
 import { enrollLeadInSequences } from '../lib/sequences.js';
 import { llmComplete } from '../lib/llm.js';
+import { AI_SYSTEM_PROMPTS } from '../lib/ai-prompts.js';
 import { env } from '@excess/config';
 import {
   updateLeadSchema,
@@ -1016,7 +1017,7 @@ Respond in English. Be brief and actionable.`;
       .filter(Boolean)
       .join('\n');
 
-    const system = `You are a warm, professional sales rep for Excess Renew, a rooftop-solar company in Coimbatore, Tamil Nadu. Write a short ${channel} reply to a customer lead. Match their language (Tamil / English / Tanglish). Keep it 1-3 sentences, friendly and helpful, and move the deal forward — answer their question, offer a free site survey, or suggest the next step. Use the customer's real name. No markdown, no placeholders, never invent prices.`;
+    const system = AI_SYSTEM_PROMPTS.draftReply(channel);
 
     const prompt = `Lead: ${lead.name}${lead.city ? `, ${lead.city}` : ''} · Stage: ${lead.stage} · Language: ${lead.language ?? 'unknown'}
 Fact sheet: ${JSON.stringify(lead.factSheet ?? {})}
@@ -1071,9 +1072,7 @@ Write the next ${channel} message to ${lead.name}:`;
       })
       .join('; ');
 
-    const system = `You are a sales coach for Excess Renew (rooftop solar, Coimbatore). Recommend the single highest-value next action for this lead right now — a concrete thing a rep can do today (e.g. Call now, Send a WhatsApp follow-up, Book a free site survey, Send a quotation, Re-engage, Mark not-answered). Reply in EXACTLY this format, two lines:
-ACTION: <max 6 words, imperative>
-WHY: <one short sentence>`;
+    const system = AI_SYSTEM_PROMPTS.nextAction;
     const prompt = `Lead: ${lead.name}${lead.city ? `, ${lead.city}` : ''}
 Stage: ${lead.stage} (${daysInStage} day(s) in stage)
 AI score: ${lead.aiScore ?? 'N/A'}
@@ -1264,11 +1263,7 @@ Recent activity: ${recent || 'none'}`;
       if (textSignals.length > 30) {
         const out = await llmComplete(
           `From these solar-lead signals, rate buying intent as a score adjustment from -10 (cold) to +15 (very hot, ready to buy). Reply EXACTLY:\nDELTA: <integer>\nWHY: <one short sentence>\n\nSignals: ${textSignals}`,
-          {
-            system: 'You are a lead-qualification analyst for Excess Renew rooftop solar. Be conservative — only give large positive deltas for clear buying signals (budget confirmed, ready to install, asking for a quote or site survey).',
-            maxTokens: 60,
-            temperature: 0.2,
-          },
+          { system: AI_SYSTEM_PROMPTS.leadIntent, maxTokens: 60, temperature: 0.2 },
         );
         if (out) {
           const dM = out.match(/DELTA:\s*(-?\d+)/i);

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
-import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare, Search, ExternalLink, Clock, UserPlus, FileText, ChevronLeft } from 'lucide-react';
+import { CheckCircle2, WifiOff, Settings, X, Copy, Eye, EyeOff, Loader2, Wifi, MessageSquare, Search, ExternalLink, Clock, UserPlus, FileText, ChevronLeft, Reply } from 'lucide-react';
 import {
   useConversations,
   useMessages,
@@ -399,6 +399,7 @@ export default function WhatsAppPage() {
   const [search, setSearch]                 = useState('');
   const [filter, setFilter]                 = useState<'all' | 'mine' | 'unassigned' | 'open' | 'resolved'>('all');
   const [showTemplates, setShowTemplates]   = useState(false);
+  const [replyingTo, setReplyingTo]         = useState<{ text: string; waId?: string } | null>(null);
 
   const { data: config }                                                            = useWhatsappConfig();
   const { conversations, loading: convsLoading, error: convsError, refetch: refetchConvs } = useConversations();
@@ -426,8 +427,9 @@ export default function WhatsAppPage() {
     if (!selectedLeadId || !draft.trim()) return;
     setSendErr(null);
     try {
-      await send(selectedLeadId, draft.trim());
+      await send(selectedLeadId, draft.trim(), replyingTo ?? undefined);
       setDraft('');
+      setReplyingTo(null);
     } catch (err: unknown) {
       setSendErr(err instanceof Error ? err.message : 'Failed to send');
     }
@@ -737,8 +739,19 @@ export default function WhatsAppPage() {
                     const isOutbound =
                       (msg.payload.direction as string | undefined) === 'outbound' ||
                       (!msg.payload.direction && msg.actorIsAi);
+                    const quoted = (msg.payload.replyTo as { text?: string } | undefined)?.text;
+                    const waId = msg.payload.waMessageId as string | undefined;
                     return (
-                      <div key={msg.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+                      <div key={msg.id} className={`group flex items-center gap-1.5 ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+                        {isOutbound && (
+                          <button
+                            onClick={() => setReplyingTo({ text, ...(waId ? { waId } : {}) })}
+                            title="Reply"
+                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 transition-opacity"
+                          >
+                            <Reply size={13} />
+                          </button>
+                        )}
                         <div
                           className={`max-w-xs lg:max-w-md px-3 py-2 rounded-xl text-sm ${
                             isOutbound
@@ -746,6 +759,11 @@ export default function WhatsAppPage() {
                               : 'bg-slate-100 text-slate-800 rounded-bl-none'
                           }`}
                         >
+                          {quoted && (
+                            <p className={`mb-1 border-l-2 pl-2 text-xs italic ${isOutbound ? 'border-blue-200 text-blue-100' : 'border-slate-300 text-slate-500'}`}>
+                              {quoted.length > 80 ? `${quoted.slice(0, 80)}…` : quoted}
+                            </p>
+                          )}
                           <p>{text}</p>
                           <p className={`text-xs mt-1 ${isOutbound ? 'text-blue-100' : 'text-slate-400'}`}>
                             {new Date(msg.createdAt).toLocaleTimeString('en-IN', {
@@ -754,6 +772,15 @@ export default function WhatsAppPage() {
                             })}
                           </p>
                         </div>
+                        {!isOutbound && (
+                          <button
+                            onClick={() => setReplyingTo({ text, ...(waId ? { waId } : {}) })}
+                            title="Reply"
+                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 transition-opacity"
+                          >
+                            <Reply size={13} />
+                          </button>
+                        )}
                       </div>
                     );
                   })
@@ -766,6 +793,17 @@ export default function WhatsAppPage() {
                   <div className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
                     <Clock size={13} className="mt-0.5 shrink-0" />
                     <span>The 24-hour window has closed — free-text replies may not be delivered. Use an approved template to re-engage.</span>
+                  </div>
+                )}
+                {replyingTo && (
+                  <div className="flex items-center gap-2 rounded-lg border-l-2 border-primary bg-slate-50 px-2.5 py-1.5">
+                    <Reply size={13} className="shrink-0 text-primary" />
+                    <span className="flex-1 truncate text-xs text-slate-600">
+                      Replying to: {replyingTo.text.length > 60 ? `${replyingTo.text.slice(0, 60)}…` : replyingTo.text}
+                    </span>
+                    <button onClick={() => setReplyingTo(null)} className="shrink-0 text-slate-400 hover:text-slate-700">
+                      <X size={13} />
+                    </button>
                   </div>
                 )}
                 {sendErr && <p className="text-xs text-red-600">{sendErr}</p>}

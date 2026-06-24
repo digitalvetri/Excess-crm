@@ -327,6 +327,7 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { leadId, message } = parsed.data;
+    const replyTo = (req.body as { replyTo?: { waId?: string; text?: string } }).replyTo;
 
     const lead = await req.withTenant(async (tx) =>
       tx.lead.findUnique({ where: { id: leadId }, select: { id: true, phone: true, name: true } }),
@@ -342,6 +343,7 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
       phone: lead.phone,
       template: 'DIRECT_MESSAGE',
       vars: { message },
+      ...(replyTo?.waId ? { contextWaId: replyTo.waId } : {}),
     });
 
     await req.withTenant((tx) =>
@@ -352,7 +354,11 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
           actorUserId: req.auth.userId,
           actorIsAi: false,
           type: 'WHATSAPP',
-          payload: { message, direction: 'outbound' } as object,
+          payload: {
+            message,
+            direction: 'outbound',
+            ...(replyTo?.text ? { replyTo: { text: replyTo.text } } : {}),
+          } as object,
         },
       }),
     );

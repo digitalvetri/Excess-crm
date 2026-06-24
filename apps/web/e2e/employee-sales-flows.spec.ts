@@ -151,6 +151,15 @@ test.describe('Employee Sales flows (Phase 1)', () => {
     expect(r.status(), `send-template → ${r.status()}`).toBe(202);
   });
 
+  test('WhatsApp reply-quote: send with replyTo is accepted', async ({ page }) => {
+    await login(page);
+    const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;
+    const r = await page.request.post(`${API}/whatsapp/send`, {
+      data: { leadId, message: `e2e reply ${Date.now()}`, replyTo: { text: 'original', waId: 'wamid.e2e' } },
+    });
+    expect(r.status(), `reply send → ${r.status()}`).toBe(202);
+  });
+
   test('quotation: create → send', async ({ page }) => {
     await login(page);
     const leadId = (await ok(await page.request.get(`${API}/leads?limit=1`), 'leads')).data.leads[0].id;

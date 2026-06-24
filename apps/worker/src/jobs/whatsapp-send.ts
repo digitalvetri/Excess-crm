@@ -11,10 +11,12 @@ export interface WhatsappSendPayload {
   phone: string;
   template: string;
   vars: Record<string, string>;
+  /** WhatsApp message id (wamid) to reply to, for Meta's quoted-reply context. */
+  contextWaId?: string;
 }
 
 export async function processWhatsappSend(job: Job<WhatsappSendPayload>): Promise<void> {
-  const { tenantId, leadId, phone, template, vars } = job.data;
+  const { tenantId, leadId, phone, template, vars, contextWaId } = job.data;
 
   // Prefer per-tenant credentials from DB; fall back to env vars
   const dbConfig = await withSystemContext(prisma, tenantId, (tx) =>
@@ -45,6 +47,7 @@ export async function processWhatsappSend(job: Job<WhatsappSendPayload>): Promis
       to: phone,
       type: 'text',
       text: { body: vars['message'] ?? '' },
+      ...(contextWaId ? { context: { message_id: contextWaId } } : {}),
     };
   } else {
     const parameters = Object.values(vars).map((value) => ({

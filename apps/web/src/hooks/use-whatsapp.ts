@@ -179,11 +179,12 @@ export function useSendMessage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const send = useCallback(async (leadId: string, message: string): Promise<void> => {
+  const send = useCallback(
+    async (leadId: string, message: string, replyTo?: { waId?: string; text: string }): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      await api.post('/whatsapp/send', { leadId, message });
+      await api.post('/whatsapp/send', { leadId, message, ...(replyTo ? { replyTo } : {}) });
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'Failed to send message';

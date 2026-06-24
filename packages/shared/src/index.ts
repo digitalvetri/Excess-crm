@@ -4,6 +4,7 @@ export { scoreLead, scoreLabel, SCORE_VERSION } from './lead-scoring.js';
 export type { ScoreFactor, ScorableLead, LeadScoreBreakdown } from './lead-scoring.js';
 export { computeCommission, DEFAULT_COMMISSION_PER_KW_INR } from './commission.js';
 export type { CommissionResult } from './commission.js';
+export { maskEmail, maskPhone } from './mask.js';
 export * from './schemas/auth.js';
 export * from './schemas/lead.js';
 export * from './schemas/integrations.js';

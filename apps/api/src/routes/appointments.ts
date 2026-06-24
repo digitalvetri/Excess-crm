@@ -546,11 +546,11 @@ export const appointmentsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { id } = req.params as { id: string };
-    const body = req.body as { engineerId?: string };
-
-    if (!body?.engineerId || typeof body.engineerId !== 'string') {
-      return reply.code(400).send({ error: { code: 'validation_error', message: 'engineerId is required' } });
+    const parsed = z.object({ engineerId: z.string().uuid() }).safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'A valid engineerId (uuid) is required' } });
     }
+    const body = parsed.data;
 
     const appointment = await req.withTenant(async (tx) => {
       const existing = await tx.appointment.findUnique({

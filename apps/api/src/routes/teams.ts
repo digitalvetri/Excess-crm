@@ -126,11 +126,11 @@ export const teamsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { id } = req.params as { id: string };
-    const { userId } = req.body as { userId: string };
-
-    if (!userId) {
-      return reply.code(400).send({ error: { code: 'validation_error', message: 'userId required' } });
+    const parsed = z.object({ userId: z.string().uuid() }).safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'A valid userId (uuid) is required' } });
     }
+    const { userId } = parsed.data;
 
     await req.withTenant(async (tx) =>
       tx.user.update({ where: { id: userId }, data: { teamId: id } }),

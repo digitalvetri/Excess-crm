@@ -11,6 +11,7 @@ import {
   totpVerifySchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  maskEmail,
 } from '@excess/shared';
 
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -84,7 +85,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const { email, password } = parsed.data;
 
     if (await isLockedOut(app.redis, email)) {
-      req.log.warn({ email }, 'login locked out');
+      req.log.warn({ email: maskEmail(email) }, 'login locked out');
       return reply.code(429).send({
         error: { code: 'auth.locked', message: 'Account locked — try again in 15 minutes' },
       });
@@ -276,7 +277,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { email } = parsed.data;
-    req.log.info({ email }, 'password reset requested');
+    req.log.info({ email: maskEmail(email) }, 'password reset requested');
 
     // Always respond with success to prevent email enumeration
     const SAFE_RESPONSE = { data: { message: 'If that email is registered, a reset link has been sent.' } };

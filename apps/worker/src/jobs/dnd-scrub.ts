@@ -20,6 +20,7 @@ import type { Job } from 'bullmq';
 import pino from 'pino';
 import { prisma, withSystemContext, SYSTEM_TENANT_ID } from '@excess/db';
 import { env } from '@excess/config';
+import { maskPhone } from '@excess/shared';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
@@ -63,7 +64,7 @@ async function checkExotelDnd(phone: string): Promise<boolean | null> {
     });
 
     if (!res.ok) {
-      log.warn({ phone, status: res.status }, 'dnd_scrub.exotel_api_error');
+      log.warn({ phone: maskPhone(phone), status: res.status }, 'dnd_scrub.exotel_api_error');
       return null;
     }
 

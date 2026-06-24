@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import axios from 'axios';
 import pino from 'pino';
+import { maskEmail } from '@excess/shared';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
@@ -69,9 +70,9 @@ export async function processEmailSend(job: Job<EmailSendPayload>): Promise<void
       },
     );
 
-    log.info({ tenantId, to, template }, 'email.sent');
+    log.info({ tenantId, to: maskEmail(to), template }, 'email.sent');
   } catch (err) {
-    log.error({ tenantId, to, template, err }, 'email.send_failed');
+    log.error({ tenantId, to: maskEmail(to), template, err }, 'email.send_failed');
     throw err;
   }
 }

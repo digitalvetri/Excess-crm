@@ -2,6 +2,17 @@
 
 Scope: **Marketing → WhatsApp** (`apps/web/src/app/(app)/whatsapp/page.tsx`). Turn the current page into a wacrm-grade shared inbox **without rebuilding** — it already has the bones.
 
+> ## ✅ STATUS: COMPLETE (all phases shipped)
+> - **Phase 1** UX polish — search, preview, relative time, contact context, 24h window (`a663fd6`)
+> - **Phase 2** Multi-agent — assignment (lead owner), status, unread, filters (`8867677`, no DDL)
+> - **Phase 3** Rich messaging — template picker (`382cbd6`), reply-quote (`5467f39`), reactions (`6db6922`), media inbound+download+display (`d2e558d`, `9e5e6d3`) + outbound send (`afef1f9`)
+> - **Phase 4** Real-time — SSE + Redis pub/sub (`7f2e7e4`, verified end-to-end)
+> - **Phase 5** AI assist — summarise + suggested replies (`d0f9204`)
+> - **Phase 5b** First-response SLA timer (`6346279`)
+>
+> **Verify on the live number:** outbound/inbound media (Meta media API + S3 — couldn't be tested without prod creds). Everything else is verified locally + in CI.
+> **DDL note (verified 2026-06-24):** prod *can* run additive DDL via hand-written `ALTER … ADD COLUMN IF NOT EXISTS` — never `prisma db push`. Phases 2–5 still avoided columns (JSON payload / Redis) so nothing needs a migration.
+
 ---
 
 ## Where it stands today (already built)

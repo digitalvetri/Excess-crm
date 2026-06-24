@@ -1,9 +1,8 @@
 import type { MetadataRoute } from 'next';
 
 // Makes the CRM installable ("Add to Home Screen" / desktop install). Next auto-
-// serves this at /manifest.webmanifest and links it. NOTE: for full install on
-// Chrome, add dedicated 192/512 maskable PNG icons (logo.jpeg is a stop-gap) and a
-// service worker for offline — tracked as a P1 follow-up.
+// serves this at /manifest.webmanifest and links it. Paired with a service worker
+// (public/sw.js) registered from the root layout for fast repeat loads.
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Excess CRM',
@@ -14,8 +13,10 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: '#0B7A3D',
     theme_color: '#0B7A3D',
     icons: [
-      { src: '/logo.jpeg', sizes: '192x192', type: 'image/jpeg' },
-      { src: '/logo.jpeg', sizes: '512x512', type: 'image/jpeg' },
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
   };
 }

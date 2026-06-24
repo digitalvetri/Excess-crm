@@ -169,7 +169,7 @@ function ScoreWithBreakdown({ score, breakdown }: { score: number | null; breakd
                     {f.name}
                     <span className="text-slate-400 ml-1">· {f.evidence}</span>
                   </span>
-                  <span className="font-medium text-slate-700 shrink-0">+{f.contribution}</span>
+                  <span className="font-medium text-slate-700 shrink-0">{f.contribution >= 0 ? '+' : ''}{f.contribution}</span>
                 </div>
               ))
             : legacyFactors.map(([key, val]) => (

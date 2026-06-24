@@ -1221,7 +1221,70 @@ Recent activity: ${recent || 'none'}`;
     );
 
     const activityTypes = new Set(activities.map((a) => a.type));
-    const { score, breakdown } = scoreLead(lead, activityTypes);
+    const base = scoreLead(lead, activityTypes);
+
+    // AI-intent augmentation (on-demand, cached 6h to control cost). Adds an
+    // explainable factor on top of the deterministic rule-based base. No-ops without
+    // GROQ_API_KEY, so the rule-based score is always the floor.
+    let score = base.score;
+    let breakdown = base.breakdown;
+    const aiCacheKey = `lead_intent:${req.auth.tenantId}:${id}`;
+    type AiFactor = { name: string; contribution: number; evidence: string };
+    let aiFactor: AiFactor | null = null;
+    const cachedAi = await app.redis.get(aiCacheKey);
+    if (cachedAi) {
+      const f = JSON.parse(cachedAi) as AiFactor | null;
+      if (f && f.contribution !== 0) aiFactor = f;
+    } else {
+      const signal = await req.withTenant((tx) =>
+        tx.lead.findUnique({
+          where: { id },
+          select: {
+            factSheet: true,
+            activities: {
+              where: { type: { in: ['NOTE', 'WHATSAPP', 'CALL', 'EMAIL'] } },
+              orderBy: { createdAt: 'desc' },
+              take: 6,
+              select: { payload: true },
+            },
+          },
+        }),
+      );
+      const textSignals = [
+        JSON.stringify(signal?.factSheet ?? {}),
+        ...(signal?.activities ?? []).map((a) => {
+          const p = (a.payload ?? {}) as Record<string, unknown>;
+          return String(p['message'] ?? p['text'] ?? p['note'] ?? p['summary'] ?? '');
+        }),
+      ]
+        .filter((s) => s && s !== '{}')
+        .join(' | ')
+        .slice(0, 1500);
+
+      if (textSignals.length > 30) {
+        const out = await llmComplete(
+          `From these solar-lead signals, rate buying intent as a score adjustment from -10 (cold) to +15 (very hot, ready to buy). Reply EXACTLY:\nDELTA: <integer>\nWHY: <one short sentence>\n\nSignals: ${textSignals}`,
+          {
+            system: 'You are a lead-qualification analyst for Excess Renew rooftop solar. Be conservative — only give large positive deltas for clear buying signals (budget confirmed, ready to install, asking for a quote or site survey).',
+            maxTokens: 60,
+            temperature: 0.2,
+          },
+        );
+        if (out) {
+          const dM = out.match(/DELTA:\s*(-?\d+)/i);
+          const wM = out.match(/WHY:\s*(.+)/i);
+          const delta = Math.max(-10, Math.min(15, parseInt(dM?.[1] ?? '0', 10) || 0));
+          aiFactor = delta !== 0 ? { name: 'AI intent', contribution: delta, evidence: (wM?.[1] ?? 'AI-assessed buying intent').trim().slice(0, 120) } : null;
+          await app.redis.setex(aiCacheKey, 6 * 3600, JSON.stringify(aiFactor));
+        }
+      }
+    }
+
+    if (aiFactor) {
+      score = Math.max(0, Math.min(100, base.score + aiFactor.contribution));
+      breakdown = { ...base.breakdown, factors: [...base.breakdown.factors, aiFactor], total: score };
+    }
+
     const { label, color } = scoreLabel(score);
 
     // Persist so the lead list and detail view reflect the fresh score
@@ -1232,7 +1295,7 @@ Recent activity: ${recent || 'none'}`;
       })
     );
 
-    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id, score }, 'lead.score_computed');
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId: id, score, aiBoost: aiFactor?.contribution ?? 0 }, 'lead.score_computed');
     return reply.send({ data: { score, label, color, breakdown } });
   });
 };

@@ -282,6 +282,20 @@ class ExcessAgent(Agent):
         logger.info("schedule_appointment scheduledAt=%s lead=%s", scheduled_at, self._lead_id)
         return result.get("data") or {}
 
+    @function_tool
+    async def mark_do_not_contact(self, run_ctx: RunContext) -> str:
+        """Call this when the customer asks to never be called again, to remove their
+        number, or to stop all calls. Adds them to the do-not-call list and ends contact.
+        Always acknowledge warmly first, then call this, then close the call politely."""
+        result = await crm_post(
+            "optOut",
+            self._call_id,
+            self._tenant_id,
+            self._lead_id,
+        )
+        logger.info("mark_do_not_contact lead=%s", self._lead_id)
+        return result.get("message", "ok")
+
 
 # ── Server setup & prewarm ─────────────────────────────────────────────────────
 

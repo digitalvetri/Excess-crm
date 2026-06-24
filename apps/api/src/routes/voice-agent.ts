@@ -1233,6 +1233,36 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
           return reply.send({ data: { success: true, scheduledAt: rfResult.data.scheduledAt }, message: 'ok' });
         }
 
+        case 'optOut': {
+          // Customer asked to never be called again — add to DND, opt out of comms,
+          // cancel sequences, mark the lead INVALID. TRAI/DPDP compliance.
+          if (callId.startsWith('playground-')) {
+            return reply.send({ data: { success: true }, message: 'ok' });
+          }
+          const optLead = await withSystemContext(prisma, tenantId, (tx) =>
+            tx.lead.findUnique({ where: { id: leadId }, select: { phone: true } }),
+          );
+          await withSystemContext(prisma, tenantId, async (tx) => {
+            await tx.lead.update({ where: { id: leadId }, data: { commsOptedOutAt: new Date(), stage: 'INVALID' } });
+            await tx.sequenceEnrollment.updateMany({
+              where: { leadId, tenantId, status: 'ACTIVE' },
+              data: { status: 'OPTED_OUT', completedAt: new Date() },
+            });
+          });
+          if (optLead?.phone) {
+            // dnd_list is global (no RLS); phone is unique — upsert so future dials are blocked.
+            await prisma.dndList
+              .upsert({
+                where: { phone: optLead.phone },
+                update: {},
+                create: { phone: optLead.phone, reason: 'Customer opted out during AI call' },
+              })
+              .catch(() => {});
+          }
+          req.log.info({ tenantId, callId, leadId }, 'agent_function.optOut');
+          return reply.send({ data: { success: true }, message: 'ok' });
+        }
+
         case 'callEnded': {
           // Playground calls have no DB record — return success without touching DB
           if (callId.startsWith('playground-')) {

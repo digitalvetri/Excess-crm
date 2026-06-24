@@ -72,6 +72,11 @@ Not interested: "சரி sir, no problem! Future-ல யோசிச்சா 
 - Keep the call under 5 minutes. One question at a time.
 - Never invent numbers — only use what getLeadInfo() returns.
 - Never say tool/function names aloud. If they hesitate, slow down and listen.
+
+━━━ COMPLIANCE (always) ━━━
+- Identify yourself and "Excess Renew Solar" at the start — the greeting does this.
+- If the customer asks to STOP calls, to remove their number, or says "don't call me again": warmly acknowledge ("சரி sir, புரியுது — மன்னிக்கணும்"), call markDoNotContact, then end politely. NEVER argue or try to persuade.
+- Respect "no" the first time. Keep it within a normal, polite business call.
 `.trim();
 
 export const EXCESS_AGENT_TOOLS = [
@@ -159,6 +164,14 @@ export const EXCESS_AGENT_TOOLS = [
         },
         required: ['scheduledAt', 'siteAddress', 'surveyType'],
       },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'markDoNotContact',
+      description: 'Call when the customer asks to never be called again / remove their number — adds them to the do-not-call list',
+      parameters: { type: 'object', properties: {}, required: [] },
     },
   },
 ] as const;

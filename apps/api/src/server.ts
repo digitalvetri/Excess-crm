@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
+import * as Sentry from '@sentry/node';
 import { fileURLToPath } from 'url';
 import { env } from '@excess/config';
 import { requestIdPlugin } from './plugins/request-id.js';
@@ -54,6 +55,10 @@ import { notificationsRoutes } from './routes/notifications.js';
 import { callsRoutes } from './routes/calls.js';
 
 export async function buildServer() {
+  // Error tracking — no-op unless SENTRY_DSN is set, so local/dev is untouched.
+  if (env.SENTRY_DSN) {
+    Sentry.init({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV, tracesSampleRate: 0.1 });
+  }
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
@@ -133,6 +138,7 @@ export async function buildServer() {
   app.setErrorHandler((error, _req, reply) => {
     app.log.error(error);
     const statusCode = error.statusCode ?? 500;
+    if (env.SENTRY_DSN && statusCode >= 500) Sentry.captureException(error);
     return reply.code(statusCode).send({
       error: {
         code: error.code ?? 'internal_error',

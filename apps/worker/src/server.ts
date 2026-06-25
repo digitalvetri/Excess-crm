@@ -1,5 +1,6 @@
 import { Worker, type Job } from 'bullmq';
 import pino from 'pino';
+import * as Sentry from '@sentry/node';
 import { redis } from './redis.js';
 import { processLeadIngest } from './jobs/lead-ingest.js';
 import { processVoiceDial } from './jobs/voice-dial.js';
@@ -27,6 +28,13 @@ import { processIndiamartPull } from './jobs/indiamart-pull.js';
 
 const log = pino({ level: process.env['LOG_LEVEL'] ?? 'info' });
 
+// Error tracking — no-op unless SENTRY_DSN is set. Failed jobs are where a lead can
+// silently vanish, so capture them.
+const SENTRY_DSN = process.env['SENTRY_DSN'];
+if (SENTRY_DSN) {
+  Sentry.init({ dsn: SENTRY_DSN, environment: process.env['NODE_ENV'] ?? 'production' });
+}
+
 const workers: Worker<unknown>[] = [];
 
 function mkWorker<T>(queueName: string, processor: (job: Job<T>) => Promise<void>): void {
@@ -35,9 +43,10 @@ function mkWorker<T>(queueName: string, processor: (job: Job<T>) => Promise<void
     concurrency: 5,
   });
   w.on('completed', (job) => log.info({ jobId: job.id, queue: queueName }, 'Job completed'));
-  w.on('failed', (job, err) =>
-    log.error({ jobId: job?.id, queue: queueName, err }, 'Job failed'),
-  );
+  w.on('failed', (job, err) => {
+    log.error({ jobId: job?.id, queue: queueName, err }, 'Job failed');
+    if (SENTRY_DSN) Sentry.captureException(err, { extra: { queue: queueName, jobId: job?.id } });
+  });
 
   workers.push(w as Worker<unknown>);
 }

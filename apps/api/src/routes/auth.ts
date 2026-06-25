@@ -4,6 +4,7 @@ import speakeasy from 'speakeasy';
 import qrcode from 'qrcode';
 import { nanoid } from 'nanoid';
 import { prisma } from '@excess/db';
+import { hashToken } from '../lib/token.js';
 import type { UserRole } from '@excess/db';
 import { env } from '@excess/config';
 import {
@@ -67,10 +68,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   }
 
   async function createSession(userId: string, tenantId: string, role: UserRole, teamId: string | null) {
-    const token = nanoid(32);
+    const raw = nanoid(32);
     const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
-    await prisma.session.create({ data: { userId, tenantId, role, teamId, token, expiresAt } });
-    return { token, expiresAt };
+    // Store the hash; the raw token goes to the cookie only.
+    await prisma.session.create({ data: { userId, tenantId, role, teamId, token: hashToken(raw), expiresAt } });
+    return { token: raw, expiresAt };
   }
 
   // POST /auth/login
@@ -243,7 +245,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   // POST /auth/logout
   app.post('/logout', async (req, reply) => {
     const token = req.cookies['excess_session'];
-    if (token) await prisma.session.deleteMany({ where: { token } });
+    if (token) await prisma.session.deleteMany({ where: { token: hashToken(token) } });
     const isProduction = process.env['NODE_ENV'] === 'production';
     const domainOpt = isProduction ? { domain: env.COOKIE_DOMAIN } : {};
     reply.clearCookie('excess_session', { path: '/', ...domainOpt });
@@ -292,7 +294,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const resetToken = nanoid(32);
-    await app.redis.setex(`reset:${resetToken}`, 3600, email);
+    // Store under the hash; the raw token goes only in the emailed link.
+    await app.redis.setex(`reset:${hashToken(resetToken)}`, 3600, email);
 
     const resetLink = `${env.APP_URL}/reset-password?token=${resetToken}`;
 
@@ -316,7 +319,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
     const { token, password } = parsed.data;
 
-    const email = await app.redis.get(`reset:${token}`);
+    const email = await app.redis.get(`reset:${hashToken(token)}`);
     if (!email) {
       return reply.code(400).send({
         error: { code: 'auth.reset_invalid', message: 'Reset link is invalid or has expired' },
@@ -338,7 +341,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
     await Promise.all([
       prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
-      app.redis.del(`reset:${token}`),
+      app.redis.del(`reset:${hashToken(token)}`),
       prisma.auditLog.create({
         data: {
           tenantId: user.tenantId,

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { prisma } from '@excess/db';
 import type { UserRole } from '@excess/db';
+import { hashToken } from '../lib/token.js';
 
 export interface RequestAuth {
   userId: string;
@@ -35,7 +36,7 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
     }
 
     const session = await prisma.session.findUnique({
-      where: { token },
+      where: { token: hashToken(token) },
       include: { user: { select: { isActive: true } } },
     });
 

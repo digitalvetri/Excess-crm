@@ -105,7 +105,25 @@ function loadEnv(): Env {
     process.stderr.write(`Invalid environment variables:\n${JSON.stringify(result.error.flatten().fieldErrors, null, 2)}\n`);
     process.exit(1);
   }
-  return result.data;
+  const parsed = result.data;
+
+  // Production refuses to boot on default/placeholder secrets — a leaked default
+  // SESSION_SECRET means forgeable sessions; a default DB password is a known credential.
+  if (parsed.NODE_ENV === 'production') {
+    const insecure: string[] = [];
+    if (parsed.SESSION_SECRET.includes('change-in-production') || parsed.SESSION_SECRET.startsWith('local-dev-secret')) {
+      insecure.push('SESSION_SECRET is still the dev default — set a 64-byte random value');
+    }
+    if (parsed.DATABASE_URL.includes('change-in-production') || parsed.DATABASE_URL.includes('postgres:postgres@')) {
+      insecure.push('DATABASE_URL uses a default/placeholder password');
+    }
+    if (insecure.length > 0) {
+      process.stderr.write(`Refusing to boot in production with insecure config:\n - ${insecure.join('\n - ')}\n`);
+      process.exit(1);
+    }
+  }
+
+  return parsed;
 }
 
 export const env = loadEnv();

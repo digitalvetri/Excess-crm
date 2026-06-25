@@ -24,9 +24,12 @@ export async function withTenantContext<T>(
     throw new Error('Invalid tenant context');
   }
   return prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${ctx.tenantId}'`);
-    await tx.$executeRawUnsafe(`SET LOCAL app.role = '${ctx.role}'`);
-    await tx.$executeRawUnsafe(`SET LOCAL app.user_id = '${ctx.userId}'`);
+    // Parameterized set_config (transaction-local) instead of string-interpolated
+    // SET LOCAL — SET LOCAL can't take a bind param; set_config can. So tenant safety
+    // no longer depends on the UUID/role validation above never being loosened.
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${ctx.tenantId}, true)`;
+    await tx.$executeRaw`SELECT set_config('app.role', ${ctx.role}, true)`;
+    await tx.$executeRaw`SELECT set_config('app.user_id', ${ctx.userId}, true)`;
     return fn(tx);
   });
 }

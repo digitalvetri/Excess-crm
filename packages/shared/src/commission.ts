@@ -1,9 +1,14 @@
 // Single source of truth for franchise commission math, used by the synchronous
 // conversion handler (apps/api), the commission-calc worker, and the manual
-// POST /commissions endpoint. All internal math runs in Prisma.Decimal — never JS floats.
-import { Prisma } from '@prisma/client';
+// POST /commissions endpoint. All internal math runs in Decimal — never JS floats.
+//
+// We import decimal.js directly (NOT Prisma.Decimal). This module is re-exported from
+// @excess/shared, which is bundled into the Next.js web app; importing @prisma/client
+// here needs a generated Prisma client at build time (the prod web build stage runs
+// `pnpm install` without `prisma generate`), which breaks the web build. decimal.js is the
+// exact Decimal implementation Prisma wraps — same math, pure JS, no generate dependency.
+import { Decimal } from 'decimal.js';
 
-const Decimal = Prisma.Decimal;
 export const DEFAULT_COMMISSION_PER_KW_INR = 1500;
 const DEFAULT_GST_RATE = 0.18;
 
@@ -39,8 +44,8 @@ export function computeCommission(
   const { systemKw, gstMode = 'add', gstRate = DEFAULT_GST_RATE, deductionsInr = 0 } = opts;
   const deal = new Decimal(dealValueInr);
 
-  let commission: Prisma.Decimal;
-  let ratePercent: Prisma.Decimal;
+  let commission: Decimal;
+  let ratePercent: Decimal;
 
   if (systemKw && systemKw > 0) {
     const perKw = slabs['perKwInr'] && slabs['perKwInr'] > 0 ? slabs['perKwInr'] : DEFAULT_COMMISSION_PER_KW_INR;

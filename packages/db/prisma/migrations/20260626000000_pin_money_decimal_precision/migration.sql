@@ -1,0 +1,25 @@
+-- AlterTable
+ALTER TABLE "commission_splits" ALTER COLUMN "split_percent" SET DATA TYPE DECIMAL(5,2),
+ALTER COLUMN "amount_inr" SET DATA TYPE DECIMAL(14,2);
+
+-- AlterTable
+ALTER TABLE "commissions" ALTER COLUMN "deal_value_inr" SET DATA TYPE DECIMAL(14,2),
+ALTER COLUMN "rate_percent" SET DATA TYPE DECIMAL(5,2),
+ALTER COLUMN "commission_inr" SET DATA TYPE DECIMAL(14,2),
+ALTER COLUMN "gst_inr" SET DATA TYPE DECIMAL(14,2),
+ALTER COLUMN "deductions_inr" SET DATA TYPE DECIMAL(14,2),
+ALTER COLUMN "net_payable_inr" SET DATA TYPE DECIMAL(14,2);
+
+-- AlterTable
+ALTER TABLE "payouts" ALTER COLUMN "amount_inr" SET DATA TYPE DECIMAL(14,2);
+
+-- AlterTable
+ALTER TABLE "projects" ALTER COLUMN "total_value_inr" SET DATA TYPE DECIMAL(14,2);
+
+-- AlterTable
+ALTER TABLE "quotations" ALTER COLUMN "total_inr" SET DATA TYPE DECIMAL(14,2),
+ALTER COLUMN "subsidy_inr" SET DATA TYPE DECIMAL(14,2),
+ALTER COLUMN "net_payable" SET DATA TYPE DECIMAL(14,2),
+ALTER COLUMN "emi_monthly" SET DATA TYPE DECIMAL(14,2);
+
+

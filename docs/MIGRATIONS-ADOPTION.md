@@ -14,7 +14,7 @@ unless prod is baselined first.
 ## What's in the repo now
 - `prisma/migrations/0_baseline/migration.sql` — the full current schema (46 tables), generated from `schema.prisma`.
 - `prisma/migrations/migration_lock.toml`.
-- `pnpm --filter @excess/db run db:migrate:check` — advisory drift check (schema vs migrations). **Not yet a CI gate** — see the cosmetic-diff caveat below.
+- `pnpm --filter @excess/db run db:migrate:check` — advisory drift check (schema vs migrations). **Requires `SHADOW_DATABASE_URL`** pointing at a *dedicated, disposable* database (e.g. `excess_crm_shadow`) — NEVER the main DB. `migrate diff --from-migrations` replays the migrations into the shadow, which resets it; pointing it at the real DB wipes it. **Not yet a CI gate** — see the cosmetic-diff caveat below.
 - CI and deploy still use `db push` — unchanged.
 
 ## One-time: baseline production (you run this)

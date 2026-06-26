@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { Prisma } from '@excess/db';
 import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 import { can } from '@excess/shared';
 import { z } from 'zod';
@@ -75,7 +76,8 @@ export const payoutsRoutes: FastifyPluginAsync = async (app) => {
       const tenantIds = [...new Set(commissions.map((c) => c.tenantId))];
       if (tenantIds.length > 1) return { error: 'mixed_tenants' as const };
 
-      const totalAmount = commissions.reduce((sum, c) => sum + Number(c.netPayableInr), 0);
+      // Sum in Decimal (not float) — this is persisted to payout.amountInr.
+      const totalAmount = commissions.reduce((sum, c) => sum.plus(c.netPayableInr), new Prisma.Decimal(0));
       const tenantId    = tenantIds[0]!;
 
       const p = await tx.payout.create({

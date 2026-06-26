@@ -95,12 +95,13 @@ export const walletRoutes: FastifyPluginAsync = async (app) => {
       let updatedWallet: typeof wallet;
 
       if (type === 'DEBIT') {
-        // Atomic balance check + decrement prevents overdraft under concurrent requests
+        // Atomic balance check + decrement prevents overdraft under concurrent requests.
+        // Cast the bound amount to ::numeric so the arithmetic stays in Decimal, not float.
         const affected = await tx.$executeRaw`
           UPDATE wallets
-          SET balance_inr = balance_inr - ${amountInr}
+          SET balance_inr = balance_inr - ${amountInr}::numeric
           WHERE id = ${wallet.id}::uuid
-            AND balance_inr >= ${amountInr}
+            AND balance_inr >= ${amountInr}::numeric
         `;
         if (affected === 0) return { error: 'insufficient_balance' as const };
         updatedWallet = await tx.wallet.findUniqueOrThrow({ where: { id: wallet.id } });

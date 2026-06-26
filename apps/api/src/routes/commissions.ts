@@ -196,7 +196,8 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
             tenantId:     updated.tenantId,
             agentRole:    a.agentRole!,
             splitPercent: splitConfig[a.agentRole!]!,
-            amountInr:    (Number(updated.netPayableInr) * splitConfig[a.agentRole!]!) / 100,
+            // Split amount in Decimal (not float) — persisted to commission_split.amount_inr.
+            amountInr:    new Prisma.Decimal(updated.netPayableInr).times(splitConfig[a.agentRole!]!).div(100),
           }));
 
         if (splitData.length > 0) {

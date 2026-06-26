@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { Prisma } from '@excess/db';
-import { can, DEFAULT_COMMISSION_PER_KW_INR } from '@excess/shared';
+import { can, DEFAULT_COMMISSION_PER_KW_INR, computeCommission } from '@excess/shared';
 import { z } from 'zod';
 import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 
@@ -134,12 +134,12 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'Invalid input', details: parsed.error.flatten() } });
     }
 
-    const { leadId, dealValueInr, ratePercent, gstInr, deductionsInr } = parsed.data;
+    const { leadId, dealValueInr, ratePercent, deductionsInr } = parsed.data;
 
-    const commissionInr = (dealValueInr * ratePercent) / 100;
-    const gst           = gstInr        ?? 0;
-    const deductions    = deductionsInr ?? 0;
-    const netPayableInr = commissionInr + gst - deductions;
+    // Single source of truth — no inline arithmetic. The explicit rate is passed as a
+    // one-bucket slab; GST is the standardized computed default (add 18%, see CM-02), so
+    // the previously arbitrary user-supplied gstInr is no longer honoured. Deductions pass through.
+    const c = computeCommission({ '0': ratePercent }, dealValueInr, { deductionsInr: deductionsInr ?? 0 });
 
     const commission = await req.withTenant(async (tx) =>
       tx.commission.create({
@@ -147,10 +147,10 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
           tenantId: req.auth.tenantId,
           leadId,
           dealValueInr,
-          ratePercent,
-          commissionInr,
-          netPayableInr,
-          ...(gstInr        !== undefined && { gstInr }),
+          ratePercent:   c.ratePercent,
+          commissionInr: c.commissionInr,
+          gstInr:        c.gstInr,
+          netPayableInr: c.netPayableInr,
           ...(deductionsInr !== undefined && { deductionsInr }),
         },
       }),

@@ -9,36 +9,36 @@ describe('computeCommission — franchise money-path invariants', () => {
       expect(DEFAULT_COMMISSION_PER_KW_INR).toBe(1500);
     });
     it('commission = systemKw × ₹1,500 by default', () => {
-      expect(computeCommission({}, 300000, 5).commissionInr).toBe(5 * 1500);
+      expect(computeCommission({}, 300000, { systemKw: 5 }).commissionInr).toBe(5 * 1500);
     });
     it('slabs.perKwInr overrides the default rate', () => {
-      expect(computeCommission({ perKwInr: 2000 }, 300000, 5).commissionInr).toBe(10000);
+      expect(computeCommission({ perKwInr: 2000 }, 300000, { systemKw: 5 }).commissionInr).toBe(10000);
     });
     it('ignores a zero/negative perKwInr override (falls back to ₹1,500)', () => {
-      expect(computeCommission({ perKwInr: 0 }, 300000, 5).commissionInr).toBe(7500);
-      expect(computeCommission({ perKwInr: -5 }, 300000, 5).commissionInr).toBe(7500);
+      expect(computeCommission({ perKwInr: 0 }, 300000, { systemKw: 5 }).commissionInr).toBe(7500);
+      expect(computeCommission({ perKwInr: -5 }, 300000, { systemKw: 5 }).commissionInr).toBe(7500);
     });
     it('fractional kW computes proportionally', () => {
-      expect(computeCommission({}, 300000, 5.5).commissionInr).toBe(8250);
+      expect(computeCommission({}, 300000, { systemKw: 5.5 }).commissionInr).toBe(8250);
     });
   });
 
   describe('GST + net-payable invariants (must always hold)', () => {
     it('GST is exactly 18% of commission', () => {
-      const r = computeCommission({}, 300000, 10);
+      const r = computeCommission({}, 300000, { systemKw: 10 });
       expect(r.gstInr).toBeCloseTo(r.commissionInr * 0.18, 6);
     });
     it('net payable = commission + GST', () => {
-      const r = computeCommission({}, 300000, 7);
+      const r = computeCommission({}, 300000, { systemKw: 7 });
       expect(r.netPayableInr).toBeCloseTo(r.commissionInr + r.gstInr, 6);
     });
     it('net payable = commission × 1.18', () => {
-      const r = computeCommission({}, 250000, 4);
+      const r = computeCommission({}, 250000, { systemKw: 4 });
       expect(r.netPayableInr).toBeCloseTo(r.commissionInr * 1.18, 6);
     });
     it('commission and GST are never negative for valid inputs', () => {
       for (const kw of [0.5, 1, 3, 10, 100]) {
-        const r = computeCommission({}, 100000, kw);
+        const r = computeCommission({}, 100000, { systemKw: kw });
         expect(r.commissionInr).toBeGreaterThanOrEqual(0);
         expect(r.gstInr).toBeGreaterThanOrEqual(0);
       }
@@ -48,10 +48,10 @@ describe('computeCommission — franchise money-path invariants', () => {
   describe('rate% derivation', () => {
     it('rate% = commission / dealValue × 100', () => {
       // 10 kW × ₹1,500 = ₹15,000 on a ₹100,000 deal → 15%
-      expect(computeCommission({}, 100000, 10).ratePercent).toBe(15);
+      expect(computeCommission({}, 100000, { systemKw: 10 }).ratePercent).toBe(15);
     });
     it('no divide-by-zero when dealValue is 0 (rate 0, commission still computed)', () => {
-      const r = computeCommission({}, 0, 5);
+      const r = computeCommission({}, 0, { systemKw: 5 });
       expect(r.ratePercent).toBe(0);
       expect(r.commissionInr).toBe(7500);
     });
@@ -70,11 +70,34 @@ describe('computeCommission — franchise money-path invariants', () => {
       expect(computeCommission(slabs, 1200000).ratePercent).toBe(10);
     });
     it('systemKw = 0 falls through to the slab model', () => {
-      expect(computeCommission({}, 200000, 0).ratePercent).toBe(5);
+      expect(computeCommission({}, 200000, { systemKw: 0 }).ratePercent).toBe(5);
     });
     it('slab commission still carries 18% GST', () => {
       const r = computeCommission({}, 200000);
       expect(r.netPayableInr).toBeCloseTo(r.commissionInr * 1.18, 6);
+    });
+  });
+
+  // Report 2.2 — both the manual POST /commissions path (explicit rate) and the
+  // auto-conversion worker path (systemKw) now route through this one function.
+  describe('unified math — API path and worker path agree', () => {
+    it('rate-based (API) and kW-based (worker) give identical net for equivalent input', () => {
+      const api = computeCommission({ '0': 2.5 }, 300000, { deductionsInr: 0 }); // 300000 @ 2.5% = 7500
+      const worker = computeCommission({ perKwInr: 1500 }, 300000, { systemKw: 5 }); // 5kW × 1500 = 7500
+      expect(api.commissionInr).toBe(7500);
+      expect(worker.commissionInr).toBe(7500);
+      expect(api.netPayableInr).toBe(worker.netPayableInr);
+      expect(api.netPayableInr).toBe(8850); // both +18% GST
+    });
+
+    it('GST mode is parameterized — default add, plus deduct / none', () => {
+      expect(computeCommission({ '0': 5 }, 100000).netPayableInr).toBe(5900); // commission 5000 +18%
+      expect(computeCommission({ '0': 5 }, 100000, { gstMode: 'deduct' }).netPayableInr).toBe(4100);
+      expect(computeCommission({ '0': 5 }, 100000, { gstMode: 'none' }).netPayableInr).toBe(5000);
+    });
+
+    it('deductions are subtracted from net', () => {
+      expect(computeCommission({ '0': 5 }, 100000, { deductionsInr: 500 }).netPayableInr).toBe(5400);
     });
   });
 });

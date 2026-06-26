@@ -25,7 +25,7 @@ export async function processCommissionCalc(job: Job<CommissionCalcPayload>): Pr
   }
 
   const slabs = (tenant.commissionSlabs ?? {}) as Record<string, number>;
-  const { commissionInr, ratePercent, gstInr, netPayableInr } = computeCommission(slabs, dealValueInr, systemKw);
+  const { commissionInr, ratePercent, gstInr, netPayableInr } = computeCommission(slabs, dealValueInr, systemKw ? { systemKw } : {});
 
   // commissions table has RLS
   await withSystemContext(prisma, tenantId, async (tx) => {

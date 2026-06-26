@@ -543,7 +543,7 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
           }
 
           const slabs = (tenant.commissionSlabs ?? {}) as Record<string, number>;
-          const c = computeCommission(slabs, dealValueInr ?? 0, systemKw);
+          const c = computeCommission(slabs, dealValueInr ?? 0, systemKw ? { systemKw } : {});
 
           const created = await tx.commission.create({
             data: {

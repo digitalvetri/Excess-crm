@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 import multipart from '@fastify/multipart';
 import { Prisma } from '@excess/db';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
@@ -170,6 +171,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
     const query = req.query as { stage?: string; search?: string; cursor?: string; limit?: string; engineerId?: string; subsidyStatus?: string; netMeteringStatus?: string };
     const limit = Math.min(Number(query.limit ?? 25), 100);
+    const keyset = keysetCondition('createdAt', 'desc', decodeCursor(query.cursor));
 
     const projects = await req.withTenant((tx) =>
       tx.project.findMany({
@@ -185,9 +187,9 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
               { lead: { name: { contains: query.search, mode: 'insensitive' as const } } },
             ],
           }),
-          ...(query.cursor && { id: { lt: query.cursor } }),
+          ...(keyset && { AND: [keyset] }),
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: keysetOrderBy('createdAt', 'desc'),
         take: limit + 1,
         select: {
           id: true,
@@ -216,7 +218,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     const items = hasMore ? projects.slice(0, limit) : projects;
 
     return reply.send({
-      data: { projects: items, hasMore, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null },
+      data: { projects: items, hasMore, nextCursor: hasMore && items.at(-1) ? encodeCursor(items.at(-1)!.createdAt, items.at(-1)!.id) : null },
     });
   });
 

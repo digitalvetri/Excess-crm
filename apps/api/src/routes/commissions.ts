@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { Prisma } from '@excess/db';
 import { can, DEFAULT_COMMISSION_PER_KW_INR } from '@excess/shared';
 import { z } from 'zod';
+import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 
 const createCommissionSchema = z.object({
   leadId: z.string().uuid(),
@@ -77,15 +78,16 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
 
     const query = req.query as { status?: string; franchiseId?: string; cursor?: string; limit?: string };
     const limit = Math.min(Number(query.limit ?? 50), 100);
+    const keyset = keysetCondition('createdAt', 'desc', decodeCursor(query.cursor));
 
     const { items, hasMore, nextCursor } = await req.withTenant(async (tx) => {
       const commissions = await tx.commission.findMany({
         where: {
           ...(query.status      && { status: query.status as never }),
           ...(query.franchiseId && { tenantId: query.franchiseId }),
-          ...(query.cursor      && { id: { lt: query.cursor } }),
+          ...(keyset            && { AND: [keyset] }),
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: keysetOrderBy('createdAt', 'desc'),
         take: limit + 1,
         select: {
           id: true, leadId: true, tenantId: true, dealValueInr: true,
@@ -98,7 +100,8 @@ export const commissionsRoutes: FastifyPluginAsync = async (app) => {
       const hm  = commissions.length > limit;
       const raw = hm ? commissions.slice(0, limit) : commissions;
       const enriched = await enrichCommissions(raw, tx);
-      return { items: enriched, hasMore: hm, nextCursor: hm ? (raw.at(-1)?.id ?? null) : null };
+      const last = raw.at(-1);
+      return { items: enriched, hasMore: hm, nextCursor: hm && last ? encodeCursor(last.createdAt, last.id) : null };
     });
 
     return reply.send({ data: { commissions: items, hasMore, nextCursor } });

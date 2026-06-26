@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 import { Prisma } from '@excess/db';
 import { can } from '@excess/shared';
 import { z } from 'zod';
@@ -49,15 +50,16 @@ export const quotationsRoutes: FastifyPluginAsync = async (app) => {
 
     const query = req.query as { leadId?: string; status?: string; cursor?: string; limit?: string };
     const limit = Math.min(Number(query.limit ?? 20), 100);
+    const keyset = keysetCondition('createdAt', 'desc', decodeCursor(query.cursor));
 
     const quotations = await req.withTenant(async (tx) =>
       tx.quotation.findMany({
         where: {
           ...(query.leadId && { leadId: query.leadId }),
           ...(query.status && { status: query.status as never }),
-          ...(query.cursor && { id: { lt: query.cursor } }),
+          ...(keyset       && { AND: [keyset] }),
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: keysetOrderBy('createdAt', 'desc'),
         take: limit + 1,
         select: {
           id: true,
@@ -85,7 +87,7 @@ export const quotationsRoutes: FastifyPluginAsync = async (app) => {
     const items = hasMore ? quotations.slice(0, limit) : quotations;
 
     return reply.send({
-      data: { quotations: items, hasMore, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null },
+      data: { quotations: items, hasMore, nextCursor: hasMore && items.at(-1) ? encodeCursor(items.at(-1)!.createdAt, items.at(-1)!.id) : null },
     });
   });
 

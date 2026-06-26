@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 import multipart from '@fastify/multipart';
 import crypto from 'crypto';
 import { RoomServiceClient, AccessToken } from 'livekit-server-sdk';
@@ -423,6 +424,7 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
 
     const q = req.query as { cursor?: string; limit?: string; persona?: string; status?: string };
     const limit = Math.min(parseInt(q.limit ?? '50'), 200);
+    const keyset = keysetCondition('initiatedAt', 'desc', decodeCursor(q.cursor));
 
     const calls = await req.withTenant((tx) =>
       tx.call.findMany({
@@ -430,10 +432,10 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
           tenantId: req.auth.tenantId,
           ...(q.persona && { persona: q.persona as never }),
           ...(q.status && { status: q.status as never }),
-          ...(q.cursor && { id: { lt: q.cursor } }),
+          ...(keyset && { AND: [keyset] }),
         },
         take: limit + 1,
-        orderBy: { initiatedAt: 'desc' },
+        orderBy: keysetOrderBy('initiatedAt', 'desc'),
         select: {
           id: true,
           leadId: true,
@@ -453,10 +455,11 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     const hasMore = calls.length > limit;
     if (hasMore) calls.pop();
 
+    const last = calls[calls.length - 1];
     return reply.send({
       data: {
         calls,
-        nextCursor: hasMore ? (calls[calls.length - 1]?.id ?? null) : null,
+        nextCursor: hasMore && last ? encodeCursor(last.initiatedAt, last.id) : null,
         hasMore,
       },
     });

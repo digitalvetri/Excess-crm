@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { LeadSourceType, LeadStage, ActivityType } from '@excess/db';
 import { can, scoreLead, scoreLabel, computeCommission } from '@excess/shared';
 import { fireWebhooks } from '../lib/fire-webhook.js';
+import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 import { fireGoogleAdsConversion } from '../lib/google-ads-conversion.js';
 import { notifyUser } from '../lib/notify-user.js';
 import { prisma, withSystemContext } from '@excess/db';
@@ -148,6 +149,9 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       commsOptedOut,
     } = parsed.data;
 
+    // Composite keyset: total order on the active sort field + id tiebreaker.
+    const keyset = keysetCondition(sort, order, decodeCursor(cursor));
+
     const canReadAll = can(req.auth.role, 'leads.read.all');
     const canReadTeam = can(req.auth.role, 'leads.read.team');
 
@@ -175,12 +179,12 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
                 },
               }
             : {}),
-          ...(cursor && { id: { lt: cursor } }),
+          ...(keyset && { AND: [keyset] }),
           ...(commsOptedOut === 'true'  && { commsOptedOutAt: { not: null } }),
           ...(commsOptedOut === 'false' && { commsOptedOutAt: null }),
         },
         take: limit + 1,
-        orderBy: { [sort]: order },
+        orderBy: keysetOrderBy(sort, order),
         select: {
           id: true,
           name: true,
@@ -204,10 +208,11 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     const hasMore = leads.length > limit;
     if (hasMore) leads.pop();
 
+    const last = leads[leads.length - 1];
     return reply.send({
       data: {
         leads,
-        nextCursor: hasMore ? (leads[leads.length - 1]?.id ?? null) : null,
+        nextCursor: hasMore && last ? encodeCursor(last[sort] as string | number | Date | null, last.id) : null,
         hasMore,
       },
     });

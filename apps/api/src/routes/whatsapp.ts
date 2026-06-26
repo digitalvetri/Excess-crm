@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 import { env } from '@excess/config';
@@ -216,13 +217,14 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
 
     const query = req.query as { cursor?: string; limit?: string };
     const limit = Math.min(Number(query.limit ?? 20), 100);
+    const keyset = keysetCondition('lastMessageAt', 'desc', decodeCursor(query.cursor));
 
     const sessions = await req.withTenant(async (tx) =>
       tx.waSession.findMany({
         where: {
-          ...(query.cursor && { id: { lt: query.cursor } }),
+          ...(keyset && { AND: [keyset] }),
         },
-        orderBy: { lastMessageAt: 'desc' },
+        orderBy: keysetOrderBy('lastMessageAt', 'desc'),
         take: limit + 1,
         select: {
           id: true,
@@ -300,8 +302,9 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
       };
     });
 
+    const last = items.at(-1);
     return reply.send({
-      data: { conversations: result, hasMore, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null },
+      data: { conversations: result, hasMore, nextCursor: hasMore && last ? encodeCursor(last.lastMessageAt, last.id) : null },
     });
   });
 

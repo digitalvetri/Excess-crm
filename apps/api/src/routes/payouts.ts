@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 import { can } from '@excess/shared';
 import { z } from 'zod';
 
@@ -17,14 +18,15 @@ export const payoutsRoutes: FastifyPluginAsync = async (app) => {
 
     const query = req.query as { cursor?: string; limit?: string; franchiseId?: string };
     const limit = Math.min(Number(query.limit ?? 20), 100);
+    const keyset = keysetCondition('createdAt', 'desc', decodeCursor(query.cursor));
 
     const payouts = await req.withTenant(async (tx) =>
       tx.payout.findMany({
         where: {
           ...(query.franchiseId && { tenantId: query.franchiseId }),
-          ...(query.cursor      && { id: { lt: query.cursor } }),
+          ...(keyset            && { AND: [keyset] }),
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: keysetOrderBy('createdAt', 'desc'),
         take: limit + 1,
         select: {
           id: true, tenantId: true, amountInr: true, bankUtr: true,
@@ -42,7 +44,8 @@ export const payoutsRoutes: FastifyPluginAsync = async (app) => {
       franchiseName: tenant.name,
     }));
 
-    return reply.send({ data: { payouts: enriched, hasMore, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null } });
+    const last = items.at(-1);
+    return reply.send({ data: { payouts: enriched, hasMore, nextCursor: hasMore && last ? encodeCursor(last.createdAt, last.id) : null } });
   });
 
   // POST /payouts — create payout (batch approved commissions → marks them PAID)

@@ -128,15 +128,26 @@ class ExcessAgent(Agent):
     """Unified Excess Renew voice agent — handles verification, sales, and follow-up."""
 
     def __init__(
-        self, *, call_id: str, tenant_id: str, lead_id: str, instructions: str
+        self, *, call_id: str, tenant_id: str, lead_id: str, instructions: str,
+        greeting_name: str = "sir",
     ) -> None:
         super().__init__(instructions=instructions)
         self._call_id = call_id
         self._tenant_id = tenant_id
         self._lead_id = lead_id
+        self._greeting_name = greeting_name
 
     async def on_enter(self) -> None:
-        await self.session.generate_reply()
+        # One-time opening greeting. The instruction is scoped to THIS reply only — it is
+        # NOT part of the persistent system prompt, so the agent greets once and then
+        # continues the conversation instead of re-greeting on every turn.
+        await self.session.generate_reply(
+            instructions=(
+                f"Open the call now: greet {self._greeting_name} warmly in Tamil script, "
+                "introduce yourself as Reshma from Excess Renew Solar, and ask if they "
+                "have two minutes. This is the opening line — say it once, then stop."
+            )
+        )
 
     # ── Lead info ──────────────────────────────────────────────────────────────
 
@@ -369,11 +380,13 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Pre-fetch lead info so the first greeting is personalised
     lead_context = ""
+    greeting_name = "sir"
     try:
         lead_resp = await crm_post("getLeadInfo", call_id, tenant_id, lead_id)
         lead_data: dict[str, Any] = lead_resp.get("data") or {}
         if lead_data:
             name = lead_data.get("name") or "sir"
+            greeting_name = name
             stage = lead_data.get("stage") or "NEW"
             city = lead_data.get("city") or ""
             city_str = f" ({city})" if city else ""
@@ -384,10 +397,14 @@ async def entrypoint(ctx: JobContext) -> None:
                 "NOT_ANSWERED": "not answered before — try again warmly",
             }
             stage_hint = stage_map.get(stage, "new enquiry")
+            # Context only — the greeting itself is issued once in on_enter, NOT here, so it
+            # never leaks into the persistent prompt and gets repeated every turn.
             lead_context = (
                 f"\n\n[CALL BRIEF — do NOT read this aloud]\n"
                 f"Customer: {name}{city_str} | Stage: {stage} ({stage_hint})\n"
-                f"Start immediately with your warm Tanglish greeting using their name '{name}'."
+                "Greet the customer only ONCE at the very start. After that, never repeat the "
+                "greeting or re-introduce yourself — respond to what they say and move the "
+                "conversation forward."
             )
             logger.info("lead_context_prefetched lead=%s stage=%s", lead_id, stage)
     except Exception as exc:
@@ -427,6 +444,7 @@ async def entrypoint(ctx: JobContext) -> None:
         tenant_id=tenant_id,
         lead_id=lead_id,
         instructions=system_prompt,
+        greeting_name=greeting_name,
     )
 
     @ctx.room.on("participant_disconnected")

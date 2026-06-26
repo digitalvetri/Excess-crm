@@ -6,6 +6,14 @@ import { z } from 'zod';
 import crypto from 'node:crypto';
 import argon2 from 'argon2';
 
+// Commission slabs feed computeCommission, which silently falls back to a 5% default on a
+// malformed shape. Validate on write so bad slabs are rejected (400), not silently ignored:
+// keys must be 'perKwInr' or a numeric deal-value threshold; values are non-negative numbers.
+const commissionSlabsSchema = z.record(
+  z.string().regex(/^(perKwInr|\d+)$/, 'slab key must be "perKwInr" or a numeric threshold'),
+  z.number().nonnegative(),
+);
+
 const createFranchiseSchema = z.object({
   name: z.string().min(2).max(200),
   tier: z.enum(['BRONZE', 'SILVER', 'GOLD']).optional(),
@@ -14,7 +22,7 @@ const createFranchiseSchema = z.object({
   contactEmail: z.string().email().optional(),
   contactPhone: z.string().optional(),
   gstNumber: z.string().optional(),
-  commissionSlabs: z.record(z.unknown()).optional(),
+  commissionSlabs: commissionSlabsSchema.optional(),
   agentSplitConfig: z.record(z.number().min(0).max(100)).optional(),
   bankAccount: z.record(z.unknown()).optional(),
 });
@@ -27,7 +35,7 @@ const patchFranchiseSchema = z.object({
   contactEmail: z.string().email().optional(),
   contactPhone: z.string().optional(),
   gstNumber: z.string().optional(),
-  commissionSlabs: z.record(z.unknown()).optional(),
+  commissionSlabs: commissionSlabsSchema.optional(),
   agentSplitConfig: z.record(z.number().min(0).max(100)).optional(),
   bankAccount: z.record(z.unknown()).optional(),
 });

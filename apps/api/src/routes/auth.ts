@@ -37,6 +37,15 @@ async function clearLockout(redis: import('ioredis').Redis, email: string): Prom
   await redis.del(`lockout:${email}`);
 }
 
+// Fixed dummy hash so the user-not-found / inactive login path still spends an argon2
+// verify — otherwise a missing email returns faster than a wrong password, leaking which
+// emails exist (timing oracle). Computed once, lazily.
+let dummyHashCache: string | undefined;
+async function dummyHash(): Promise<string> {
+  if (!dummyHashCache) dummyHashCache = await argon2.hash('argon2-timing-equalizer');
+  return dummyHashCache;
+}
+
 export const authRoutes: FastifyPluginAsync = async (app) => {
   function setSessionCookies(
     reply: { setCookie: (name: string, value: string, opts: object) => void },
@@ -56,7 +65,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       expires: expiresAt,
     });
 
-    // Non-httpOnly so Next.js middleware can read role for route protection
+    // Non-httpOnly so Next.js middleware can read role for client-side route hints.
+    // DISPLAY-ONLY: this cookie is NOT an authorization boundary — it's trivially
+    // forgeable. The API always re-derives the role from the hashed httpOnly session
+    // (see plugins/auth.ts); never trust excess_role for any access decision.
     reply.setCookie('excess_role', role, {
       httpOnly: false,
       secure: isProduction,
@@ -98,7 +110,14 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       include: { tenant: { select: { id: true, type: true, status: true } } },
     });
 
-    if (!user?.isActive || !(await argon2.verify(user.passwordHash, password))) {
+    // Run an argon2 verify on BOTH the missing/inactive-user path (against a dummy hash)
+    // and the real path, so response time doesn't reveal whether the email exists.
+    if (!user?.isActive) {
+      await argon2.verify(await dummyHash(), password).catch(() => undefined);
+      await recordFail(app.redis, email);
+      return reply.code(401).send({ error: { code: 'auth.invalid', message: 'Invalid credentials' } });
+    }
+    if (!(await argon2.verify(user.passwordHash, password))) {
       await recordFail(app.redis, email);
       return reply.code(401).send({ error: { code: 'auth.invalid', message: 'Invalid credentials' } });
     }

@@ -57,7 +57,9 @@ export const vapiWebhookRoutes: FastifyPluginAsync = async (app) => {
     const rawBody = req.rawBody ?? JSON.stringify(req.body);
 
     if (!verifyVapi(rawBody, signature)) {
-      req.log.warn('Vapi webhook HMAC mismatch');
+      // Error-level + structured so a misconfigured secret is alertable (distinct from
+      // routine warnings); behaviour unchanged (401).
+      req.log.error({ event: 'webhook.signature_mismatch', source: 'vapi' }, 'Vapi webhook HMAC mismatch — verify VAPI_WEBHOOK_SECRET');
       return reply.code(401).send({ error: 'Unauthorized' });
     }
 

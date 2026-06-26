@@ -56,7 +56,9 @@ export const metaWebhookRoutes: FastifyPluginAsync = async (app) => {
     const rawBody = req.rawBody ?? JSON.stringify(req.body);
 
     if (!signature || !verifyMeta(rawBody, signature)) {
-      req.log.warn('Meta webhook HMAC mismatch');
+      // Error-level + structured so a misconfigured secret is alertable (distinct from
+      // routine warnings); still 200 so a bad caller can't trigger retry storms.
+      req.log.error({ event: 'webhook.signature_mismatch', source: 'meta' }, 'Meta webhook HMAC mismatch — verify META_WEBHOOK_APP_SECRET');
       return reply.code(200).send('ok'); // always 200 to stop retries
     }
 

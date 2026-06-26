@@ -18,7 +18,10 @@ const nextConfig = {
           { key: 'X-Frame-Options',          value: 'SAMEORIGIN' },
           { key: 'X-Content-Type-Options',   value: 'nosniff' },
           { key: 'Referrer-Policy',          value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy',       value: 'camera=(), microphone=(), geolocation=()' },
+          // microphone=(self): the voice-agent playground needs getUserMedia for live calls.
+          // An empty allowlist (microphone=()) disables the mic for the whole app — even with
+          // browser permission granted — so it must allow same-origin. Camera/geolocation stay off.
+          { key: 'Permissions-Policy',       value: 'camera=(), microphone=(self), geolocation=()' },
         ],
       },
     ];

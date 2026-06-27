@@ -154,6 +154,15 @@ function useActivateConfig() {
   });
 }
 
+function useReseedPrompts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ data: { totalUpdated: number } }>('/voice-agent/reseed-prompts').then((r) => r.data.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['voice-agent-configs'] }),
+  });
+}
+
 function useVoices() {
   return useQuery({
     queryKey: ['elevenlabs-voices'],
@@ -893,6 +902,7 @@ function PersonaEditor({ personaId, configs }: {
 
 export function PersonaManager() {
   const { data, isLoading } = useVoiceAgentConfigs();
+  const reseed = useReseedPrompts();
   const configs = data ?? [];
 
   if (isLoading) {
@@ -905,8 +915,28 @@ export function PersonaManager() {
   const editorKey = `EXCESS_AGENT-${activeConfig?.id ?? 'none'}`;
 
   return (
-    <div className="flex bg-white rounded-xl border border-border overflow-hidden" style={{ minHeight: '640px' }}>
-      <PersonaEditor key={editorKey} personaId="EXCESS_AGENT" configs={configs} />
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-xs text-slate-500">
+          Pushes the latest prompts shipped in code into the database for every tenant. Idempotent — unchanged prompts are skipped.
+        </div>
+        <div className="flex items-center gap-2">
+          {reseed.isSuccess && (
+            <span className="text-xs text-success">Synced — {reseed.data.totalUpdated} prompt(s) updated.</span>
+          )}
+          {reseed.isError && <span className="text-xs text-danger">Failed — try again.</span>}
+          <button
+            onClick={() => reseed.mutate()}
+            disabled={reseed.isPending}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg bg-primary text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {reseed.isPending ? 'Syncing…' : 'Sync prompts from code'}
+          </button>
+        </div>
+      </div>
+      <div className="flex bg-white rounded-xl border border-border overflow-hidden" style={{ minHeight: '640px' }}>
+        <PersonaEditor key={editorKey} personaId="EXCESS_AGENT" configs={configs} />
+      </div>
     </div>
   );
 }

@@ -11,7 +11,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -32,9 +32,21 @@ from livekit.plugins import groq, sarvam, silero
 logger = logging.getLogger("excess-crm-agent")
 logger.setLevel(logging.INFO)
 
-# Matches tool-call syntax the LLM sometimes leaks as text (e.g.
-# "<function=schedule_appointment>{...}", "<function=get_lead_info>{}") so it is never spoken.
-_TOOL_LEAK_RE = re.compile(r"</?\s*function\b[^>]*>\s*(?:\{[\s\S]*?\})?", re.IGNORECASE)
+# Tool-call / chat-template artifacts the LLM sometimes leaks as text — stripped before TTS
+# so the customer never hears them (e.g. "<function=schedule_appointment>{...}").
+_LEAK_PATTERNS = (
+    re.compile(r"</?\s*function\b[^>]*>\s*(?:\{[\s\S]*?\})?", re.IGNORECASE),  # <function=...>{...}
+    re.compile(r"<\|[a-zA-Z0-9_]+\|>"),                                       # <|python_tag|>, <|eom_id|>
+    re.compile(r"\{[^{}]*[:\"][^{}]*\}"),                                     # stray {"scheduled_at": ...}
+    re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.+\-]+"),                              # stray ISO datetimes
+    re.compile(r"\b(?:scheduled_at|site_address|survey_type|ROOFTOP_\w+)\b"), # leaked arg names
+)
+
+
+def _strip_leaks(text: str) -> str:
+    for rx in _LEAK_PATTERNS:
+        text = rx.sub("", text)
+    return text
 
 # ── Environment ────────────────────────────────────────────────────────────────
 
@@ -164,7 +176,7 @@ class ExcessAgent(Agent):
         async def cleaned():
             buffer = ""
             async for chunk in text:
-                buffer = _TOOL_LEAK_RE.sub("", buffer + chunk)
+                buffer = _strip_leaks(buffer + chunk)
                 lt = buffer.rfind("<")
                 if lt == -1:
                     if buffer:
@@ -175,7 +187,7 @@ class ExcessAgent(Agent):
                     if lt > 0:
                         yield buffer[:lt]
                     buffer = buffer[lt:]
-            buffer = _TOOL_LEAK_RE.sub("", buffer)
+            buffer = _strip_leaks(buffer)
             if buffer:
                 yield buffer
 
@@ -432,8 +444,14 @@ async def entrypoint(ctx: JobContext) -> None:
             stage_hint = stage_map.get(stage, "new enquiry")
             # Context only — the greeting itself is issued once in on_enter, NOT here, so it
             # never leaks into the persistent prompt and gets repeated every turn.
+            now_ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+            now_str = now_ist.strftime("%A, %d %B %Y, %I:%M %p IST")
             lead_context = (
                 f"\n\n[CALL BRIEF — do NOT read this aloud]\n"
+                f"Current date & time: {now_str}. Work out 'நாளைக்கு' (tomorrow) / "
+                f"'இந்த சனிக்கிழமை' (this Saturday) from THIS — never invent a date. Only book a "
+                f"site survey AFTER the customer names a specific day, and confirm their address "
+                f"out loud before booking.\n"
                 f"Customer: {name}{city_str} | Stage: {stage} ({stage_hint})\n"
                 "Greet the customer only ONCE at the very start. After that, never repeat the "
                 "greeting or re-introduce yourself — respond to what they say and move the "
@@ -461,7 +479,7 @@ async def entrypoint(ctx: JobContext) -> None:
             model="bulbul:v2",              # v2 is the working stable model
             speaker=speaker,                # Tamil voice character (anushka/vidya/etc)
             speech_sample_rate=22050,
-            pace=1.0,                       # natural speaking speed
+            pace=0.92,                      # slightly slower — reads cleaner on mixed Tamil+English
             enable_preprocessing=True,      # normalises mixed Tamil+English text
         ),
         vad=vad,

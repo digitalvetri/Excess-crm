@@ -1,5 +1,7 @@
-livekit-agents[silero]==1.5.14
-livekit-plugins-sarvam==1.5.14
-livekit-plugins-groq==1.5.14
-livekit-plugins-elevenlabs==1.5.14
+# >=1.5.16 fixes leaked chat-template tokens in function-call args (the "<function=...>"
+# text that was being spoken). Capped <1.6 to avoid an unintended major bump.
+livekit-agents[silero]>=1.5.16,<1.6
+livekit-plugins-sarvam>=1.5.16,<1.6
+livekit-plugins-groq>=1.5.16,<1.6
+livekit-plugins-elevenlabs>=1.5.16,<1.6
 httpx==0.27.0

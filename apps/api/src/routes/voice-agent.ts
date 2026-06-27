@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import crypto from 'crypto';
 import { RoomServiceClient, AccessToken } from 'livekit-server-sdk';
 import { can } from '@excess/shared';
+import { applyVoicePromptSeed } from '@excess/db';
 import { z } from 'zod';
 import { env } from '@excess/config';
 import { prisma, withSystemContext } from '@excess/db';
@@ -247,6 +248,23 @@ function playgroundSimulateTool(
 
 export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 25 } });
+
+  // POST /voice-agent/reseed-prompts — sync the code's voice prompts into the DB for every
+  // tenant (same idempotent logic as the seed:voice-prompts CLI). Lets an admin apply prompt
+  // updates from the app instead of the container terminal. Idempotent: only changed prompts
+  // are rewritten, so it won't clobber an unchanged persona.
+  app.post('/reseed-prompts', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.prompts.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const result = await applyVoicePromptSeed();
+    req.log.info(
+      { tenantId: req.auth.tenantId, userId: req.auth.userId, totalUpdated: result.totalUpdated },
+      'voice_agent.prompts_reseeded',
+    );
+    return reply.send({ data: result });
+  });
+
   // GET /voice-agent/settings
   app.get('/settings', async (req, reply) => {
     if (!can(req.auth.role, 'voice_agent.read')) {

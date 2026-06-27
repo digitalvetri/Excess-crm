@@ -1,5 +1,7 @@
 export { prisma } from './client.js';
 export { withTenantContext, withSystemContext, SYSTEM_TENANT_ID, SYSTEM_USER_ID } from './with-tenant.js';
+export { applyVoicePromptSeed } from './voice-prompt-seed.js';
+export type { VoicePromptSeedResult } from './voice-prompt-seed.js';
 export type { TenantContext } from './with-tenant.js';
 export { Prisma, PrismaClient } from '@prisma/client';
 export type {

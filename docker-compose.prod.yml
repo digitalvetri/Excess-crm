@@ -30,6 +30,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      target: api
     restart: always
     env_file: .env
     expose:
@@ -68,7 +69,8 @@ services:
   worker:
     build:
       context: .
-      dockerfile: apps/worker/Dockerfile
+      dockerfile: apps/api/Dockerfile
+      target: worker
     restart: always
     env_file: .env
     depends_on:

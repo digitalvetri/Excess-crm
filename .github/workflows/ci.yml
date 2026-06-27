@@ -227,6 +227,7 @@ jobs:
         with:
           context: .
           file: apps/api/Dockerfile
+          target: api
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -235,7 +236,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: apps/worker/Dockerfile
+          file: apps/api/Dockerfile
+          target: worker
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max

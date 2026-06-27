@@ -1521,22 +1521,35 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     // callId = playground-{personaId} so the agent can resolve config without a real call record
     const metadata = `${personaId}:playground-${personaId}:${req.auth.tenantId}:${req.auth.tenantId}`;
 
-    const roomService = new RoomServiceClient(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
-    await roomService.createRoom({
-      name: roomName,
-      metadata,
-      emptyTimeout: 120,
-      maxParticipants: 5,
-    });
+    let token: string;
+    let publicWsUrl: string | undefined;
+    try {
+      const roomService = new RoomServiceClient(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
+      await roomService.createRoom({
+        name: roomName,
+        metadata,
+        emptyTimeout: 120,
+        maxParticipants: 5,
+      });
 
-    const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
-      identity: `playground-user-${req.auth.userId}`,
-      ttl: 3600,
-    });
-    at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
-    const token = await at.toJwt();
-
-    const publicWsUrl = env.LIVEKIT_PUBLIC_URL ?? env.LIVEKIT_URL;
+      const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
+        identity: `playground-user-${req.auth.userId}`,
+        ttl: 3600,
+      });
+      at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
+      token = await at.toJwt();
+      publicWsUrl = env.LIVEKIT_PUBLIC_URL ?? env.LIVEKIT_URL;
+    } catch (err) {
+      // Almost always means the LiveKit server is unreachable (down, or LIVEKIT_URL wrong).
+      // Surface a clear, logged error instead of an opaque 500.
+      req.log.error({ err, livekitUrl: env.LIVEKIT_URL, personaId }, 'playground.voice_room_failed');
+      return reply.code(502).send({
+        error: {
+          code: 'voice_agent.livekit_unreachable',
+          message: 'Could not reach the voice server (LiveKit). Check that the LiveKit stack (docker-compose.livekit.yml) is running and LIVEKIT_URL is correct.',
+        },
+      });
+    }
 
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, personaId, roomName }, 'playground.voice_room_created');
     return reply.send({ data: { token, wsUrl: publicWsUrl, roomName } });

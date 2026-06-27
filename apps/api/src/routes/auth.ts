@@ -46,15 +46,28 @@ async function dummyHash(): Promise<string> {
   return dummyHashCache;
 }
 
+// Scope the cookie to COOKIE_DOMAIN only when the request host actually belongs to it;
+// otherwise omit the domain so the cookie defaults to the exact host (always valid). A
+// mismatched Domain (e.g. COOKIE_DOMAIN=.excessindia.com while serving excessindia.online)
+// makes the browser REJECT the Set-Cookie → "login, then immediately logged out".
+function cookieDomainOpt(host: string | undefined): { domain: string } | Record<string, never> {
+  if (process.env['NODE_ENV'] !== 'production') return {};
+  const bare = env.COOKIE_DOMAIN.replace(/^\./, '');
+  const hostName = (host ?? '').split(':')[0] ?? '';
+  if (hostName === bare || hostName.endsWith(`.${bare}`)) return { domain: env.COOKIE_DOMAIN };
+  return {};
+}
+
 export const authRoutes: FastifyPluginAsync = async (app) => {
   function setSessionCookies(
     reply: { setCookie: (name: string, value: string, opts: object) => void },
     token: string,
     role: UserRole,
     expiresAt: Date,
+    host?: string,
   ) {
     const isProduction = process.env['NODE_ENV'] === 'production';
-    const domainOpt = isProduction ? { domain: env.COOKIE_DOMAIN } : {};
+    const domainOpt = cookieDomainOpt(host);
 
     reply.setCookie('excess_session', token, {
       httpOnly: true,
@@ -152,7 +165,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }),
     ]);
 
-    setSessionCookies(reply, token, user.role, expiresAt);
+    setSessionCookies(reply, token, user.role, expiresAt, req.headers.host);
 
     return reply.send({
       data: {
@@ -252,7 +265,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }),
     ]);
 
-    setSessionCookies(reply, token, role, expiresAt);
+    setSessionCookies(reply, token, role, expiresAt, req.headers.host);
 
     return reply.send({
       data: {
@@ -265,8 +278,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.post('/logout', async (req, reply) => {
     const token = req.cookies['excess_session'];
     if (token) await prisma.session.deleteMany({ where: { token: hashToken(token) } });
-    const isProduction = process.env['NODE_ENV'] === 'production';
-    const domainOpt = isProduction ? { domain: env.COOKIE_DOMAIN } : {};
+    const domainOpt = cookieDomainOpt(req.headers.host);
     reply.clearCookie('excess_session', { path: '/', ...domainOpt });
     reply.clearCookie('excess_role', { path: '/', ...domainOpt });
     return reply.send({ data: { success: true } });

@@ -9,6 +9,7 @@ pipeline with all lead-management function tools.
 import asyncio
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -30,6 +31,10 @@ from livekit.plugins import groq, sarvam, silero
 
 logger = logging.getLogger("excess-crm-agent")
 logger.setLevel(logging.INFO)
+
+# Matches tool-call syntax the LLM sometimes leaks as text (e.g.
+# "<function=schedule_appointment>{...}", "<function=get_lead_info>{}") so it is never spoken.
+_TOOL_LEAK_RE = re.compile(r"</?\s*function\b[^>]*>\s*(?:\{[\s\S]*?\})?", re.IGNORECASE)
 
 # ── Environment ────────────────────────────────────────────────────────────────
 
@@ -150,6 +155,32 @@ class ExcessAgent(Agent):
                 "have two minutes. This is the opening line — say it once, then stop."
             )
         )
+
+    async def tts_node(self, text, model_settings):
+        # Hard safety net: strip any tool-call syntax the model leaks as text (e.g.
+        # "<function=schedule_appointment>{...}") BEFORE it is synthesized, so the customer
+        # never hears function-call gibberish. Buffers a small tail so a tag split across
+        # stream chunks is still caught. Pure string ops — never raises into the TTS pipeline.
+        async def cleaned():
+            buffer = ""
+            async for chunk in text:
+                buffer = _TOOL_LEAK_RE.sub("", buffer + chunk)
+                lt = buffer.rfind("<")
+                if lt == -1:
+                    if buffer:
+                        yield buffer
+                    buffer = ""
+                else:
+                    # Possible start of a leaked tag — emit text before it, hold the rest.
+                    if lt > 0:
+                        yield buffer[:lt]
+                    buffer = buffer[lt:]
+            buffer = _TOOL_LEAK_RE.sub("", buffer)
+            if buffer:
+                yield buffer
+
+        async for frame in super().tts_node(cleaned(), model_settings):
+            yield frame
 
     # ── Lead info ──────────────────────────────────────────────────────────────
 

@@ -2,6 +2,11 @@
 const nextConfig = {
   output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
   transpilePackages: ['@excess/shared', '@excess/ui', '@excess/config'],
+  // Next 15's built-in build-memory reducer — trades a little build speed for a much lower
+  // peak, so the production build doesn't OOM on a constrained server (it's the heaviest of
+  // the three parallel service builds). Paired with a NODE_OPTIONS heap ceiling in the Dockerfile.
+  experimental: { webpackMemoryOptimizations: true },
+  productionBrowserSourceMaps: false,
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.amazonaws.com' },

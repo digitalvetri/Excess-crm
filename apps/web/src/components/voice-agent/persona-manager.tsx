@@ -9,6 +9,7 @@ import {
   Play, Square,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { lintVoicePrompt } from '@excess/shared';
 import { api } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -801,6 +802,9 @@ function PersonaEditor({ personaId, configs }: {
   const createConfig = useCreateConfig();
   const activateConfig = useActivateConfig();
 
+  // Live guard against the prompts that break calls (romanized Tamil / spoken function names).
+  const lint = lintVoicePrompt(systemPrompt);
+
   function patchVoice(patch: Partial<VoiceConfig>) {
     setVoiceConfig((prev) => ({ ...prev, ...patch }));
   }
@@ -846,14 +850,20 @@ function PersonaEditor({ personaId, configs }: {
               <CheckCircle size={12} /> Saved &amp; active
             </span>
           )}
-          {(createConfig.isError || activateConfig.isError) && (
+          {!lint.ok && (
+            <span className="flex items-center gap-1 text-xs text-danger" title={lint.issues.map((i) => i.message).join('\n')}>
+              <AlertCircle size={12} /> {lint.issues.length} prompt issue{lint.issues.length === 1 ? '' : 's'}
+            </span>
+          )}
+          {lint.ok && (createConfig.isError || activateConfig.isError) && (
             <span className="flex items-center gap-1 text-xs text-rose-600">
               <AlertCircle size={12} /> Save failed
             </span>
           )}
           <button
             onClick={handleSave}
-            disabled={createConfig.isPending || activateConfig.isPending}
+            disabled={createConfig.isPending || activateConfig.isPending || !lint.ok}
+            title={!lint.ok ? 'Fix the prompt issues before saving' : undefined}
             className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-primary text-white text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
           >
             {(createConfig.isPending || activateConfig.isPending) && (

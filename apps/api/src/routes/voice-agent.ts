@@ -3,7 +3,7 @@ import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../l
 import multipart from '@fastify/multipart';
 import crypto from 'crypto';
 import { RoomServiceClient, AccessToken } from 'livekit-server-sdk';
-import { can } from '@excess/shared';
+import { can, lintVoicePrompt } from '@excess/shared';
 import { applyVoicePromptSeed } from '@excess/db';
 import { z } from 'zod';
 import { env } from '@excess/config';
@@ -518,6 +518,19 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { personaId, systemPrompt, voiceConfig } = parsed.data;
+
+    // Guard the hand-edit path against the prompts that have repeatedly broken live calls
+    // (romanized Tamil → mispronounced; "call <tool>" → spoken function calls).
+    const lint = lintVoicePrompt(systemPrompt);
+    if (!lint.ok) {
+      return reply.code(400).send({
+        error: {
+          code: 'voice_agent.prompt_lint_failed',
+          message: lint.issues.map((i) => i.message).join(' '),
+          details: { issues: lint.issues },
+        },
+      });
+    }
 
     const config = await req.withTenant(async (tx) => {
       const latest = await tx.voiceAgentConfig.findFirst({

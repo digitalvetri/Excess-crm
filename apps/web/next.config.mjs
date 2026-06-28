@@ -7,6 +7,16 @@ const nextConfig = {
   // the three parallel service builds). Paired with a NODE_OPTIONS heap ceiling in the Dockerfile.
   experimental: { webpackMemoryOptimizations: true },
   productionBrowserSourceMaps: false,
+  // Let webpack resolve the workspace packages' explicit ".js" re-exports (e.g.
+  // @excess/shared's `export … from './x.js'`) to their .ts source, so the web can import
+  // VALUES (not just types) from @excess/shared — e.g. lintVoicePrompt.
+  webpack: (config) => {
+    config.resolve.extensionAlias = {
+      ...config.resolve.extensionAlias,
+      '.js': ['.ts', '.tsx', '.js', '.jsx'],
+    };
+    return config;
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.amazonaws.com' },

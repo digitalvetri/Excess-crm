@@ -5,6 +5,8 @@ export type { ScoreFactor, ScorableLead, LeadScoreBreakdown } from './lead-scori
 export { computeCommission, DEFAULT_COMMISSION_PER_KW_INR } from './commission.js';
 export type { CommissionResult } from './commission.js';
 export { maskEmail, maskPhone } from './mask.js';
+export { lintVoicePrompt } from './voice-prompt-lint.js';
+export type { PromptLintResult, PromptLintIssue } from './voice-prompt-lint.js';
 export * from './schemas/auth.js';
 export * from './schemas/lead.js';
 export * from './schemas/integrations.js';

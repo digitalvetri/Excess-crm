@@ -57,7 +57,7 @@ const PERSONA_META: Record<string, {
 }> = {
   EXCESS_AGENT: {
     name: 'Excess AI', subtitle: 'Agent',
-    role: 'Verify · Convert · Follow-up', trigger: 'Every call', defaultVoiceId: 'EXAVITQu4vr4xnSDxMaL',
+    role: 'Verify · Convert · Follow-up', trigger: 'Every call', defaultVoiceId: 'anushka',
   },
 };
 
@@ -118,8 +118,8 @@ const DEFAULT_VOICE_CONFIG: Required<VoiceConfig> = {
   language: 'ta',
   sttProvider: 'sarvam',
   llmProvider: 'groq/llama-3.3-70b-versatile',
-  ttsProvider: 'elevenlabs',
-  voiceId: 'EXAVITQu4vr4xnSDxMaL',
+  ttsProvider: 'sarvam',
+  voiceId: 'anushka',
   responseTiming: 'balanced',
   voiceSpeed: 1.0,
   allowInterruptions: true,
@@ -567,6 +567,51 @@ function OverviewTab({ systemPrompt, voiceConfig, onChange }: {
   );
 }
 
+// ─── Sarvam voices (what the live agent actually uses) ──────────────────────────
+// Sarvam bulbul:v2 has a fixed set of Tamil speakers — these are the ONLY voices the
+// agent can speak with. (True voice cloning needs ElevenLabs, which mispronounces Tamil,
+// so it's not used for the live agent.) Selecting one here sets voiceConfig.voiceId, which
+// main.py validates against this exact list and passes to Sarvam TTS.
+const SARVAM_VOICES = [
+  { id: 'anushka', name: 'Anushka', gender: 'Female', note: 'Warm, natural — default Reshma' },
+  { id: 'vidya', name: 'Vidya', gender: 'Female', note: 'Clear, articulate' },
+  { id: 'manisha', name: 'Manisha', gender: 'Female', note: 'Friendly, soft' },
+  { id: 'arya', name: 'Arya', gender: 'Female', note: 'Bright, energetic' },
+  { id: 'abhilash', name: 'Abhilash', gender: 'Male', note: 'Confident — default Karthik' },
+  { id: 'karun', name: 'Karun', gender: 'Male', note: 'Calm, steady' },
+  { id: 'hitesh', name: 'Hitesh', gender: 'Male', note: 'Warm, friendly' },
+] as const;
+
+function SarvamVoicePicker({ voiceId, onChange }: { voiceId: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">Agent Voice · Sarvam Tamil</label>
+      <p className="text-xs text-slate-400 mb-3">
+        This is the voice your live agent actually speaks with. Sarvam (the Tamil engine) has these fixed voices — custom voice cloning isn&apos;t available without losing Tamil pronunciation.
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {SARVAM_VOICES.map((v) => {
+          const selected = voiceId === v.id;
+          return (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => onChange(v.id)}
+              className={`text-left rounded-lg border p-3 transition-colors ${selected ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-800">{v.name}</span>
+                <span className="text-[10px] text-slate-400 shrink-0">{v.gender}</span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">{v.note}</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Tab: Voice & AI ──────────────────────────────────────────────────────────
 
 function VoiceAITab({ voiceConfig, personaId, onChange }: {
@@ -604,15 +649,15 @@ function VoiceAITab({ voiceConfig, personaId, onChange }: {
               <div className="p-1.5 bg-amber-100 rounded-lg"><Volume2 size={12} className="text-amber-600" /></div>
               <span className="text-xs font-bold text-amber-700 uppercase tracking-wide">TTS</span>
             </div>
-            <p className="text-sm font-semibold text-slate-800">ElevenLabs</p>
-            <p className="text-xs text-slate-500 mt-0.5">Cloned voice · HD</p>
+            <p className="text-sm font-semibold text-slate-800">Sarvam</p>
+            <p className="text-xs text-slate-500 mt-0.5">bulbul:v2 · Tamil voices</p>
           </div>
         </div>
       </div>
 
-      {/* Voice picker */}
-      <DynamicVoicePicker
-        voiceId={voiceConfig.voiceId ?? PERSONA_META[personaId]?.defaultVoiceId ?? 'mk-tamil-v1'}
+      {/* Voice picker — the agent speaks with Sarvam, which has a fixed set of Tamil voices. */}
+      <SarvamVoicePicker
+        voiceId={voiceConfig.voiceId && SARVAM_VOICES.some((v) => v.id === voiceConfig.voiceId) ? voiceConfig.voiceId : 'anushka'}
         onChange={(v) => onChange({ voiceId: v })}
       />
 
@@ -861,7 +906,7 @@ function PersonaEditor({ personaId, configs }: {
       ...voiceConfig,
       sttProvider: 'sarvam',
       llmProvider: 'groq/llama-3.3-70b-versatile',
-      ttsProvider: 'elevenlabs',
+      ttsProvider: 'sarvam',
     };
     const result = await createConfig.mutateAsync({ personaId, systemPrompt, voiceConfig: lockedConfig });
     await activateConfig.mutateAsync(result.id);

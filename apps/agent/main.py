@@ -473,7 +473,11 @@ async def entrypoint(ctx: JobContext) -> None:
             high_vad_sensitivity=False,  # less aggressive — catches full sentences
             flush_signal=True,           # faster STT finalization
         ),
-        llm=groq.LLM(model="llama-3.3-70b-versatile"),
+        # Model is env-configurable so you can A/B without a code change — set AGENT_LLM_MODEL
+        # in the agent env and restart. llama-3.3-70b rambles, leaks its English reasoning, and
+        # writes formal/literary Tamil; try a stronger Groq model (e.g. moonshotai/kimi-k2-instruct,
+        # qwen/qwen3-32b) for cleaner colloquial Tamil + tool-calling.
+        llm=groq.LLM(model=os.environ.get("AGENT_LLM_MODEL", "llama-3.3-70b-versatile")),
         tts=sarvam.TTS(
             target_language_code="ta-IN",   # native Tamil — correct pronunciation
             model="bulbul:v2",              # v2 is the working stable model

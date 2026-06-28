@@ -164,6 +164,25 @@ export function useCallInsights(callId: string | null) {
   });
 }
 
+export interface CallQa {
+  overall: number;
+  grade: string;
+  dimensions: Record<string, number>;
+  compliance: boolean;
+  strengths: string[];
+  improvements: string[];
+}
+
+export function useCallQa(callId: string | null) {
+  return useQuery({
+    queryKey: ['calls', callId, 'qa'],
+    queryFn: () =>
+      api.get<{ data: { qa: CallQa | null } }>(`/calls/${callId}/qa`).then((r) => r.data.data.qa),
+    enabled: !!callId,
+    staleTime: 60 * 60 * 1000, // scored once + cached server-side
+  });
+}
+
 export interface NextAction {
   action: string;
   reason: string;

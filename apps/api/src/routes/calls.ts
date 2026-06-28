@@ -3,6 +3,36 @@ import { can } from '@excess/shared';
 import { llmComplete } from '../lib/llm.js';
 import { AI_SYSTEM_PROMPTS } from '../lib/ai-prompts.js';
 
+interface CallQaScore {
+  overall: number;
+  grade: string;
+  dimensions: Record<string, number>;
+  compliance: boolean;
+  strengths: string[];
+  improvements: string[];
+}
+
+// Parse the QA JSON the LLM returns (tolerant of markdown fences / surrounding prose).
+function parseQa(raw: string): CallQaScore | null {
+  try {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start === -1 || end === -1) return null;
+    const obj = JSON.parse(raw.slice(start, end + 1)) as Partial<CallQaScore>;
+    if (typeof obj.overall !== 'number' || typeof obj.dimensions !== 'object' || obj.dimensions === null) return null;
+    return {
+      overall: Math.max(0, Math.min(100, Math.round(obj.overall))),
+      grade: typeof obj.grade === 'string' ? obj.grade : '—',
+      dimensions: obj.dimensions as Record<string, number>,
+      compliance: obj.compliance !== false,
+      strengths: Array.isArray(obj.strengths) ? obj.strengths.slice(0, 2) : [],
+      improvements: Array.isArray(obj.improvements) ? obj.improvements.slice(0, 2) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export const callsRoutes: FastifyPluginAsync = async (app) => {
   // GET /calls/:id/insights — keyword extraction from transcript.
   // Reads (and updates) call transcript/sentiment — company-internal, so calls.read
@@ -124,5 +154,51 @@ export const callsRoutes: FastifyPluginAsync = async (app) => {
         transcriptLength: transcriptText.length,
       },
     });
+  });
+
+  // GET /calls/:id/qa — AI QA scorecard for a completed call (rubric-scored from the
+  // transcript, cached in llmAnalysis.qa so it's computed once).
+  app.get('/:id/qa', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!can(req.auth.role, 'calls.read')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+
+    const call = await req.withTenant((tx) =>
+      tx.call.findUnique({ where: { id }, select: { id: true, transcript: true, llmAnalysis: true } }),
+    );
+    if (!call) {
+      return reply.code(404).send({ error: { code: 'call.not_found', message: 'Call not found' } });
+    }
+
+    const transcriptText = (call.transcript as { text?: string } | null)?.text ?? '';
+    if (transcriptText.length < 40) {
+      return reply.send({ data: { qa: null, reason: 'transcript_too_short' } });
+    }
+
+    const analysis = (call.llmAnalysis as Record<string, unknown> | null) ?? {};
+    if (analysis['qa']) {
+      return reply.send({ data: { qa: analysis['qa'], cached: true } });
+    }
+
+    const ai = await llmComplete(`Transcript:\n${transcriptText.slice(0, 5000)}`, {
+      system: AI_SYSTEM_PROMPTS.callQa,
+      maxTokens: 500,
+      temperature: 0.2,
+    });
+    if (ai == null) {
+      return reply.code(503).send({ error: { code: 'calls.ai_unavailable', message: 'QA scoring needs GROQ_API_KEY.' } });
+    }
+
+    const qa = parseQa(ai);
+    if (!qa) {
+      return reply.code(502).send({ error: { code: 'calls.qa_parse_failed', message: 'Could not score this call.' } });
+    }
+
+    await req.withTenant((tx) =>
+      tx.call.update({ where: { id }, data: { llmAnalysis: { ...analysis, qa } as object } }),
+    );
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, callId: id, overall: qa.overall }, 'call.qa_scored');
+    return reply.send({ data: { qa } });
   });
 };

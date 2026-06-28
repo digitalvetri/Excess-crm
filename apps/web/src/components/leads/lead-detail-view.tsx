@@ -39,7 +39,7 @@ import {
 import { toast } from 'sonner';
 import { useLeadDetail, useUpdateLead, useUpdateLeadTags, useLeadSummary, useMergeLeads, useSendLeadEmail } from '@/hooks/use-leads';
 import { useQuery } from '@tanstack/react-query';
-import { useComputeLeadScore, useCallInsights, useNextAction } from '@/hooks/use-insights';
+import { useComputeLeadScore, useCallInsights, useCallQa, useNextAction } from '@/hooks/use-insights';
 import { api } from '@/lib/api';
 import { useMessages, useSendMessage, useWhatsappStatus, useDraftReply, useSendMedia } from '@/hooks/use-whatsapp';
 import { TemplatePicker } from '@/components/whatsapp/template-picker';
@@ -817,6 +817,7 @@ function ReferralLinkCard({ leadId }: { leadId: string }) {
 function CallInsightsMini({ callId }: { callId: string }) {
   const [open, setOpen] = useState(false);
   const { data: insights, isLoading } = useCallInsights(open ? callId : null);
+  const { data: qa, isLoading: qaLoading } = useCallQa(open ? callId : null);
 
   return (
     <div>
@@ -853,6 +854,31 @@ function CallInsightsMini({ callId }: { callId: string }) {
               <p className="text-primary font-medium">→ {insights.nextAction}</p>
             </>
           )}
+
+          {qaLoading && !qa && <p className="text-slate-400 pt-1.5 border-t border-border">Scoring call…</p>}
+          {qa && (
+            <div className="pt-1.5 mt-1.5 border-t border-border space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-1 font-medium text-primary"><Sparkles size={11} /> QA score</span>
+                <span className="font-semibold text-slate-800">{qa.overall}<span className="text-slate-400">/100</span> · {qa.grade}</span>
+              </div>
+              <div className="space-y-1">
+                {Object.entries(qa.dimensions).map(([k, v]) => (
+                  <div key={k} className="flex items-center gap-2">
+                    <span className="w-24 capitalize text-slate-500 shrink-0">{k.replace(/_/g, ' ')}</span>
+                    <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div className={`h-full ${v >= 4 ? 'bg-success' : v >= 2 ? 'bg-amber-500' : 'bg-danger'}`} style={{ width: `${(Math.max(0, Math.min(5, v)) / 5) * 100}%` }} />
+                    </div>
+                    <span className="text-slate-600 w-7 text-right shrink-0">{v}/5</span>
+                  </div>
+                ))}
+              </div>
+              {qa.strengths.length > 0 && <p className="text-success">✓ {qa.strengths.join('; ')}</p>}
+              {qa.improvements.length > 0 && <p className="text-amber-600">→ {qa.improvements.join('; ')}</p>}
+              {!qa.compliance && <p className="text-danger font-medium">⚠ Compliance gap — review this call</p>}
+            </div>
+          )}
+
           {!isLoading && !insights && (
             <p className="text-slate-400">No transcript available</p>
           )}

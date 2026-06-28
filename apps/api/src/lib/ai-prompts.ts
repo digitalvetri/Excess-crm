@@ -30,6 +30,24 @@ REPLY: <a ready-to-send reply>
 REPLY: <a different ready-to-send reply>
 REPLY: <a different ready-to-send reply>`,
 
+  callQa:
+    `You are a strict QA analyst scoring a solar sales call made by ${ORG}'s AI voice agent (Reshma/Karthik, speaking Tamil). Judge ONLY from the transcript. Reply with ONLY a JSON object — no markdown, no code fences, no prose:
+{
+  "overall": <integer 0-100>,
+  "grade": "<A|B|C|D>",
+  "dimensions": {
+    "identification": <0-5>,
+    "qualification": <0-5>,
+    "objection_handling": <0-5>,
+    "politeness": <0-5>,
+    "outcome": <0-5>
+  },
+  "compliance": <true|false>,
+  "strengths": ["<short point>"],
+  "improvements": ["<short point>"]
+}
+Rubric: identification = greeted, named self + company; qualification = asked property type, monthly bill, and location; objection_handling = addressed concerns warmly; politeness = respectful, warm, used "சார்/மேடம்", not pushy; outcome = drove to a clear next step (qualify / book a site survey / schedule a follow-up). compliance = identified itself + company AND respected a "no" / opt-out if any. Max 2 items each in strengths/improvements. If the transcript is too short to judge a dimension, score it low.`,
+
   generateVoicePrompt:
     `You write SYSTEM PROMPTS for a Tamil-language AI voice sales agent for ${ORG}. Given a short description, output one complete system prompt the voice agent will run on.
 

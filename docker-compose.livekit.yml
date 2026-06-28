@@ -73,6 +73,9 @@ services:
       ELEVENLABS_API_KEY: "${ELEVENLABS_API_KEY}"
       CRM_API_URL: "${CRM_API_URL}"
       AGENT_WEBHOOK_SECRET: "${AGENT_WEBHOOK_SECRET}"
+      # Swap the agent LLM without a code change. Defaults to the known-good model if unset,
+      # so an empty value never breaks the agent.
+      AGENT_LLM_MODEL: "${AGENT_LLM_MODEL:-llama-3.3-70b-versatile}"
     depends_on:
       - livekit
     networks:

@@ -223,6 +223,25 @@ class ExcessAgent(Agent):
         return result.get("data") or {}
 
     @function_tool
+    async def search_knowledge(self, run_ctx: RunContext, query: str) -> dict[str, Any]:
+        """Look up a real fact from the company knowledge base — subsidy rules, pricing,
+        product specs, warranty, FAQs. Use this whenever the customer asks something you
+        don't already know; answer ONLY from what it returns, never invent details.
+
+        Args:
+            query: What to look up, e.g. "PM Surya Ghar subsidy amount" or "panel warranty".
+        """
+        result = await crm_post(
+            "searchKnowledge",
+            self._call_id,
+            self._tenant_id,
+            self._lead_id,
+            {"query": query},
+        )
+        logger.info("search_knowledge query=%s lead=%s", query, self._lead_id)
+        return result.get("data") or {"results": []}
+
+    @function_tool
     async def get_follow_up_context(self, run_ctx: RunContext) -> dict[str, Any]:
         """Retrieve the lead's previous call history and recent activity for context."""
         result = await crm_post(

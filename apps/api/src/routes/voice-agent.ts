@@ -230,6 +230,13 @@ function playgroundSimulateTool(
       return { success: true, stage: args['stage'], note: '[SIMULATED]' };
     case 'getProductInfo':
       return PRODUCT_CATALOG[args['category'] as string] ?? { error: 'Unknown category' };
+    case 'searchKnowledge':
+      return {
+        results: [
+          { title: 'PM Surya Ghar subsidy', body: '[SIMULATED] Residential rooftop solar gets up to ₹78,000 central subsidy under PM Surya Ghar, credited to the customer bank account.' },
+          { title: 'Warranty', body: '[SIMULATED] Panels carry a 25-year performance warranty; inverter 5–10 years.' },
+        ],
+      };
     case 'scheduleFollowUp':
       return { success: true, scheduledAt: args['scheduledAt'], note: '[SIMULATED]' };
     case 'scheduleAppointment':
@@ -1064,6 +1071,27 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
           );
           req.log.info({ tenantId, callId, leadId }, 'agent_function.getLeadInfo');
           return reply.send({ data: lead ?? null, message: 'ok' });
+        }
+
+        case 'searchKnowledge': {
+          // RAG: full-text search the knowledge base so the agent answers from real docs
+          // (subsidy rules, pricing, product specs, FAQs) instead of hallucinating.
+          const query = String((actionPayload as Record<string, unknown>)['query'] ?? '').trim();
+          let results: { title: string; body: string }[] = [];
+          if (query) {
+            results = await withSystemContext(prisma, tenantId, (tx) =>
+              tx.$queryRaw<{ title: string; body: string }[]>`
+                SELECT title, left(body, 600) AS body
+                FROM kb_articles
+                WHERE published_at IS NOT NULL
+                  AND to_tsvector('simple', title || ' ' || body) @@ websearch_to_tsquery('simple', ${query})
+                ORDER BY ts_rank(to_tsvector('simple', title || ' ' || body), websearch_to_tsquery('simple', ${query})) DESC
+                LIMIT 3
+              `,
+            );
+          }
+          req.log.info({ tenantId, callId, hits: results.length }, 'agent_function.searchKnowledge');
+          return reply.send({ data: { results }, message: 'ok' });
         }
 
         case 'updateLeadStage': {

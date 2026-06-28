@@ -5,6 +5,8 @@ import crypto from 'crypto';
 import { RoomServiceClient, AccessToken } from 'livekit-server-sdk';
 import { can, lintVoicePrompt } from '@excess/shared';
 import { applyVoicePromptSeed } from '@excess/db';
+import { llmComplete } from '../lib/llm.js';
+import { AI_SYSTEM_PROMPTS } from '../lib/ai-prompts.js';
 import { z } from 'zod';
 import { env } from '@excess/config';
 import { prisma, withSystemContext } from '@excess/db';
@@ -263,6 +265,43 @@ export const voiceAgentRoutes: FastifyPluginAsync = async (app) => {
       'voice_agent.prompts_reseeded',
     );
     return reply.send({ data: result });
+  });
+
+  // POST /voice-agent/generate-prompt — AI-write a clean, lint-passing Tamil-script prompt
+  // from a short description, so admins never hand-craft (and break) a prompt again.
+  app.post('/generate-prompt', async (req, reply) => {
+    if (!can(req.auth.role, 'voice_agent.prompts.write')) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
+    const parsed = z.object({ description: z.string().min(5).max(2000) }).safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'validation_error', message: 'Describe the agent in a sentence or two.' } });
+    }
+
+    let prompt = await llmComplete(parsed.data.description, {
+      system: AI_SYSTEM_PROMPTS.generateVoicePrompt,
+      maxTokens: 2500,
+      temperature: 0.5,
+    });
+    if (prompt == null) {
+      return reply.code(503).send({ error: { code: 'voice_agent.ai_unavailable', message: 'Prompt generation is not configured (set GROQ_API_KEY).' } });
+    }
+
+    // Self-check against the same guard the editor uses; one retry with the issues fed back.
+    let lint = lintVoicePrompt(prompt);
+    if (!lint.ok) {
+      const retry = await llmComplete(
+        `${parsed.data.description}\n\nYour previous draft FAILED these checks — fix ALL of them:\n${lint.issues.map((i) => `- ${i.message} (e.g. ${i.samples.join(', ')})`).join('\n')}`,
+        { system: AI_SYSTEM_PROMPTS.generateVoicePrompt, maxTokens: 2500, temperature: 0.3 },
+      );
+      if (retry != null) {
+        prompt = retry;
+        lint = lintVoicePrompt(retry);
+      }
+    }
+
+    req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, lintOk: lint.ok }, 'voice_agent.prompt_generated');
+    return reply.send({ data: { prompt, lint } });
   });
 
   // GET /voice-agent/settings

@@ -164,6 +164,15 @@ function useReseedPrompts() {
   });
 }
 
+function useGeneratePrompt() {
+  return useMutation({
+    mutationFn: (description: string) =>
+      api
+        .post<{ data: { prompt: string; lint: { ok: boolean } } }>('/voice-agent/generate-prompt', { description })
+        .then((r) => r.data.data),
+  });
+}
+
 function useVoices() {
   return useQuery({
     queryKey: ['elevenlabs-voices'],
@@ -476,6 +485,14 @@ function OverviewTab({ systemPrompt, voiceConfig, onChange }: {
   voiceConfig: VoiceConfig;
   onChange: (patch: { systemPrompt?: string; voiceConfig?: Partial<VoiceConfig> }) => void;
 }) {
+  const [genDesc, setGenDesc] = useState('');
+  const generate = useGeneratePrompt();
+  async function handleGenerate() {
+    if (genDesc.trim().length < 5) return;
+    const result = await generate.mutateAsync(genDesc.trim());
+    onChange({ systemPrompt: result.prompt });
+  }
+
   return (
     <div className="space-y-6 p-6">
       <div>
@@ -506,6 +523,31 @@ function OverviewTab({ systemPrompt, voiceConfig, onChange }: {
           onChange={(e) => onChange({ voiceConfig: { firstMessage: e.target.value } })}
           className="w-full text-sm bg-white border border-slate-200 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 text-slate-700"
         />
+      </div>
+
+      <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 space-y-2">
+        <label className="block text-xs font-medium text-primary uppercase tracking-wide">✨ Generate instructions with AI</label>
+        <div className="flex gap-2">
+          <input
+            value={genDesc}
+            onChange={(e) => setGenDesc(e.target.value)}
+            placeholder="Describe the agent — e.g. warm Reshma for new solar leads in Coimbatore, casual Kongu Tamil"
+            className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={generate.isPending || genDesc.trim().length < 5}
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-white disabled:opacity-50 hover:opacity-90 whitespace-nowrap"
+          >
+            {generate.isPending ? 'Writing…' : 'Generate'}
+          </button>
+        </div>
+        {generate.isError && <p className="text-xs text-danger">Generation failed — the AI may not be configured (GROQ_API_KEY).</p>}
+        {generate.isSuccess && !generate.data.lint.ok && (
+          <p className="text-xs text-warning">Generated, but it still has lint issues — review and fix below before saving.</p>
+        )}
+        {generate.isSuccess && generate.data.lint.ok && <p className="text-xs text-success">Generated a clean prompt — review it below, then Save &amp; Activate.</p>}
       </div>
 
       <div>

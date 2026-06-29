@@ -27,7 +27,7 @@ from livekit.agents import (
     cli,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import groq, sarvam, silero
+from livekit.plugins import groq, openai, sarvam, silero
 
 logger = logging.getLogger("excess-crm-agent")
 logger.setLevel(logging.INFO)
@@ -54,6 +54,23 @@ CRM_API_URL: str = os.environ["CRM_API_URL"].rstrip("/")
 AGENT_WEBHOOK_SECRET: str = os.environ["AGENT_WEBHOOK_SECRET"]
 
 DEFAULT_SPEAKER = "anushka"  # Sarvam bulbul:v2 Tamil female voice (warm, natural)
+
+
+def build_llm():
+    """Pick the LLM from AGENT_LLM_MODEL — env-swappable, no code change to A/B.
+
+    - "sarvam*" (e.g. sarvam-m, sarvam-30b, sarvam-105b) → Sarvam's own LLM, best for natural
+      Tamil/Kongu, via its OpenAI-compatible endpoint using the existing SARVAM_API_KEY.
+    - anything else (e.g. llama-3.3-70b-versatile, llama-3.1-8b-instant) → Groq.
+    """
+    model = os.environ.get("AGENT_LLM_MODEL", "llama-3.3-70b-versatile")
+    if model.startswith("sarvam"):
+        return openai.LLM(
+            model=model,
+            base_url="https://api.sarvam.ai/v1",
+            api_key=os.environ.get("SARVAM_API_KEY", ""),
+        )
+    return groq.LLM(model=model)
 
 # ── Default system prompt ──────────────────────────────────────────────────────
 
@@ -492,11 +509,9 @@ async def entrypoint(ctx: JobContext) -> None:
             high_vad_sensitivity=False,  # less aggressive — catches full sentences
             flush_signal=True,           # faster STT finalization
         ),
-        # Model is env-configurable so you can A/B without a code change — set AGENT_LLM_MODEL
-        # in the agent env and restart. llama-3.3-70b rambles, leaks its English reasoning, and
-        # writes formal/literary Tamil; try a stronger Groq model (e.g. moonshotai/kimi-k2-instruct,
-        # qwen/qwen3-32b) for cleaner colloquial Tamil + tool-calling.
-        llm=groq.LLM(model=os.environ.get("AGENT_LLM_MODEL", "llama-3.3-70b-versatile")),
+        # Model from AGENT_LLM_MODEL (env-swappable, no code change). "sarvam-30b" / "sarvam-105b"
+        # → Sarvam's own LLM (best natural Tamil); "llama-3.x-..." → Groq. See build_llm().
+        llm=build_llm(),
         tts=sarvam.TTS(
             target_language_code="ta-IN",   # native Tamil — correct pronunciation
             model="bulbul:v2",              # v2 is the working stable model

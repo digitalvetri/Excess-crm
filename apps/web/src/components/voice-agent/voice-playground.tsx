@@ -54,7 +54,7 @@ const STAGES = ['NEW', 'QUALIFIED', 'FOLLOW_UP', 'NOT_ANSWERED', 'CONVERTED', 'I
 const PIPELINE_BADGES = [
   { label: 'STT', value: 'sarvam', color: 'bg-blue-100 text-blue-700 border-blue-200' },
   { label: 'LLM', value: 'groq / llama', color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  { label: 'TTS', value: 'elevenlabs', color: 'bg-orange-100 text-orange-700 border-orange-200' },
+  { label: 'TTS', value: 'sarvam', color: 'bg-orange-100 text-orange-700 border-orange-200' },
 ];
 
 // ─── ToolCallCard ─────────────────────────────────────────────────────────────

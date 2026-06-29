@@ -380,7 +380,10 @@ export const amcContractsRoutes: FastifyPluginAsync = async (app) => {
     const [activeContracts, expiringIn30, expiringIn60, expiringIn90, expiredCount, renewedThisYear] =
       await req.withTenant((tx) =>
         Promise.all([
-          tx.amcContract.findMany({ where: { status: 'ACTIVE', ...tenantFilter }, select: { valueInr: true } }),
+          // Exclude contracts that are still flagged ACTIVE but whose term has already
+          // ended — those are counted under expiredCount below, so without this filter
+          // they'd be double-counted in both the active count and active revenue.
+          tx.amcContract.findMany({ where: { status: 'ACTIVE', endDate: { gte: now }, ...tenantFilter }, select: { valueInr: true } }),
           tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: thirtyDaysOut, gte: now }, ...tenantFilter } }),
           tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: sixtyDaysOut,  gte: now }, ...tenantFilter } }),
           tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: ninetyDaysOut, gte: now }, ...tenantFilter } }),

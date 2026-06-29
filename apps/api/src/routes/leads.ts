@@ -673,6 +673,17 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
     const { ids, action, value } = parsed.data;
 
     if (action === 'stage') {
+      // Converting bypasses the per-lead gates, kW/commission capture and conversion
+      // side-effects (project + commission creation). Block it here and require the
+      // single-lead convert flow (which opens the kW capture modal) instead.
+      if (value === 'CONVERTED') {
+        return reply.code(400).send({
+          error: {
+            code: 'leads.bulk_convert_unsupported',
+            message: 'Converting must be done one lead at a time so the system size and commission are captured.',
+          },
+        });
+      }
       await req.withTenant((tx) =>
         tx.lead.updateMany({
           where: { id: { in: ids }, tenantId: req.auth.tenantId },

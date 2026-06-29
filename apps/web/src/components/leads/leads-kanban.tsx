@@ -8,6 +8,7 @@ import { useLeads, useUpdateLead, type Lead } from '@/hooks/use-leads';
 import { useSearchParams } from 'next/navigation';
 import { scoreTier, scoreColorClasses } from '@/lib/lead-score';
 import { StaleBadge } from './stale-badge';
+import { ConvertLeadModal } from './convert-lead-modal';
 
 const PIPELINE_STAGES = [
   { stage: 'NEW', label: 'New', topColor: 'border-t-blue-400' },
@@ -181,6 +182,10 @@ export function LeadsKanban() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingStage, setDraggingStage] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  // Converting needs the system size (kW) to compute the franchise commission, so
+  // a drop onto CONVERTED opens the same modal as the menu/detail path instead of
+  // writing the stage directly. Holds the lead being converted while the modal is open.
+  const [convertingLeadId, setConvertingLeadId] = useState<string | null>(null);
   const dragTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   if (isLoading) {
@@ -243,8 +248,16 @@ export function LeadsKanban() {
       return;
     }
     const lead = allLeads.find((l) => l.id === draggingId);
+    const droppedLeadId = draggingId;
     setDraggingId(null);
     setDraggingStage(null);
+
+    // Converting requires the kW capture for the commission — open the modal and
+    // let it perform the stage write. Cancelling leaves the card where it was.
+    if (targetStage === 'CONVERTED') {
+      setConvertingLeadId(droppedLeadId);
+      return;
+    }
 
     try {
       await updateLead.mutateAsync({ id: draggingId, data: { stage: targetStage } });
@@ -289,6 +302,9 @@ export function LeadsKanban() {
           />
         ))}
       </div>
+      {convertingLeadId && (
+        <ConvertLeadModal leadId={convertingLeadId} onClose={() => setConvertingLeadId(null)} />
+      )}
     </div>
   );
 }

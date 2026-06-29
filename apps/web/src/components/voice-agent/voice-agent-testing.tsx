@@ -368,7 +368,7 @@ function PayloadPreviewPanel() {
               {[
                 { label: 'STT', value: 'Sarvam' },
                 { label: 'LLM', value: 'Groq / Llama' },
-                { label: 'TTS', value: 'ElevenLabs' },
+                { label: 'TTS', value: 'Sarvam' },
               ].map(({ label, value }) => (
                 <span key={label} className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono">
                   {label}: {value}

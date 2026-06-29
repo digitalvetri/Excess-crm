@@ -21,7 +21,7 @@ export function LeadsOverview() {
       <div className="mb-1 flex items-center justify-between">
         <h2 className="font-semibold text-slate-800">Leads Overview</h2>
         <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
-          Last 14 days
+          Last 30 days
         </span>
       </div>
       <p className="mb-4 text-sm text-slate-400">{total.toLocaleString()} leads received</p>

@@ -117,9 +117,13 @@ function BulkAssignModal({
 
   async function apply() {
     if (!selected) return;
-    await bulk.mutateAsync({ action: 'assign', ids, value: selected });
-    toast.success(`${count} lead${count !== 1 ? 's' : ''} assigned`);
-    onDone();
+    try {
+      await bulk.mutateAsync({ action: 'assign', ids, value: selected });
+      toast.success(`${count} lead${count !== 1 ? 's' : ''} assigned`);
+      onDone();
+    } catch {
+      toast.error('Failed to assign leads. Please try again.');
+    }
   }
 
   return (
@@ -181,9 +185,14 @@ function BulkStageModal({
 
   async function apply() {
     if (!selected) return;
-    await bulk.mutateAsync({ action: 'stage', ids, value: selected });
-    toast.success(`${count} lead${count !== 1 ? 's' : ''} moved to ${selected.replace('_', ' ')}`);
-    onDone();
+    try {
+      await bulk.mutateAsync({ action: 'stage', ids, value: selected });
+      toast.success(`${count} lead${count !== 1 ? 's' : ''} moved to ${selected.replace('_', ' ')}`);
+      onDone();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(axiosErr.response?.data?.error?.message ?? 'Failed to update stage. Please try again.');
+    }
   }
 
   return (
@@ -200,7 +209,11 @@ function BulkStageModal({
             className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary bg-white"
           >
             <option value="">Select new stage...</option>
-            {STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            {/* Converting must be done per-lead (kW + commission capture), so it's
+                not offered for bulk changes. */}
+            {STAGES.filter((s) => s.value !== 'CONVERTED').map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
           </select>
           <div className="flex gap-3">
             <button
@@ -240,9 +253,13 @@ function BulkTagModal({
 
   async function apply() {
     if (tags.length === 0) return;
-    await bulk.mutateAsync({ action: 'tag', ids, value: tags.join(',') });
-    toast.success(`Tags added to ${count} lead${count !== 1 ? 's' : ''}`);
-    onDone();
+    try {
+      await bulk.mutateAsync({ action: 'tag', ids, value: tags.join(',') });
+      toast.success(`Tags added to ${count} lead${count !== 1 ? 's' : ''}`);
+      onDone();
+    } catch {
+      toast.error('Failed to add tags. Please try again.');
+    }
   }
 
   return (

@@ -88,7 +88,11 @@ export const appointmentsRoutes: FastifyPluginAsync = async (app) => {
         where: {
           ...(query.leadId && { leadId: query.leadId }),
           ...(query.status && { status: query.status as never }),
-          ...(query.engineerId && { assignedEngineerId: query.engineerId }),
+          // ENGINEER can only see their own assignments — force-filter, ignoring any
+          // client-supplied engineerId.
+          ...(req.auth.role === 'ENGINEER'
+            ? { assignedEngineerId: req.auth.userId }
+            : (query.engineerId ? { assignedEngineerId: query.engineerId } : {})),
           ...((from ?? to) ? { scheduledAt: { ...(from && { gte: from }), ...(to && { lte: to }) } } : {}),
           ...(query.cursor && { id: { lt: query.cursor } }),
         },

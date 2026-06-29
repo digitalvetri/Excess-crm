@@ -37,7 +37,7 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
 
     const session = await prisma.session.findUnique({
       where: { token: hashToken(token) },
-      include: { user: { select: { isActive: true } } },
+      include: { user: { select: { isActive: true, role: true, teamId: true } } },
     });
 
     if (!session || session.expiresAt < new Date() || !session.user.isActive) {
@@ -46,11 +46,13 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
       });
     }
 
+    // Read role/teamId from the LIVE user record (not the snapshot stored on the
+    // session row) so a demoted or re-teamed user loses/gains access immediately.
     req.auth = {
       userId: session.userId,
       tenantId: session.tenantId,
-      role: session.role,
-      teamId: session.teamId,
+      role: session.user.role,
+      teamId: session.user.teamId,
     };
 
     const daysLeft = (session.expiresAt.getTime() - Date.now()) / 86_400_000;

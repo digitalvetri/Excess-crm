@@ -240,6 +240,13 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         select: { id: true, name: true, email: true, phone: true, role: true, isActive: true, teamId: true, updatedAt: true },
       });
 
+      // A role change must take effect immediately: drop the user's live sessions
+      // so req.auth (which now reads role from the live user) is re-derived on the
+      // next request rather than from a stale logged-in session.
+      if (parsed.data.role !== undefined && parsed.data.role !== existing.role) {
+        await tx.session.deleteMany({ where: { userId: id } });
+      }
+
       await tx.auditLog.create({
         data: {
           tenantId: req.auth.tenantId,

@@ -202,7 +202,11 @@ export const serviceTicketsRoutes: FastifyPluginAsync = async (app) => {
           ...(q.status     && { status:               q.status as TicketStatus }),
           ...(q.type       && { type:                 q.type as TicketType }),
           ...(q.projectId  && { projectId:            q.projectId }),
-          ...(q.engineerId && { assignedEngineerId:   q.engineerId }),
+          // ENGINEER can only see their own assignments — force-filter, ignoring any
+          // client-supplied engineerId.
+          ...(req.auth.role === 'ENGINEER'
+            ? { assignedEngineerId: req.auth.userId }
+            : (q.engineerId ? { assignedEngineerId: q.engineerId } : {})),
           ...(q.cursor     && { id:                   { lt: q.cursor } }),
           ...(visitWhere !== undefined && { scheduledVisitAt: visitWhere }),
           ...(createdAtWhere && { createdAt: createdAtWhere }),

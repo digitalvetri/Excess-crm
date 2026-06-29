@@ -178,7 +178,11 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         where: {
           tenantId: req.auth.tenantId,
           ...(query.stage              && { stage:               query.stage as ProjectStage }),
-          ...(query.engineerId         && { assignedEngineerId:  query.engineerId }),
+          // ENGINEER can only see their own assignments — force-filter, ignoring any
+          // client-supplied engineerId (which would otherwise let them read others').
+          ...(req.auth.role === 'ENGINEER'
+            ? { assignedEngineerId: req.auth.userId }
+            : (query.engineerId ? { assignedEngineerId: query.engineerId } : {})),
           ...(query.subsidyStatus      && { subsidyStatus:       query.subsidyStatus as never }),
           ...(query.netMeteringStatus  && { netMeteringStatus:   query.netMeteringStatus as never }),
           ...(query.search && {

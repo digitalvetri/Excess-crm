@@ -43,8 +43,11 @@ function LoginForm() {
         return;
       }
 
-      const redirect = searchParams.get('redirect') ?? '/dashboard';
-      router.push(redirect);
+      // Only allow same-origin path redirects. Reject protocol-relative ("//evil.com")
+      // and backslash variants browsers normalise to "//" to prevent open redirects.
+      const raw = searchParams.get('redirect');
+      const isSafe = !!raw && raw.startsWith('/') && !raw.startsWith('//') && !raw.startsWith('/\\');
+      router.push(isSafe ? raw : '/dashboard');
     } catch (err: unknown) {
       const apiMsg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
       const message = apiMsg ?? (err instanceof Error ? err.message : 'Login failed');

@@ -219,9 +219,20 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
     const limit = Math.min(Number(query.limit ?? 20), 100);
     const keyset = keysetCondition('lastMessageAt', 'desc', decodeCursor(query.cursor));
 
+    // Owner-scope non-privileged roles to conversations for leads they own — mirrors
+    // the GET /leads handler. WaSession has no lead relation, so resolve owned lead
+    // ids first and constrain by leadId (tenant-bounded set).
+    const ownerScoped = !can(req.auth.role, 'leads.read.all') && !can(req.auth.role, 'leads.read.team');
+    const ownedLeadIds = ownerScoped
+      ? (await req.withTenant((tx) =>
+          tx.lead.findMany({ where: { ownerUserId: req.auth.userId }, select: { id: true } }),
+        )).map((l) => l.id)
+      : null;
+
     const sessions = await req.withTenant(async (tx) =>
       tx.waSession.findMany({
         where: {
+          ...(ownedLeadIds && { leadId: { in: ownedLeadIds } }),
           ...(keyset && { AND: [keyset] }),
         },
         orderBy: keysetOrderBy('lastMessageAt', 'desc'),
@@ -315,11 +326,12 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
     const { leadId } = req.params as { leadId: string };
+    const ownerScoped = !can(req.auth.role, 'leads.read.all') && !can(req.auth.role, 'leads.read.team');
     const lead = await req.withTenant((tx) =>
       tx.lead.findUnique({
         where: { id: leadId },
         select: {
-          name: true, city: true, stage: true, language: true,
+          name: true, city: true, stage: true, language: true, ownerUserId: true,
           activities: {
             where: { type: 'WHATSAPP' },
             orderBy: { createdAt: 'desc' },
@@ -329,7 +341,7 @@ export const whatsappMessagingRoutes: FastifyPluginAsync = async (app) => {
         },
       }),
     );
-    if (!lead) {
+    if (!lead || (ownerScoped && lead.ownerUserId !== req.auth.userId)) {
       return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
     }
 
@@ -373,6 +385,11 @@ ${history || '(no messages yet)'}`;
     if (!status || !['OPEN', 'PENDING', 'RESOLVED'].includes(status)) {
       return reply.code(400).send({ error: { code: 'validation_error', message: 'status must be OPEN, PENDING or RESOLVED' } });
     }
+    const ownerScoped = !can(req.auth.role, 'leads.read.all') && !can(req.auth.role, 'leads.read.team');
+    const lead = await req.withTenant((tx) => tx.lead.findUnique({ where: { id: leadId }, select: { ownerUserId: true } }));
+    if (!lead || (ownerScoped && lead.ownerUserId !== req.auth.userId)) {
+      return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
+    }
     await app.redis.set(`wa_status:${req.auth.tenantId}:${leadId}`, status);
     publishUpdate(req.auth.tenantId, leadId);
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, status }, 'whatsapp.conversation_status');
@@ -385,6 +402,11 @@ ${history || '(no messages yet)'}`;
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
     const { leadId } = req.params as { leadId: string };
+    const ownerScoped = !can(req.auth.role, 'leads.read.all') && !can(req.auth.role, 'leads.read.team');
+    const lead = await req.withTenant((tx) => tx.lead.findUnique({ where: { id: leadId }, select: { ownerUserId: true } }));
+    if (!lead || (ownerScoped && lead.ownerUserId !== req.auth.userId)) {
+      return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
+    }
     await app.redis.del(`wa_unread:${req.auth.tenantId}:${leadId}`);
     return reply.send({ data: { leadId, unread: 0 } });
   });
@@ -396,12 +418,13 @@ ${history || '(no messages yet)'}`;
     }
 
     const { leadId } = req.params as { leadId: string };
+    const ownerScoped = !can(req.auth.role, 'leads.read.all') && !can(req.auth.role, 'leads.read.team');
 
     const lead = await req.withTenant(async (tx) =>
-      tx.lead.findUnique({ where: { id: leadId }, select: { id: true } }),
+      tx.lead.findUnique({ where: { id: leadId }, select: { id: true, ownerUserId: true } }),
     );
 
-    if (!lead) {
+    if (!lead || (ownerScoped && lead.ownerUserId !== req.auth.userId)) {
       return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
     }
 

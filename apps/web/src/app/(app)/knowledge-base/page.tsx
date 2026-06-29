@@ -1,14 +1,19 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { BookOpen } from 'lucide-react';
-import { useKbArticles, useKbArticle } from '@/hooks/use-kb';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { BookOpen, Plus, Upload, Loader2 } from 'lucide-react';
+import { can } from '@excess/shared';
+import { useKbArticles, useKbArticle, createKbArticle } from '@/hooks/use-kb';
+import { useAuth } from '@/hooks/use-auth';
 
 export default function KnowledgeBasePage() {
+  const { role } = useAuth();
+  const canWrite = role ? can(role, 'kb.write') : false;
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   // Debounce search input
   useEffect(() => {
@@ -25,7 +30,7 @@ export default function KnowledgeBasePage() {
     return f;
   }, [debouncedSearch, categoryFilter]);
 
-  const { articles, loading, error } = useKbArticles(filters);
+  const { articles, loading, error, reload } = useKbArticles(filters);
   const { article: selectedArticle, loading: articleLoading } = useKbArticle(selectedSlug);
 
   const categories = useMemo(() => {
@@ -40,12 +45,32 @@ export default function KnowledgeBasePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Knowledge Base</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Browse articles, guides, and FAQs for the team
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Knowledge Base</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Browse articles, guides, and FAQs — and the facts the AI voice agent answers from
+          </p>
+        </div>
+        {canWrite && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:opacity-90 whitespace-nowrap"
+          >
+            <Plus size={15} /> Add Article
+          </button>
+        )}
       </div>
+
+      {showCreate && (
+        <CreateArticleModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false);
+            reload();
+          }}
+        />
+      )}
 
       {/* Search */}
       <div>
@@ -169,6 +194,105 @@ export default function KnowledgeBasePage() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function CreateArticleModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('');
+  const [language, setLanguage] = useState('en');
+  const [body, setBody] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      setError('File is too large (max ~1 MB of text).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setBody(String(reader.result ?? ''));
+      if (!title) setTitle(file.name.replace(/\.[^.]+$/, ''));
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleSave() {
+    if (title.trim().length < 2 || body.trim().length < 10) {
+      setError('Add a title and at least a sentence of content.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await createKbArticle({ title, body, category, language });
+      onCreated();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not save the article.';
+      setError(msg);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 overflow-y-auto py-12 px-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">Add Knowledge Base article</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none" aria-label="Close">&times;</button>
+        </div>
+        <p className="text-xs text-slate-500">Type the content or upload a .txt file. Published articles are also what the AI voice agent looks up to answer customer questions.</p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-slate-500 mb-1">Title</label>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. PM Surya Ghar subsidy"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Category</label>
+            <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. subsidy / pricing / faq"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Language</label>
+            <select value={language} onChange={(e) => setLanguage(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <option value="en">English</option>
+              <option value="ta">Tamil</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-slate-500">Content</label>
+            <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+              <Upload size={12} /> Upload .txt
+            </button>
+            <input ref={fileRef} type="file" accept=".txt,.md,text/plain" onChange={handleFile} className="hidden" />
+          </div>
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={9}
+            placeholder="The facts for this article — e.g. 'Residential rooftop solar gets up to ₹78,000 central subsidy under PM Surya Ghar, credited to the bank account.'"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          <p className="text-[11px] text-slate-400 mt-1">{body.length} characters</p>
+        </div>
+
+        {error && <p className="text-xs text-danger">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium rounded-lg text-slate-600 hover:bg-slate-100">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-white disabled:opacity-50 hover:opacity-90">
+            {saving && <Loader2 size={14} className="animate-spin" />} Publish article
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

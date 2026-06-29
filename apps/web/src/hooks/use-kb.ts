@@ -14,10 +14,33 @@ export interface KbArticle {
   createdAt: string;
 }
 
+// Create a KB article. Auto-derives a unique slug (titles may be Tamil/non-ASCII) and
+// publishes immediately so the article is live AND searchable by the voice agent's RAG
+// (which only returns rows where published_at IS NOT NULL).
+export async function createKbArticle(input: {
+  title: string;
+  body: string;
+  category: string;
+  language?: string;
+}): Promise<KbArticle> {
+  const base = input.title.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').slice(0, 50);
+  const slug = `${base || 'kb'}-${Date.now().toString(36)}`;
+  const res = await api.post<{ data: KbArticle }>('/kb', {
+    slug,
+    title: input.title.trim(),
+    body: input.body.trim(),
+    category: input.category.trim() || 'general',
+    ...(input.language ? { language: input.language } : {}),
+    publishedAt: new Date().toISOString(),
+  });
+  return res.data.data;
+}
+
 export function useKbArticles(filters?: { q?: string; category?: string }) {
   const [articles, setArticles] = useState<KbArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadCount, setReloadCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,9 +68,9 @@ export function useKbArticles(filters?: { q?: string; category?: string }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(filters)]);
+  }, [JSON.stringify(filters), reloadCount]);
 
-  return { articles, loading, error };
+  return { articles, loading, error, reload: () => setReloadCount((c) => c + 1) };
 }
 
 export function useKbArticle(slug: string | null) {

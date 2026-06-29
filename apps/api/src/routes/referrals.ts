@@ -22,10 +22,16 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
+    // Defense-in-depth: scope to caller's tenant for non-ADMIN (mirrors the RLS
+    // admin_bypass / tenant_isolation policies, which are inert while the app
+    // connects as a postgres superuser).
+    const tenantFilter: { tenantId?: string } =
+      req.auth.role !== 'ADMIN' ? { tenantId: req.auth.tenantId } : {};
+
     const [byStatus, rewardSum] = await req.withTenant(async (tx) =>
       Promise.all([
-        tx.referral.groupBy({ by: ['status'], _count: true }),
-        tx.referral.aggregate({ where: { status: 'REWARDED' }, _sum: { rewardInr: true } }),
+        tx.referral.groupBy({ by: ['status'], where: { ...tenantFilter }, _count: true }),
+        tx.referral.aggregate({ where: { status: 'REWARDED', ...tenantFilter }, _sum: { rewardInr: true } }),
       ]),
     );
 
@@ -47,11 +53,14 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
+    const tenantFilter: { tenantId?: string } =
+      req.auth.role !== 'ADMIN' ? { tenantId: req.auth.tenantId } : {};
+
     const referrals = await req.withTenant(async (tx) =>
       tx.referral.groupBy({
         by: ['referrerId'],
         _count: { _all: true },
-        where: { status: { in: ['CONVERTED', 'REWARDED'] } },
+        where: { status: { in: ['CONVERTED', 'REWARDED'] }, ...tenantFilter },
         orderBy: { _count: { referrerId: 'desc' } },
         take: 50,
       }),
@@ -64,7 +73,7 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
     const referrerIds = referrals.map((r) => r.referrerId);
     const leads = await req.withTenant((tx) =>
       tx.lead.findMany({
-        where: { id: { in: referrerIds } },
+        where: { id: { in: referrerIds }, ...tenantFilter },
         select: { id: true, name: true, phone: true, city: true },
       }),
     );
@@ -97,10 +106,12 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const query = req.query as { status?: string };
+    const tenantFilter: { tenantId?: string } =
+      req.auth.role !== 'ADMIN' ? { tenantId: req.auth.tenantId } : {};
 
     const enriched = await req.withTenant(async (tx) => {
       const referrals = await tx.referral.findMany({
-        where: { ...(query.status && { status: query.status as never }) },
+        where: { ...tenantFilter, ...(query.status && { status: query.status as never }) },
         orderBy: { createdAt: 'desc' },
         include: { referredLead: { select: { name: true, phone: true, stage: true } } },
       });
@@ -109,7 +120,7 @@ export const referralsRoutes: FastifyPluginAsync = async (app) => {
       const referrerIds = [...new Set(referrals.map((r) => r.referrerId))];
       const referrerLeads = referrerIds.length > 0
         ? await tx.lead.findMany({
-            where: { id: { in: referrerIds } },
+            where: { id: { in: referrerIds }, ...tenantFilter },
             select: { id: true, name: true, phone: true },
           })
         : [];

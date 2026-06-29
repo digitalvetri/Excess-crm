@@ -18,12 +18,16 @@ export const reviewsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
     }
 
+    // Defense-in-depth: scope to caller's tenant for non-ADMIN (mirrors RLS).
+    const tenantFilter: { tenantId?: string } =
+      req.auth.role !== 'ADMIN' ? { tenantId: req.auth.tenantId } : {};
+
     const { avgRating, totalCount, distribution, nps } = await req.withTenant(async (tx) => {
       const [aggregate, grouped, npsRows] = await Promise.all([
-        tx.review.aggregate({ _avg: { rating: true }, _count: { id: true } }),
-        tx.review.groupBy({ by: ['rating'], _count: { id: true }, orderBy: { rating: 'asc' } }),
+        tx.review.aggregate({ where: { ...tenantFilter }, _avg: { rating: true }, _count: { id: true } }),
+        tx.review.groupBy({ by: ['rating'], where: { ...tenantFilter }, _count: { id: true }, orderBy: { rating: 'asc' } }),
         tx.review.findMany({
-          where: { npsScore: { not: null } },
+          where: { npsScore: { not: null }, ...tenantFilter },
           select: { npsScore: true },
         }),
       ]);
@@ -54,10 +58,13 @@ export const reviewsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const query = req.query as { leadId?: string; rating?: string };
+    const tenantFilter: { tenantId?: string } =
+      req.auth.role !== 'ADMIN' ? { tenantId: req.auth.tenantId } : {};
 
     const reviews = await req.withTenant(async (tx) =>
       tx.review.findMany({
         where: {
+          ...tenantFilter,
           ...(query.leadId && { leadId: query.leadId }),
           ...(query.rating && { rating: Number(query.rating) }),
         },

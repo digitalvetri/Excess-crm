@@ -373,15 +373,19 @@ export const amcContractsRoutes: FastifyPluginAsync = async (app) => {
     const ninetyDaysOut = new Date(now.getTime() + 90  * 86400000);
     const yearStart     = new Date(now.getFullYear(), 0, 1);
 
+    // Defense-in-depth: scope to caller's tenant for non-ADMIN (mirrors RLS).
+    const tenantFilter: { tenantId?: string } =
+      req.auth.role !== 'ADMIN' ? { tenantId: req.auth.tenantId } : {};
+
     const [activeContracts, expiringIn30, expiringIn60, expiringIn90, expiredCount, renewedThisYear] =
       await req.withTenant((tx) =>
         Promise.all([
-          tx.amcContract.findMany({ where: { status: 'ACTIVE' }, select: { valueInr: true } }),
-          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: thirtyDaysOut, gte: now } } }),
-          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: sixtyDaysOut,  gte: now } } }),
-          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: ninetyDaysOut, gte: now } } }),
-          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lt: now } } }),
-          tx.amcContract.findMany({ where: { status: 'RENEWED', updatedAt: { gte: yearStart } }, select: { valueInr: true } }),
+          tx.amcContract.findMany({ where: { status: 'ACTIVE', ...tenantFilter }, select: { valueInr: true } }),
+          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: thirtyDaysOut, gte: now }, ...tenantFilter } }),
+          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: sixtyDaysOut,  gte: now }, ...tenantFilter } }),
+          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lte: ninetyDaysOut, gte: now }, ...tenantFilter } }),
+          tx.amcContract.count({ where: { status: 'ACTIVE', endDate: { lt: now }, ...tenantFilter } }),
+          tx.amcContract.findMany({ where: { status: 'RENEWED', updatedAt: { gte: yearStart }, ...tenantFilter }, select: { valueInr: true } }),
         ]),
       );
 

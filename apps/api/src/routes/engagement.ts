@@ -12,20 +12,25 @@ export const engagementRoutes: FastifyPluginAsync = async (app) => {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
+    // Defense-in-depth: scope to caller's tenant for non-ADMIN (mirrors RLS).
+    const tenantFilter: { tenantId?: string } =
+      req.auth.role !== 'ADMIN' ? { tenantId: req.auth.tenantId } : {};
+
     const [reviewAgg, referralCount, walletData, topAgentName, topAgentCount] = await req.withTenant(async (tx) => {
       const [reviewAgg, referralCount, walletData, topAgentData] = await Promise.all([
         tx.review.aggregate({
+          where: { ...tenantFilter },
           _avg: { rating: true },
           _count: { id: true },
         }),
-        tx.referral.count({ where: { createdAt: { gte: monthStart } } }),
+        tx.referral.count({ where: { createdAt: { gte: monthStart }, ...tenantFilter } }),
         tx.wallet.findFirst({
           where: { tenantId: req.auth.tenantId },
           select: { balanceInr: true },
         }),
         tx.lead.groupBy({
           by: ['ownerUserId'],
-          where: { stage: 'CONVERTED', stageChangedAt: { gte: monthStart }, ownerUserId: { not: null } },
+          where: { stage: 'CONVERTED', stageChangedAt: { gte: monthStart }, ownerUserId: { not: null }, ...tenantFilter },
           _count: { id: true },
           orderBy: { _count: { id: 'desc' } },
           take: 1,

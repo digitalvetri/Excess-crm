@@ -7,27 +7,25 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Helper macro: for each business table, run:
---   ENABLE RLS, FORCE RLS, admin bypass, tenant isolation
-
+-- Schema-driven: enable RLS on EVERY base table in `public` that carries a
+-- `tenant_id` column, so new tenant-scoped tables are covered automatically
+-- and none are forgotten. Pre-auth tables (looked up before a tenant context
+-- exists) are excluded — `users` (login by email), `sessions`, `audit_log`.
+-- NOTE: kept in sync with packages/db/src/ensure-rls.ts (applied at API boot).
 DO $body$
 DECLARE
   t text;
-  tables text[] := ARRAY[
-    'leads', 'lead_activities', 'lead_sources',
-    'calls', 'voice_agent_configs', 'voice_agent_settings',
-    'appointments', 'quotations',
-    'commissions', 'payouts',
-    'tickets', 'wa_sessions',
-    'teams', 'routing_rules',
-    'coach_cache',
-    'stage_gates', 'sla_rules', 'csv_imports',
-    'projects', 'broadcasts', 'broadcast_recipients',
-    'sequences', 'sequence_enrollments', 'service_tickets',
-    'saved_reports'
-  ];
 BEGIN
-  FOREACH t IN ARRAY tables LOOP
+  FOR t IN
+    SELECT c.table_name
+    FROM information_schema.columns c
+    JOIN information_schema.tables tb
+      ON tb.table_schema = c.table_schema AND tb.table_name = c.table_name
+    WHERE c.table_schema = 'public'
+      AND c.column_name = 'tenant_id'
+      AND tb.table_type = 'BASE TABLE'
+      AND c.table_name NOT IN ('users', 'sessions', 'audit_log')
+  LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
 

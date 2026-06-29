@@ -106,6 +106,10 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { id } = req.params as { id: string };
+    // Non-ADMIN callers may only read their own tenant; ADMIN (HQ) may read any.
+    if (req.auth.role !== 'ADMIN' && id !== req.auth.tenantId) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
     const franchise = await req.withTenant(async (tx) =>
       tx.tenant.findUnique({
         where: { id, type: 'FRANCHISE' },
@@ -350,6 +354,10 @@ export const franchiseRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const { id } = req.params as { id: string };
+    // Non-ADMIN callers may only read agents of their own tenant; ADMIN may read any.
+    if (req.auth.role !== 'ADMIN' && id !== req.auth.tenantId) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Forbidden' } });
+    }
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);

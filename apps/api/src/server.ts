@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet';
 import * as Sentry from '@sentry/node';
 import { fileURLToPath } from 'url';
 import { env } from '@excess/config';
+import { ensureRls, prisma } from '@excess/db';
 import { requestIdPlugin } from './plugins/request-id.js';
 import { authPlugin } from './plugins/auth.js';
 import { tenantContextPlugin } from './plugins/tenant-context.js';
@@ -152,6 +153,14 @@ export async function buildServer() {
 
 async function main() {
   const app = await buildServer();
+  // Apply Row-Level Security policies to the running DB at boot. Safe + idempotent;
+  // never crashes the API (see ensureRls). Schema ships via `prisma db push`, which
+  // does not apply RLS, so this is the only thing that enables it in production.
+  try {
+    await ensureRls(prisma, app.log);
+  } catch (err) {
+    app.log.error({ err }, 'rls.ensure_unexpected_error');
+  }
   try {
     await app.listen({ port: env.PORT, host: '0.0.0.0' });
   } catch (err) {

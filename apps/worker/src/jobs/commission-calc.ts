@@ -1,53 +1,46 @@
 import type { Job } from 'bullmq';
-import { prisma, withSystemContext } from '@excess/db';
-import { computeCommission } from '@excess/shared';
+import { prisma, withSystemContext, createFranchiseCommission, Prisma } from '@excess/db';
 
 export interface CommissionCalcPayload {
   leadId: string;
   tenantId: string;
-  dealValueInr: number;
-  /** Installed system size in kW. When present, commission = systemKw × per-kW rate. */
-  systemKw?: number;
 }
 
 export async function processCommissionCalc(job: Job<CommissionCalcPayload>): Promise<void> {
-  const { leadId, tenantId, dealValueInr, systemKw } = job.data;
+  const { leadId, tenantId } = job.data;
 
-  // tenants table has no RLS — direct query is fine
-  const tenant = await prisma.tenant.findUnique({
-    where: { id: tenantId },
-    select: { commissionSlabs: true, type: true },
-  });
+  try {
+    const result = await withSystemContext(prisma, tenantId, async (tx) => {
+      // Derive the real commission inputs from the lead's accepted quotation — the
+      // same systemKw/deal value a human would see on the convert screen. Never a
+      // hardcoded deal value (the old bug). No accepted quotation ⇒ no_value ⇒ skip.
+      const quotation = await tx.quotation.findFirst({
+        where: { leadId, status: 'ACCEPTED' },
+        orderBy: { createdAt: 'desc' },
+        select: { systemKw: true, totalInr: true },
+      });
 
-  if (!tenant || tenant.type !== 'FRANCHISE') {
-    await job.log(`Tenant ${tenantId} is not a franchise — skipping commission calc`);
-    return;
-  }
-
-  const slabs = (tenant.commissionSlabs ?? {}) as Record<string, number>;
-  const { commissionInr, ratePercent, gstInr, netPayableInr } = computeCommission(slabs, dealValueInr, systemKw ? { systemKw } : {});
-
-  // commissions table has RLS
-  await withSystemContext(prisma, tenantId, async (tx) => {
-    const existing = await tx.commission.findFirst({ where: { leadId, tenantId } });
-    if (existing) {
-      await job.log(`Commission already exists for lead ${leadId} — skipping`);
-      return;
-    }
-
-    await tx.commission.create({
-      data: {
+      return createFranchiseCommission(tx, {
         tenantId,
         leadId,
-        dealValueInr,
-        ratePercent,
-        commissionInr,
-        gstInr,
-        netPayableInr,
-        status: 'PENDING_APPROVAL',
-      },
+        ...(quotation
+          ? { systemKw: quotation.systemKw.toNumber(), dealValueInr: quotation.totalInr.toNumber() }
+          : {}),
+      });
     });
 
-    await job.log(`Commission created: leadId=${leadId} rate=${ratePercent}% net=₹${netPayableInr}`);
-  });
+    if (result.created) {
+      await job.log(`Commission created: leadId=${leadId} net=₹${result.netPayableInr}`);
+    } else {
+      await job.log(`Commission not created for lead ${leadId}: ${result.reason}`);
+    }
+  } catch (err) {
+    // Race against a concurrent create (e.g. the synchronous conversion handler) —
+    // the @@unique([tenantId, leadId]) index makes this idempotent.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      await job.log(`Commission already exists for lead ${leadId} (duplicate) — skipping`);
+      return;
+    }
+    throw err;
+  }
 }

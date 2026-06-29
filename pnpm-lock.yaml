@@ -300,6 +300,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@excess/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@excess/voice-agent':
         specifier: workspace:*
         version: link:../voice-agent

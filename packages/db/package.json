@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
+    "@excess/shared": "workspace:*",
     "@excess/voice-agent": "workspace:*"
   },
   "devDependencies": {

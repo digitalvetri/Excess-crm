@@ -1,12 +1,12 @@
 import { createHmac } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import type { LeadSourceType, LeadStage, ActivityType } from '@excess/db';
-import { can, scoreLead, scoreLabel, computeCommission } from '@excess/shared';
+import { can, scoreLead, scoreLabel } from '@excess/shared';
 import { fireWebhooks } from '../lib/fire-webhook.js';
 import { encodeCursor, decodeCursor, keysetOrderBy, keysetCondition } from '../lib/keyset.js';
 import { fireGoogleAdsConversion } from '../lib/google-ads-conversion.js';
 import { notifyUser } from '../lib/notify-user.js';
-import { prisma, withSystemContext } from '@excess/db';
+import { prisma, withSystemContext, createFranchiseCommission, Prisma } from '@excess/db';
 import { enrollLeadInSequences } from '../lib/sequences.js';
 import { llmComplete } from '../lib/llm.js';
 import { AI_SYSTEM_PROMPTS, AI_PROMPT_VERSION } from '../lib/ai-prompts.js';
@@ -526,44 +526,29 @@ export const leadsRoutes: FastifyPluginAsync = async (app) => {
       | undefined;
     if (stage === 'CONVERTED') {
       try {
-        commissionOutcome = await req.withTenant(async (tx) => {
-          const tenant = await tx.tenant.findUnique({
-            where: { id: req.auth.tenantId },
-            select: { type: true, commissionSlabs: true },
-          });
-          if (!tenant || tenant.type !== 'FRANCHISE') {
-            return { created: false as const, reason: 'not_franchise' as const }; // commissions are franchise-only
-          }
-
-          const existing = await tx.commission.findFirst({ where: { leadId: id, tenantId: req.auth.tenantId } });
-          if (existing) return { created: false as const, reason: 'already_exists' as const }; // idempotent
-
-          if (systemKw === undefined && dealValueInr === undefined) {
-            return { created: false as const, reason: 'no_value' as const };
-          }
-
-          const slabs = (tenant.commissionSlabs ?? {}) as Record<string, number>;
-          const c = computeCommission(slabs, dealValueInr ?? 0, systemKw ? { systemKw } : {});
-
-          const created = await tx.commission.create({
-            data: {
-              tenantId:      req.auth.tenantId,
-              leadId:        id,
-              dealValueInr:  dealValueInr ?? 0,
-              ratePercent:   c.ratePercent,
-              commissionInr: c.commissionInr,
-              gstInr:        c.gstInr,
-              netPayableInr: c.netPayableInr,
-              status:        'PENDING_APPROVAL',
-            },
-            select: { netPayableInr: true },
-          });
-          return { created: true as const, netPayableInr: Number(created.netPayableInr) };
-        });
+        // Shared with the commission-calc worker so the AI and manual paths can never
+        // compute different amounts. P2002 (the @@unique([tenantId, leadId]) race guard)
+        // is caught OUTSIDE withTenant: a constraint violation aborts the Postgres tx, so
+        // it must surface from the wrapper rather than be swallowed inside the callback.
+        const result = await req.withTenant((tx) =>
+          createFranchiseCommission(tx, {
+            tenantId: req.auth.tenantId,
+            leadId: id,
+            ...(dealValueInr !== undefined ? { dealValueInr } : {}),
+            ...(systemKw !== undefined ? { systemKw } : {}),
+          }),
+        );
+        commissionOutcome = result.created
+          ? { created: true, netPayableInr: Number(result.netPayableInr) }
+          : { created: false, reason: result.reason };
         req.log.info({ tenantId: req.auth.tenantId, leadId: id, systemKw, commissionOutcome }, 'commission.outcome');
       } catch (err) {
-        req.log.error({ tenantId: req.auth.tenantId, leadId: id, err }, 'commission.create_failed');
-        commissionOutcome = { created: false, reason: 'error' };
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          commissionOutcome = { created: false, reason: 'already_exists' };
+        } else {
+          req.log.error({ tenantId: req.auth.tenantId, leadId: id, err }, 'commission.create_failed');
+          commissionOutcome = { created: false, reason: 'error' };
+        }
       }
     }
 

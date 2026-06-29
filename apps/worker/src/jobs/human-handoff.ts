@@ -121,10 +121,11 @@ export async function processHumanHandoff(job: Job<HumanHandoffPayload>): Promis
     }
   }
 
+  // commission-calc derives the real systemKw / deal value from the lead's accepted
+  // quotation (₹1,500/kW rule) — no hardcoded deal value here.
   await queues.commissionCalc.add('commission-calc', {
     leadId,
     tenantId,
-    dealValueInr: 300000,
   });
 
   await job.log(`Handoff complete: lead=${leadId} agent=${assignedUserId ?? 'unassigned'} team=${targetTeamId ?? 'none'}`);

@@ -618,6 +618,7 @@ model Commission {
   payout       Payout?          @relation(fields: [payoutId], references: [id])
   agentSplits  CommissionSplit[]
 
+  @@unique([tenantId, leadId])
   @@index([tenantId, status])
   @@map("commissions")
 }

@@ -1,5 +1,7 @@
 export { prisma } from './client.js';
 export { withTenantContext, withSystemContext, SYSTEM_TENANT_ID, SYSTEM_USER_ID } from './with-tenant.js';
+export { createFranchiseCommission } from './commission.js';
+export type { FranchiseCommissionResult, FranchiseCommissionInput } from './commission.js';
 export { applyVoicePromptSeed } from './voice-prompt-seed.js';
 export type { VoicePromptSeedResult } from './voice-prompt-seed.js';
 export { ensureRls } from './ensure-rls.js';

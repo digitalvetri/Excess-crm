@@ -90,6 +90,14 @@ interface WaMessage {
   sticker?: WaMedia;
 }
 
+interface WaStatus {
+  id: string;
+  status: string; // sent | delivered | read | failed
+  timestamp?: string;
+  recipient_id?: string;
+  errors?: { code?: number; title?: string; message?: string; error_data?: { details?: string } }[];
+}
+
 interface WaWebhookBody {
   object: string;
   entry: {
@@ -100,7 +108,7 @@ interface WaWebhookBody {
         metadata: { display_phone_number: string; phone_number_id: string };
         contacts?: { profile: { name: string }; wa_id: string }[];
         messages?: WaMessage[];
-        statuses?: unknown[];
+        statuses?: WaStatus[];
       };
       field: string;
     }[];
@@ -159,6 +167,49 @@ export const whatsappWebhookRoutes: FastifyPluginAsync = async (app) => {
           return cfg['phoneNumberId'] === phoneNumberId;
         });
         if (!source) continue;
+
+        // Delivery receipts: Meta sends these under field 'messages' as a
+        // `statuses[]` array. Match the wamid back to the outbound activity so a
+        // failed send no longer lingers as 'sent'.
+        for (const st of v.statuses ?? []) {
+          if (!st.id) continue;
+          const activity = await withSystemContext(prisma, source.tenantId, (tx) =>
+            tx.leadActivity.findFirst({
+              where: {
+                tenantId: source.tenantId,
+                type: 'WHATSAPP',
+                payload: { path: ['waMessageId'], equals: st.id },
+              },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true, leadId: true, payload: true },
+            }),
+          );
+          if (!activity) continue;
+
+          const current = (activity.payload ?? {}) as Record<string, unknown>;
+          const patch: Record<string, unknown> = { deliveryStatus: st.status };
+          if (st.status === 'failed') {
+            const errText =
+              st.errors?.[0]?.error_data?.details ??
+              st.errors?.[0]?.message ??
+              st.errors?.[0]?.title ??
+              'WhatsApp delivery failed';
+            patch['deliveryError'] = errText.slice(0, 480);
+          }
+          await withSystemContext(prisma, source.tenantId, (tx) =>
+            tx.leadActivity.update({
+              where: { id: activity.id },
+              data: { payload: { ...current, ...patch } as object },
+            }),
+          );
+          void app.redis
+            .publish(`wa_events:${source.tenantId}`, JSON.stringify({ type: 'update', leadId: activity.leadId }))
+            .catch(() => {});
+          req.log.info(
+            { tenantId: source.tenantId, leadId: activity.leadId, waMessageId: st.id, status: st.status },
+            'whatsapp.delivery_status',
+          );
+        }
 
         for (const msg of v.messages ?? []) {
           // Inbound media (image / document / audio / video / sticker): record it so

@@ -18,15 +18,25 @@ export interface BroadcastSendPayload {
 }
 
 async function sendWhatsapp(
+  tenantId: string,
   phone: string,
   templateName: string | null,
   templateParams: Record<string, string>,
   bodyText: string | null,
 ): Promise<void> {
-  const phoneNumberId = process.env['WHATSAPP_PHONE_NUMBER_ID'];
-  const accessToken = process.env['WHATSAPP_ACCESS_TOKEN'];
+  // Prefer per-tenant credentials from DB (same as the inbox/whatsapp-send job);
+  // fall back to env vars so broadcasts use the tenant's own number.
+  const dbConfig = await withSystemContext(prisma, tenantId, (tx) =>
+    tx.whatsappConfig.findUnique({
+      where: { tenantId },
+      select: { phoneNumberId: true, accessToken: true, isConnected: true },
+    }),
+  );
+
+  const phoneNumberId = (dbConfig?.isConnected && dbConfig.phoneNumberId) || process.env['WHATSAPP_PHONE_NUMBER_ID'];
+  const accessToken = (dbConfig?.isConnected && dbConfig.accessToken) || process.env['WHATSAPP_ACCESS_TOKEN'];
   if (!phoneNumberId || !accessToken) {
-    throw new Error('Missing WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN');
+    throw new Error('WhatsApp not connected — set credentials in Settings → WhatsApp or env vars');
   }
 
   const url = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;
@@ -81,7 +91,7 @@ export async function processBroadcastSend(job: Job<BroadcastSendPayload>): Prom
 
   try {
     if (channel === 'WHATSAPP') {
-      await sendWhatsapp(phone, templateName, templateParams, bodyText);
+      await sendWhatsapp(tenantId, phone, templateName, templateParams, bodyText);
     } else {
       throw new Error(`Unsupported broadcast channel: ${channel}`);
     }

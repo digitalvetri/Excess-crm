@@ -13,10 +13,32 @@ export interface WhatsappSendPayload {
   vars: Record<string, string>;
   /** WhatsApp message id (wamid) to reply to, for Meta's quoted-reply context. */
   contextWaId?: string;
+  /** Outbound LeadActivity id whose delivery status this send should update. */
+  activityId?: string;
+}
+
+/** Merge fields into a LeadActivity's JSON payload without clobbering it. */
+async function patchActivityPayload(
+  tenantId: string,
+  activityId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  await withSystemContext(prisma, tenantId, async (tx) => {
+    const activity = await tx.leadActivity.findUnique({
+      where: { id: activityId },
+      select: { payload: true },
+    });
+    if (!activity) return;
+    const current = (activity.payload ?? {}) as Record<string, unknown>;
+    await tx.leadActivity.update({
+      where: { id: activityId },
+      data: { payload: { ...current, ...patch } as object },
+    });
+  });
 }
 
 export async function processWhatsappSend(job: Job<WhatsappSendPayload>): Promise<void> {
-  const { tenantId, leadId, phone, template, vars, contextWaId } = job.data;
+  const { tenantId, leadId, phone, template, vars, contextWaId, activityId } = job.data;
 
   // Prefer per-tenant credentials from DB; fall back to env vars
   const dbConfig = await withSystemContext(prisma, tenantId, (tx) =>
@@ -91,7 +113,17 @@ export async function processWhatsappSend(job: Job<WhatsappSendPayload>): Promis
   }
 
   try {
-    await axios.post(url, body, { headers });
+    const res = await axios.post<{ messages?: { id?: string }[] }>(url, body, { headers });
+    const waMessageId = res.data?.messages?.[0]?.id;
+
+    // Flip the activity to 'sent' and store the wamid FIRST so Meta status
+    // callbacks (sent/delivered/read) can match this message immediately.
+    if (activityId) {
+      await patchActivityPayload(tenantId, activityId, {
+        deliveryStatus: 'sent',
+        ...(waMessageId ? { waMessageId } : {}),
+      });
+    }
 
     const sessionExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h window
     await withSystemContext(prisma, tenantId, (tx) =>
@@ -104,6 +136,13 @@ export async function processWhatsappSend(job: Job<WhatsappSendPayload>): Promis
 
     log.info({ tenantId, leadId, template }, 'whatsapp.sent');
   } catch (err) {
+    const message = err instanceof Error ? err.message : 'WhatsApp send failed';
+    if (activityId) {
+      await patchActivityPayload(tenantId, activityId, {
+        deliveryStatus: 'failed',
+        deliveryError: message.slice(0, 480),
+      }).catch(() => {});
+    }
     log.error({ tenantId, leadId, template, err }, 'whatsapp.send_failed');
     throw err;
   }

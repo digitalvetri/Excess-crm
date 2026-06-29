@@ -470,16 +470,9 @@ ${history || '(no messages yet)'}`;
       return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
     }
 
-    await app.queues.whatsappSend.add('whatsapp-send', {
-      tenantId: req.auth.tenantId,
-      leadId,
-      phone: lead.phone,
-      template: 'DIRECT_MESSAGE',
-      vars: { message },
-      ...(replyTo?.waId ? { contextWaId: replyTo.waId } : {}),
-    });
-
-    await req.withTenant((tx) =>
+    // Create the outbound activity FIRST so the worker can update its delivery
+    // status (sent/failed) once Meta responds. Starts as 'pending'.
+    const activity = await req.withTenant((tx) =>
       tx.leadActivity.create({
         data: {
           leadId,
@@ -490,11 +483,23 @@ ${history || '(no messages yet)'}`;
           payload: {
             message,
             direction: 'outbound',
+            deliveryStatus: 'pending',
             ...(replyTo?.text ? { replyTo: { text: replyTo.text } } : {}),
           } as object,
         },
+        select: { id: true },
       }),
     );
+
+    await app.queues.whatsappSend.add('whatsapp-send', {
+      tenantId: req.auth.tenantId,
+      leadId,
+      phone: lead.phone,
+      template: 'DIRECT_MESSAGE',
+      vars: { message },
+      activityId: activity.id,
+      ...(replyTo?.waId ? { contextWaId: replyTo.waId } : {}),
+    });
 
     // AI acceptance analytics: if an AI draft was generated for this lead recently,
     // a send shortly after counts as "draft used".
@@ -535,15 +540,7 @@ ${history || '(no messages yet)'}`;
       return reply.code(404).send({ error: { code: 'lead.not_found', message: 'Lead not found' } });
     }
 
-    await app.queues.whatsappSend.add('whatsapp-send', {
-      tenantId: req.auth.tenantId,
-      leadId,
-      phone: lead.phone,
-      template: templateName,
-      vars: body.params ?? {},
-    });
-
-    await req.withTenant((tx) =>
+    const activity = await req.withTenant((tx) =>
       tx.leadActivity.create({
         data: {
           leadId,
@@ -551,10 +548,20 @@ ${history || '(no messages yet)'}`;
           actorUserId: req.auth.userId,
           actorIsAi: false,
           type: 'WHATSAPP',
-          payload: { template: templateName, message: body.label ?? `Template: ${templateName}`, direction: 'outbound' } as object,
+          payload: { template: templateName, message: body.label ?? `Template: ${templateName}`, direction: 'outbound', deliveryStatus: 'pending' } as object,
         },
+        select: { id: true },
       }),
     );
+
+    await app.queues.whatsappSend.add('whatsapp-send', {
+      tenantId: req.auth.tenantId,
+      leadId,
+      phone: lead.phone,
+      template: templateName,
+      vars: body.params ?? {},
+      activityId: activity.id,
+    });
 
     publishUpdate(req.auth.tenantId, leadId);
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, template: templateName }, 'whatsapp.template_queued');
@@ -644,15 +651,9 @@ ${history || '(no messages yet)'}`;
       return reply.code(502).send({ error: { code: 'whatsapp.media_upload_failed', message: 'Meta did not return a media id' } });
     }
 
-    // 3. Enqueue the send + record the thread activity (rendered immediately via S3).
-    await app.queues.whatsappSend.add('whatsapp-send', {
-      tenantId: req.auth.tenantId,
-      leadId,
-      phone: lead.phone,
-      template: 'MEDIA',
-      vars: { mediaId, mediaType, caption, filename },
-    });
-    await req.withTenant((tx) =>
+    // 3. Record the thread activity (rendered immediately via S3) FIRST so the
+    // worker can flip its delivery status, then enqueue the send.
+    const activity = await req.withTenant((tx) =>
       tx.leadActivity.create({
         data: {
           leadId,
@@ -663,11 +664,21 @@ ${history || '(no messages yet)'}`;
           payload: {
             message: caption || (mediaType === 'document' ? `📄 ${filename}` : mediaType === 'audio' ? '🎤 Voice note' : '📷 Photo'),
             direction: 'outbound',
+            deliveryStatus: 'pending',
             media: { type: mediaType, s3Key, mime, caption, filename },
           } as object,
         },
+        select: { id: true },
       }),
     );
+    await app.queues.whatsappSend.add('whatsapp-send', {
+      tenantId: req.auth.tenantId,
+      leadId,
+      phone: lead.phone,
+      template: 'MEDIA',
+      vars: { mediaId, mediaType, caption, filename },
+      activityId: activity.id,
+    });
 
     publishUpdate(req.auth.tenantId, leadId);
     req.log.info({ tenantId: req.auth.tenantId, userId: req.auth.userId, leadId, mediaType }, 'whatsapp.media_queued');
